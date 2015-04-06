@@ -1,6 +1,6 @@
 /*
  * synergy -- mouse and keyboard sharing utility
- * Copyright (C) 2014 Bolton Software Ltd.
+ * Copyright (C) 2014 Synergy Si Ltd.
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,6 +29,8 @@
 #include "platform/MSWindowsSession.h"
 #endif
 
+#define JSON_URL "https://synergy-project.org/premium/json/"
+
 enum {
 	kErrorOk,
 	kErrorArgs,
@@ -37,7 +39,7 @@ enum {
 };
 
 UInt32
-CToolApp::run(int argc, char** argv)
+ToolApp::run(int argc, char** argv)
 {
 	if (argc <= 1) {
 		std::cerr << "no args" << std::endl;
@@ -45,7 +47,7 @@ CToolApp::run(int argc, char** argv)
 	}
 
 	try {
-		CArgParser argParser(this);
+		ArgParser argParser(this);
 		bool result = argParser.parseToolArgs(m_args, argc, argv);
 
 		if (!result) {
@@ -54,8 +56,8 @@ CToolApp::run(int argc, char** argv)
 
 		if (m_args.m_printActiveDesktopName) {
 #if SYSAPI_WIN32
-			CMSWindowsSession session;
-			CString name = session.getActiveDesktopName();
+			MSWindowsSession session;
+			String name = session.getActiveDesktopName();
 			if (name.empty()) {
 				LOG((CLOG_CRIT "failed to get active desktop name"));
 				return kExitFailed;
@@ -64,6 +66,21 @@ CToolApp::run(int argc, char** argv)
 				std::cout << "activeDesktop:" << name.c_str() << std::endl;
 			}
 #endif
+		}
+		else if (m_args.m_loginAuthenticate) {
+			loginAuth();
+		}
+		else if (m_args.m_getPluginList) {
+			getPluginList();
+		}
+		else if (m_args.m_getPluginDir) {
+			std::cout << ARCH->getPluginDirectory() << std::endl;
+		}
+		else if (m_args.m_getProfileDir) {
+			std::cout << ARCH->getProfileDirectory() << std::endl;
+		}
+		else if (m_args.m_getArch) {
+			std::cout << ARCH->getPlatformName() << std::endl;
 		}
 		else {
 			throw XSynergy("Nothing to do");
@@ -78,10 +95,51 @@ CToolApp::run(int argc, char** argv)
 		return kExitFailed;
 	}
 
+#if WINAPI_XWINDOWS
+	// HACK: avoid sigsegv on linux
+	m_bye(kErrorOk);
+#endif
+
 	return kErrorOk;
 }
 
 void
-CToolApp::help()
+ToolApp::help()
 {
+}
+
+void
+ToolApp::loginAuth()
+{
+	String credentials;
+	std::cin >> credentials;
+
+	size_t separator = credentials.find(':');
+	String email = credentials.substr(0, separator);
+	String password = credentials.substr(separator + 1, credentials.length());
+
+	std::stringstream ss;
+	ss << JSON_URL << "auth/";
+	ss << "?email=" << ARCH->internet().urlEncode(email);
+	ss << "&password=" << password;
+
+	std::cout << ARCH->internet().get(ss.str()) << std::endl;
+}
+
+void
+ToolApp::getPluginList()
+{
+	String credentials;
+	std::cin >> credentials;
+
+	size_t separator = credentials.find(':');
+	String email = credentials.substr(0, separator);
+	String password = credentials.substr(separator + 1, credentials.length());
+
+	std::stringstream ss;
+	ss <<  JSON_URL << "plugins/";
+	ss << "?email=" << ARCH->internet().urlEncode(email);
+	ss << "&password=" << password;
+
+	std::cout << ARCH->internet().get(ss.str()) << std::endl;
 }

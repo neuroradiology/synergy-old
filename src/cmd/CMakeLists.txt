@@ -1,5 +1,5 @@
 # synergy -- mouse and keyboard sharing utility
-# Copyright (C) 2012 Bolton Software Ltd.
+# Copyright (C) 2012 Synergy Si Ltd.
 # Copyright (C) 2011 Nick Bolton
 # 
 # This package is free software; you can redistribute it and/or
@@ -22,10 +22,4 @@ add_subdirectory(syntool)
 
 if (WIN32)
   add_subdirectory(synergyp)
-endif()
-
-if (APPLE)
-	if (OSX_TARGET_MINOR GREATER 8)
-		add_subdirectory(synmacph)
-	endif()
 endif()

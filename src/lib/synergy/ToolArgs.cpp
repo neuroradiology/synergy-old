@@ -17,7 +17,11 @@
 
 #include "synergy/ToolArgs.h"
 
-CToolArgs::CToolArgs() :
-	m_printActiveDesktopName(false)
+ToolArgs::ToolArgs() :
+	m_printActiveDesktopName(false),
+	m_loginAuthenticate(false),
+	m_getPluginList(false),
+	m_getPluginDir(false),
+	m_getProfileDir(false)
 {
 }

@@ -1,6 +1,6 @@
 /*
  * synergy -- mouse and keyboard sharing utility
- * Copyright (C) 2013 Bolton Software Ltd.
+ * Copyright (C) 2013 Synergy Si Ltd.
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -23,10 +23,10 @@
 #include <Windows.h>
 #include <Tlhelp32.h>
 
-class CMSWindowsSession {
+class MSWindowsSession {
 public:
-	CMSWindowsSession();
-	~CMSWindowsSession();
+	MSWindowsSession();
+	~MSWindowsSession();
 
 	//!
 	/*!
@@ -42,7 +42,7 @@ public:
 
 	void				updateActiveSession();
 
-	CString				getActiveDesktopName();
+	String				getActiveDesktopName();
 
 private:
 	BOOL				nextProcessEntry(HANDLE snapshot, LPPROCESSENTRY32 entry);

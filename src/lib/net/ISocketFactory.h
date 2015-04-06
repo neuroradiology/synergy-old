@@ -1,6 +1,6 @@
 /*
  * synergy -- mouse and keyboard sharing utility
- * Copyright (C) 2012 Bolton Software Ltd.
+ * Copyright (C) 2012 Synergy Si Ltd.
  * Copyright (C) 2002 Chris Schoeneman
  * 
  * This package is free software; you can redistribute it and/or
@@ -34,10 +34,10 @@ public:
 	//@{
 
 	//! Create data socket
-	virtual IDataSocket*	create() const = 0;
+	virtual IDataSocket*	create(bool secure) const = 0;
 
 	//! Create listen socket
-	virtual IListenSocket*	createListen() const = 0;
+	virtual IListenSocket*	createListen(bool secure) const = 0;
 
 	//@}
 };

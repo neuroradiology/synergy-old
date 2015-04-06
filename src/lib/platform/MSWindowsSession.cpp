@@ -1,6 +1,6 @@
 /*
  * synergy -- mouse and keyboard sharing utility
- * Copyright (C) 2013 Bolton Software Ltd.
+ * Copyright (C) 2013 Synergy Si Ltd.
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -23,17 +23,17 @@
 
 #include <Wtsapi32.h>
 
-CMSWindowsSession::CMSWindowsSession() :
+MSWindowsSession::MSWindowsSession() :
 	m_activeSessionId(-1)
 {
 }
 
-CMSWindowsSession::~CMSWindowsSession()
+MSWindowsSession::~MSWindowsSession()
 {
 }
 
 bool
-CMSWindowsSession::isProcessInSession(const char* name, PHANDLE process = NULL)
+MSWindowsSession::isProcessInSession(const char* name, PHANDLE process = NULL)
 {
 	// first we need to take a snapshot of the running processes
 	HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -120,7 +120,7 @@ CMSWindowsSession::isProcessInSession(const char* name, PHANDLE process = NULL)
 }
 
 HANDLE 
-CMSWindowsSession::getUserToken(LPSECURITY_ATTRIBUTES security)
+MSWindowsSession::getUserToken(LPSECURITY_ATTRIBUTES security)
 {
 	HANDLE sourceToken;
 	if (!WTSQueryUserToken(m_activeSessionId, &sourceToken)) {
@@ -142,20 +142,20 @@ CMSWindowsSession::getUserToken(LPSECURITY_ATTRIBUTES security)
 }
 
 BOOL
-CMSWindowsSession::hasChanged()
+MSWindowsSession::hasChanged()
 {
 	return (m_activeSessionId != WTSGetActiveConsoleSessionId());
 }
 
 void
-CMSWindowsSession::updateActiveSession()
+MSWindowsSession::updateActiveSession()
 {
 	m_activeSessionId = WTSGetActiveConsoleSessionId();
 }
 
 
 BOOL
-CMSWindowsSession::nextProcessEntry(HANDLE snapshot, LPPROCESSENTRY32 entry)
+MSWindowsSession::nextProcessEntry(HANDLE snapshot, LPPROCESSENTRY32 entry)
 {
 	BOOL gotEntry = Process32Next(snapshot, entry);
 	if (!gotEntry) {
@@ -172,19 +172,23 @@ CMSWindowsSession::nextProcessEntry(HANDLE snapshot, LPPROCESSENTRY32 entry)
 	return gotEntry;
 }
 
-CString
-CMSWindowsSession::getActiveDesktopName()
+String
+MSWindowsSession::getActiveDesktopName()
 {
-	CString result;
-
-	HDESK hd = OpenInputDesktop(0, TRUE, GENERIC_READ);
-	if (hd != NULL) {
-		DWORD size;
-		GetUserObjectInformation(hd, UOI_NAME, NULL, 0, &size);
-		TCHAR* name = (TCHAR*)alloca(size + sizeof(TCHAR));
-		GetUserObjectInformation(hd, UOI_NAME, name, size, &size);
-		result = name;
-		CloseDesktop(hd);
+	String result;
+	try {
+		HDESK hd = OpenInputDesktop(0, TRUE, GENERIC_READ);
+		if (hd != NULL) {
+			DWORD size;
+			GetUserObjectInformation(hd, UOI_NAME, NULL, 0, &size);
+			TCHAR* name = (TCHAR*)alloca(size + sizeof(TCHAR));
+			GetUserObjectInformation(hd, UOI_NAME, name, size, &size);
+			result = name;
+			CloseDesktop(hd);
+		}
+	}
+	catch (std::exception error) {
+		LOG((CLOG_ERR "failed to get active desktop name: %s", error.what()));
 	}
 
 	return result;

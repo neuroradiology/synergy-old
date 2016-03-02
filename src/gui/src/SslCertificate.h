@@ -1,11 +1,10 @@
 /*
  * synergy -- mouse and keyboard sharing utility
- * Copyright (C) 2012 Synergy Si Ltd.
- * Copyright (C) 2011 Nick Bolton
+ * Copyright (C) 2015 Synergy Si Ltd.
  *
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  *
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -18,20 +17,31 @@
 
 #pragma once
 
-#define TEST_ENV
+#include "CoreInterface.h"
 
-#include "client/Client.h"
+#include <QObject>
 
-#include "test/global/gmock.h"
-
-class IEventQueue;
-
-class MockClient : public Client
+class SslCertificate : public QObject
 {
+Q_OBJECT
+
 public:
-	MockClient() : Client() { }
-	MOCK_METHOD2(mouseMove, void(SInt32, SInt32));
-	MOCK_METHOD1(setOptions, void(const OptionsList&));
-	MOCK_METHOD0(handshakeComplete, void());
-	MOCK_METHOD1(setDecryptIv, void(const UInt8*));
+	explicit SslCertificate(QObject *parent = 0);
+
+public slots:
+	void generateCertificate();
+
+signals:
+	void error(QString e);
+	void info(QString i);
+	void generateFinished();
+
+private:
+	bool runTool(const QStringList& args);
+	void generateFingerprint(const QString& certificateFilename);
+
+private:
+	QString m_ProfileDir;
+	QString m_ToolOutput;
+	CoreInterface m_CoreInterface;
 };

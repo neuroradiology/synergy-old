@@ -5,7 +5,7 @@
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  * 
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -18,6 +18,7 @@
 
 #include "SettingsDialog.h"
 
+#include "PluginManager.h"
 #include "CoreInterface.h"
 #include "SynergyLocale.h"
 #include "QSynergyApplication.h"
@@ -29,6 +30,8 @@
 #include <QMessageBox>
 #include <QFileDialog>
 #include <QDir>
+
+static const char networkSecurity[] = "ns";
 
 SettingsDialog::SettingsDialog(QWidget* parent, AppConfig& config) :
 	QDialog(parent, Qt::WindowTitleHint | Qt::WindowSystemMenuHint),
@@ -47,20 +50,20 @@ SettingsDialog::SettingsDialog(QWidget* parent, AppConfig& config) :
 	m_pCheckBoxLogToFile->setChecked(appConfig().logToFile());
 	m_pLineEditLogFilename->setText(appConfig().logFilename());
 	setIndexFromItemData(m_pComboLanguage, appConfig().language());
+	m_pCheckBoxAutoHide->setChecked(appConfig().getAutoHide());
 
 #if defined(Q_OS_WIN)
 	m_SuppressElevateWarning = true;
 	m_pCheckBoxElevateMode->setChecked(appConfig().elevateMode());
 	m_SuppressElevateWarning = false;
+
+	m_pCheckBoxAutoHide->hide();
 #else
 	// elevate checkbox is only useful on ms windows.
 	m_pCheckBoxElevateMode->hide();
 #endif
 
-	QString pluginDir = m_CoreInterface.getPluginDir();
-	QDir dir(pluginDir);
-	int fileNum = dir.entryInfoList(QDir::NoDotAndDotDot|QDir::AllEntries).count();
-	if (fileNum == 0) {
+	if (!PluginManager::exist(networkSecurity)) {
 		m_pGroupNetworkSecurity->setEnabled(false);
 		m_pCheckBoxEnableCrypto->setChecked(false);
 	}
@@ -79,6 +82,7 @@ void SettingsDialog::accept()
 	appConfig().setLogFilename(m_pLineEditLogFilename->text());
 	appConfig().setLanguage(m_pComboLanguage->itemData(m_pComboLanguage->currentIndex()).toString());
 	appConfig().setElevateMode(m_pCheckBoxElevateMode->isChecked());
+	appConfig().setAutoHide(m_pCheckBoxAutoHide->isChecked());
 	appConfig().saveSettings();
 	QDialog::accept();
 }

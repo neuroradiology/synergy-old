@@ -5,7 +5,7 @@
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  * 
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -253,6 +253,14 @@ TCPSocket::isReady() const
 	return (m_inputBuffer.getSize() > 0);
 }
 
+bool
+TCPSocket::isFatal() const
+{
+	// TCP sockets aren't ever left in a fatal state.
+	LOG((CLOG_ERR "isFatal() not valid for non-secure connections"));
+	return false;
+}
+
 UInt32
 TCPSocket::getSize() const
 {
@@ -461,27 +469,63 @@ TCPSocket::serviceConnected(ISocketMultiplexerJob* job,
 	}
 
 	bool needNewJob = false;
+	
+	static bool s_retry = false;
+	static int s_retrySize = 0;
+	static void* s_staticBuffer = NULL;
 
 	if (write) {
 		try {
 			// write data
-			UInt32 n = m_outputBuffer.getSize();
-			const void* buffer = m_outputBuffer.peek(n);
+			int bufferSize = 0;
+			int bytesWrote = 0;
+			int status = 0;
+
+			if (s_retry) {
+				bufferSize = s_retrySize;
+			}
+			else {
+				bufferSize = m_outputBuffer.getSize();
+				s_staticBuffer = malloc(bufferSize);
+				memcpy(s_staticBuffer, m_outputBuffer.peek(bufferSize), bufferSize);
+ 			}
+
+			if (bufferSize == 0) {
+				return job;
+			}
+
 			if (isSecure()) {
 				if (isSecureReady()) {
-					n = secureWrite(buffer, n);
+					status = secureWrite(s_staticBuffer, bufferSize, bytesWrote);
+					if (status > 0) {
+						s_retry = false;
+						bufferSize = 0;
+						free(s_staticBuffer);
+						s_staticBuffer = NULL;
+					}
+					else if (status < 0) {
+						return NULL;
+					}
+					else if (status == 0) {
+						s_retry = true;
+						s_retrySize = bufferSize;
+						return newJob();
+					}
 				}
 				else {
 					return job;
 				}
 			}
 			else {
-				n = (UInt32)ARCH->writeSocket(m_socket, buffer, n);
+				bytesWrote = (UInt32)ARCH->writeSocket(m_socket, s_staticBuffer, bufferSize);
+				bufferSize = 0;
+				free(s_staticBuffer);
+				s_staticBuffer = NULL;
 			}
 
 			// discard written data
-			if (n > 0) {
-				m_outputBuffer.pop(n);
+			if (bytesWrote > 0) {
+				m_outputBuffer.pop(bytesWrote);
 				if (m_outputBuffer.getSize() == 0) {
 					sendEvent(m_events->forIStream().outputFlushed());
 					m_flushed = true;
@@ -519,36 +563,47 @@ TCPSocket::serviceConnected(ISocketMultiplexerJob* job,
 
 	if (read && m_readable) {
 		try {
-			UInt8 buffer[4096];
-			size_t n = 0;
+			static UInt8 buffer[4096];
+			memset(buffer, 0, sizeof(buffer));
+			int bytesRead = 0;
+			int status = 0;
 
 			if (isSecure()) {
 				if (isSecureReady()) {
-					n = secureRead(buffer, sizeof(buffer));
+					status = secureRead(buffer, sizeof(buffer), bytesRead);
+					if (status < 0) {
+						return NULL;
+					}
+					else if (status == 0) {
+						return newJob();
+					}
 				}
 				else {
 					return job;
 				}
 			}
 			else {
-				n = ARCH->readSocket(m_socket, buffer, sizeof(buffer));
+				bytesRead = (int) ARCH->readSocket(m_socket, buffer, sizeof(buffer));
 			}
 
-			if (n > 0) {
+			if (bytesRead > 0) {
 				bool wasEmpty = (m_inputBuffer.getSize() == 0);
 
 				// slurp up as much as possible
 				do {
-					m_inputBuffer.write(buffer, (UInt32)n);
+					m_inputBuffer.write(buffer, bytesRead);
 
 					if (isSecure() && isSecureReady()) {
-						n = secureRead(buffer, sizeof(buffer));
+						status = secureRead(buffer, sizeof(buffer), bytesRead);
+						if (status < 0) {
+							return NULL;
+						}
 					}
 					else {
-						n = ARCH->readSocket(m_socket, buffer, sizeof(buffer));
+						bytesRead = (int) ARCH->readSocket(m_socket, buffer, sizeof(buffer));
 					}
 
-				} while (n > 0);
+				} while (bytesRead > 0 || status > 0);
 
 				// send input ready if input buffer was empty
 				if (wasEmpty) {

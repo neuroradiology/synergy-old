@@ -4,7 +4,7 @@
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  * 
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -18,6 +18,8 @@
 #include "SetupWizard.h"
 #include "MainWindow.h"
 #include "WebClient.h"
+#include "ActivationNotifier.h"
+#include "SubscriptionManager.h"
 #include "EditionType.h"
 #include "QSynergyApplication.h"
 #include "QUtility.h"
@@ -27,10 +29,11 @@
 SetupWizard::SetupWizard(MainWindow& mainWindow, bool startMain) :
 	m_MainWindow(mainWindow),
 	m_StartMain(startMain),
-	m_Edition(Unknown)
+	m_Edition(Unknown),
+	m_LoginAttemps(0)
 {
 	setupUi(this);
-	m_pPluginPage = new PluginWizardPage(mainWindow.appConfig());
+	m_pPluginPage = new PluginWizardPage(mainWindow);
 	addPage(m_pPluginPage);
 
 #if defined(Q_OS_MAC)
@@ -59,6 +62,9 @@ SetupWizard::SetupWizard(MainWindow& mainWindow, bool startMain) :
 	AppConfig& appConfig = m_MainWindow.appConfig();
 
 	m_pLineEditEmail->setText(appConfig.activateEmail());
+	m_pLineEditSerialKey->setText(appConfig.serialKey());
+
+	m_pLineEditSerialKey->setEnabled(false);
 
 }
 
@@ -83,20 +89,52 @@ bool SetupWizard::validateCurrentPage()
 			}
 			else {
 				WebClient webClient;
-				m_Edition = webClient .getEdition(
+				m_Edition = webClient.getEdition(
 					m_pLineEditEmail->text(),
 					m_pLineEditPassword->text(),
 					message,
 					this);
 
 				if (m_Edition == Unknown) {
+					m_LoginAttemps++;
+					if (m_LoginAttemps == kMaximiumLoginAttemps) {
+						m_LoginAttemps = 0;
+
+						QMessageBox::StandardButton reply =
+							QMessageBox::information(
+							this, tr("Setup Synergy"),
+							tr("Would you like to use your serial key instead?"),
+							QMessageBox::Yes | QMessageBox::No);
+
+						if (reply == QMessageBox::Yes) {
+							m_pRadioButtonSubscription->setChecked(true);
+						}
+					}
+
 					return false;
 				}
 				else {
-					m_pPluginPage->setEmail(m_pLineEditEmail->text());
-					m_pPluginPage->setPassword(m_pLineEditPassword->text());
+					m_pPluginPage->setEdition(m_Edition);
 					return true;
 				}
+			}
+		}
+		else if (m_pRadioButtonSubscription->isChecked()) {
+			if (m_pLineEditSerialKey->text().isEmpty()) {
+				message.setText(tr("Please enter your subscription serial key."));
+				message.exec();
+				return false;
+			}
+			else {
+				// create subscription file in profile directory
+				SubscriptionManager subscriptionManager(this, m_MainWindow.appConfig(), m_Edition);
+				if (!subscriptionManager.activateSerial(m_pLineEditSerialKey->text())) {
+					return false;
+				}
+
+				m_pPluginPage->setEdition(m_Edition);
+
+				return true;
 			}
 		}
 		else {
@@ -162,14 +200,27 @@ void SetupWizard::accept()
 
 	if (m_pRadioButtonActivate->isChecked()) {
 		appConfig.setActivateEmail(m_pLineEditEmail->text());
-		QString mac = getFirstMacAddress();
-		QString hashSrc = m_pLineEditEmail->text() + mac;
-		QString hashResult = hash(hashSrc);
-		appConfig.setUserToken(hashResult);
-		appConfig.setEdition(m_Edition);
-	}
-	m_MainWindow.setEdition(m_Edition);
 
+		notifyActivation("login:" + m_pLineEditEmail->text());
+	}
+
+	if (m_pRadioButtonSubscription->isChecked())
+	{
+		appConfig.setSerialKey(m_pLineEditSerialKey->text());
+
+		notifyActivation("serial:" + m_pLineEditSerialKey->text());
+	}
+
+	if (m_pRadioButtonSkip->isChecked())
+	{
+		notifyActivation("skip:unknown");
+	}
+
+	appConfig.setEdition(m_Edition);
+	m_MainWindow.setEdition(m_Edition);
+	m_MainWindow.updateLocalFingerprint();
+
+	appConfig.saveSettings();
 	settings.sync();
 
 	QWizard::accept();
@@ -191,7 +242,26 @@ void SetupWizard::reject()
 		m_MainWindow.open();
 	}
 
+	// treat cancel as skip
+	CoreInterface coreInterface;
+	coreInterface.notifyActivation("skip:unknown");
+
 	QWizard::reject();
+}
+
+void SetupWizard::notifyActivation(QString identity)
+{
+	ActivationNotifier* notifier = new ActivationNotifier();
+	notifier->setIdentity(identity);
+	QThread* thread = new QThread;
+	connect(notifier, SIGNAL(finished()), thread, SLOT(quit()));
+	connect(notifier, SIGNAL(finished()), notifier, SLOT(deleteLater()));
+	connect(thread, SIGNAL(finished()), thread, SLOT(deleteLater()));
+
+	notifier->moveToThread(thread);
+	thread->start();
+
+	QMetaObject::invokeMethod(notifier, "notify", Qt::QueuedConnection);
 }
 
 void SetupWizard::on_m_pComboLanguage_currentIndexChanged(int index)
@@ -205,6 +275,7 @@ void SetupWizard::on_m_pRadioButtonSkip_toggled(bool checked)
 	if (checked) {
 		m_pLineEditEmail->setEnabled(false);
 		m_pLineEditPassword->setEnabled(false);
+		m_pLineEditSerialKey->setEnabled(false);
 	}
 }
 
@@ -213,5 +284,15 @@ void SetupWizard::on_m_pRadioButtonActivate_toggled(bool checked)
 	if (checked) {
 		m_pLineEditEmail->setEnabled(true);
 		m_pLineEditPassword->setEnabled(true);
+		m_pLineEditSerialKey->setEnabled(false);
+	}
+}
+
+void SetupWizard::on_m_pRadioButtonSubscription_toggled(bool checked)
+{
+	if (checked) {
+		m_pLineEditEmail->setEnabled(false);
+		m_pLineEditPassword->setEnabled(false);
+		m_pLineEditSerialKey->setEnabled(true);
 	}
 }

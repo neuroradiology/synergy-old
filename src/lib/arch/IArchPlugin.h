@@ -5,7 +5,7 @@
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  * 
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -70,7 +70,8 @@ public:
 	*/
 	virtual void*		invoke(const char* plugin,
 							const char* command,
-							void** args) = 0;
+							void** args,
+							void* library = NULL) = 0;
 
 	//@}
 

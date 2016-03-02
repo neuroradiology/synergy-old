@@ -4,7 +4,7 @@
  *
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  *
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -15,18 +15,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef PROCESSORARCH_H
-#define PROCESSORARCH_H
+#pragma once
 
 enum qProcessorArch {
-	Win_x86,
-	Win_x64,
-	Mac_i386,
-	Linux_rpm_i686,
-	Linux_rpm_x86_64,
-	Linux_deb_i686,
-	Linux_deb_x86_64,
-	unknown
+	kProcessorArchWin32,
+	kProcessorArchWin64,
+	kProcessorArchMac32,
+	kProcessorArchMac64,
+	kProcessorArchLinux32,
+	kProcessorArchLinux64,
+	kProcessorArchUnknown
 };
-
-#endif // PROCESSORARCH_H

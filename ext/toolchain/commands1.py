@@ -4,7 +4,7 @@
 # 
 # This package is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
-# found in the file COPYING that should have accompanied this file.
+# found in the file LICENSE that should have accompanied this file.
 # 
 # This package is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,7 +17,7 @@
 # TODO: split this file up, it's too long!
 
 import sys, os, ConfigParser, shutil, re, ftputil, zipfile, glob, commands
-from generators import Generator, EclipseGenerator, XcodeGenerator, MakefilesGenerator
+from generators import VisualStudioGenerator, EclipseGenerator, XcodeGenerator, MakefilesGenerator
 from getopt import gnu_getopt
 
 if sys.version_info >= (2, 4):
@@ -55,14 +55,14 @@ class Toolchain:
 		'reformat'  : ['', []],
 		'open'      : ['', []],
 		'genlist'   : ['', []],
-		'reset'	    : ['', []],
-		'signwin'	: ['', ['pfx=', 'pwd=', 'dist']],
-		'signmac'	: ['', []]
+		'reset'     : ['', []],
+		'signwin'   : ['', ['pfx=', 'pwd=', 'dist']],
+		'signmac'   : ['', []]
 	}
 
 	# aliases to valid commands
 	cmd_alias_dict = {
-		'info'	    : 'about',
+		'info'      : 'about',
 		'help'      : 'usage',
 		'package'   : 'dist',
 		'docs'      : 'doxygen',
@@ -254,12 +254,12 @@ class InternalCommands:
 	gmockDir = 'gmock-1.6.0'
 
 	win32_generators = {
-		1 : Generator('Visual Studio 10'),
-		2 : Generator('Visual Studio 10 Win64'),
-		3 : Generator('Visual Studio 9 2008'),
-		4 : Generator('Visual Studio 9 2008 Win64'),
-		5 : Generator('Visual Studio 8 2005'),
-		6 : Generator('Visual Studio 8 2005 Win64')
+		1 : VisualStudioGenerator('10'),
+		2 : VisualStudioGenerator('10 Win64'),
+		3 : VisualStudioGenerator('9 2008'),
+		4 : VisualStudioGenerator('9 2008 Win64'),
+		5 : VisualStudioGenerator('8 2005'),
+		6 : VisualStudioGenerator('8 2005 Win64')
 	}
 
 	unix_generators = {
@@ -303,6 +303,7 @@ class InternalCommands:
 			'  install     Installs the program\n'
 			'  doxygen     Builds doxygen documentation\n'
 			'  reformat    Reformat .cpp and .h files using AStyle\n'
+			'  genlist     Shows the list of available platform generators\n'
 			'  usage       Shows the help screen\n'
 			'\n'
 			'Example: %s build -g 3'
@@ -318,7 +319,6 @@ class InternalCommands:
 			self.configure(target)
 
 	def checkGTest(self):
-    
 		dir = self.extDir + '/' + self.gtestDir
 		if (os.path.isdir(dir)):
 			return
@@ -334,7 +334,6 @@ class InternalCommands:
 		self.zipExtractAll(zip, dir)
 
 	def checkGMock(self):
-    
 		dir = self.extDir + '/' + self.gmockDir
 		if (os.path.isdir(dir)):
 			return
@@ -509,6 +508,8 @@ class InternalCommands:
 				qmake_cmd_string += " QMAKE_MAC_SDK=" + shortForm
 				qmake_cmd_string += " QMAKE_MAC_SDK." + shortForm + ".path=" + sdkDir
 
+		qmake_cmd_string += " QMAKE_VERSION_STAGE=" + self.getVersionStage() 
+		qmake_cmd_string += " QMAKE_VERSION_REVISION=" + self.getGitRevision() 
 		print "QMake command: " + qmake_cmd_string
 		
 		# run qmake from the gui dir
@@ -523,14 +524,14 @@ class InternalCommands:
 		version = commands.getoutput("qmake --version")
 		result = re.search('(\d+)\.(\d+)\.(\d)', version)
 		
- 		if not result:
+		if not result:
 			raise Exception("Could not get qmake version.")
  
- 		major = int(result.group(1))
- 		minor = int(result.group(2))
- 		rev = int(result.group(3))
- 		
- 		return (major, minor, rev)
+		major = int(result.group(1))
+		minor = int(result.group(2))
+		rev = int(result.group(3))
+		
+		return (major, minor, rev)
 
 	def getMacSdkDir(self):
 		sdkName = "macosx" + self.macSdk
@@ -574,10 +575,10 @@ class InternalCommands:
 			# if return code from cmake is not 0, then either something has
 			# gone terribly wrong with --version, or it genuinely doesn't exist.
 			print ('Could not find `%s` in system path.\n'
-			       'Download the latest version from:\n  %s') % (
+				'Download the latest version from:\n  %s') % (
 				self.cmake_cmd, self.cmake_url)
 			raise Exception('Cannot continue without CMake.')
-		else:	
+		else:  
 			return self.cmake_cmd
 
 	def persist_qt(self):
@@ -716,6 +717,8 @@ class InternalCommands:
 
 				if sys.platform == 'darwin' and not "clean" in args:
 					self.macPostGuiMake(target)
+
+					self.fixQtFrameworksLayout(target)
 			else:
 				raise Exception('Unsupported platform: ' + sys.platform)
 
@@ -738,33 +741,103 @@ class InternalCommands:
 			shutil.copy(targetDir + "/synergys", bundleBinDir)
 			shutil.copy(targetDir + "/syntool", bundleBinDir)
 
+			# Copy all generated plugins to the package
+			bundlePluginDir = bundleBinDir + "plugins"
+			pluginDir = targetDir + "/plugins"
+			print "Copying plugins dirtree: " + pluginDir
+			if os.path.isdir(pluginDir):
+				print "Copying to: " + bundlePluginDir
+				shutil.copytree(pluginDir, bundlePluginDir)
+			else:
+				print "pluginDir doesn't exist, skipping"
+
 		self.loadConfig()
 		if not self.macIdentity:
 			raise Exception("run config with --mac-identity")
 
-		if sys.version_info < (2, 4):
-			raise Exception("Python 2.4 or greater required.")
+		if self.enableMakeGui:
+			# use qt to copy libs to bundle so no dependencies are needed. do not create a
+			# dmg at this point, since we need to sign it first, and then create our own
+			# after signing (so that qt does not affect the signed app bundle).
+			bin = "macdeployqt Synergy.app -verbose=2"
+			self.try_chdir(targetDir)
+			err = os.system(bin)
+			self.restore_chdir()
+			print bundleTargetDir
+			if err != 0:
+				raise Exception(bin + " failed with error: " + str(err))
 
-		(qMajor, qMinor, qRev) = self.getQmakeVersion()
-		if qMajor >= 5:
-			output = commands.getstatusoutput(
-				"macdeployqt %s/Synergy.app -verbose=2 -codesign='%s'" % (
-				targetDir, self.macIdentity))
-		else:
-			# no code signing available in old versions
-			output = commands.getstatusoutput(
-				"macdeployqt %s/Synergy.app -verbose=2" % (
-				targetDir))
-
-		print output[1]
-		if "ERROR" in output[1]:
 			(qMajor, qMinor, qRev) = self.getQmakeVersion()
-			if qMajor >= 5:
-				# only listen to errors in qt 5+
-				raise Exception("macdeployqt failed")
+			if qMajor <= 4:
+				frameworkRootDir = "/Library/Frameworks"
+			else:
+				# TODO: auto-detect, qt can now be installed anywhere.
+				frameworkRootDir = "/Developer/Qt5.2.1/5.2.1/clang_64/lib"
+
+			target = bundleTargetDir + "/Contents/Frameworks"
+
+			# copy the missing Info.plist files for the frameworks.
+			for root, dirs, files in os.walk(target):
+				for dir in dirs:
+					if dir.startswith("Qt"):
+						shutil.copy(
+							frameworkRootDir + "/" + dir + "/Contents/Info.plist",
+							target + "/" + dir + "/Resources/")
+
+	def symlink(self, source, target):
+		if not os.path.exists(target):
+			os.symlink(source, target)
+
+	def move(self, source, target):
+		if os.path.exists(source):
+			shutil.move(source, target)
+
+	def fixQtFrameworksLayout(self, target):
+		# reorganize Qt frameworks layout on Mac 10.9.5 or later
+		# http://goo.gl/BFnQ8l
+		# QtCore example:
+		#   QtCore.framework/
+		#     QtCore    -> Versions/Current/QtCore
+		#     Resources -> Versions/Current/Resources
+		#     Versions/
+		#       Current -> 5
+		#       5/
+		#         QtCore
+		#         Resources/
+		#           Info.plist
+		targetDir = self.getGenerator().getBinDir(target)
+
+		target = targetDir + "/Synergy.app/Contents/Frameworks"
+		(major, minor) = self.getMacVersion()
+		if major == 10:
+			if minor >= 9:
+				for root, dirs, files in os.walk(target):
+					for dir in dirs:
+						if dir.startswith("Qt"):
+							self.try_chdir(target + "/" + dir +"/Versions")
+							self.symlink("5", "Current")
+							self.move("../Resources", "5")
+							self.restore_chdir()
+
+							self.try_chdir(target + "/" + dir)
+							dot = dir.find('.')
+							frameworkName = dir[:dot]
+							self.symlink("Versions/Current/" + frameworkName, frameworkName)
+							self.symlink("Versions/Current/Resources", "Resources")
+							self.restore_chdir()
 
 	def signmac(self):
-		print "signmac is now obsolete"
+		self.loadConfig()
+		if not self.macIdentity:
+			raise Exception("run config with --mac-identity")
+
+		self.try_chdir("bin/Release/")
+		err = os.system(
+			'codesign --deep -fs "' + self.macIdentity + '" Synergy.app')
+		self.restore_chdir()
+
+		if err != 0:
+			raise Exception("codesign failed with error: " + str(err))
 	
 	def signwin(self, pfx, pwdFile, dist):
 		generator = self.getGeneratorFromConfig().cmakeName
@@ -777,7 +850,7 @@ class InternalCommands:
 		pwd = lines[0]
 		
 		if (dist):
-			self.signFile(pfx, pwd, 'bin', self.dist_name('win'))
+			self.signFile(pfx, pwd, 'bin/Release', self.getDistFilename('win'))
 		else:
 			self.signFile(pfx, pwd, 'bin/Release', 'synergy.exe')
 			self.signFile(pfx, pwd, 'bin/Release', 'synergyc.exe')
@@ -886,7 +959,7 @@ class InternalCommands:
 	def getGitRevision(self):
 		if sys.version_info < (2, 4):
 			raise Exception("Python 2.4 or greater required.")
-		
+
 		p = subprocess.Popen(
 			["git", "log", "--pretty=format:%h", "-n", "1"],
 			stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -911,7 +984,13 @@ class InternalCommands:
 		if p.returncode != 0:
 			raise Exception('Could not get branch name, git error: ' + str(p.returncode))
 	
-		return stdout.strip()
+		result = stdout.strip()
+
+		# sometimes, git will prepend "heads/" infront of the branch name,
+		# remove this as it's not useful to us and causes ftp issues.
+		result = re.sub("heads/", "", result)
+
+		return result
 
 	def find_revision_svn(self):
 		if sys.version_info < (2, 4):
@@ -963,7 +1042,7 @@ class InternalCommands:
 			
 		elif type == 'rpm':
 			if sys.platform == 'linux2':
-                                self.distRpm()
+				self.distRpm()
 			else:
 				package_unsupported = True
 			
@@ -999,9 +1078,9 @@ class InternalCommands:
 				("Package type, '%s' is not supported for platform, '%s'") 
 				% (type, sys.platform))
 		
-        def distRpm(self):
-                rpmDir = self.getGenerator().buildDir + '/rpm'
-                if os.path.exists(rpmDir):
+	def distRpm(self):
+		rpmDir = self.getGenerator().buildDir + '/rpm'
+		if os.path.exists(rpmDir):
 			shutil.rmtree(rpmDir)
 		
 		os.makedirs(rpmDir)
@@ -1009,58 +1088,58 @@ class InternalCommands:
 		templateFile = open(self.cmake_dir + '/synergy.spec.in')
 		template = templateFile.read()
 
-		template = template.replace('${in:version}', self.getVersionFromCmake())	
-                
+		template = template.replace('${in:version}', self.getVersionNumber())  
+
 		specPath = rpmDir + '/synergy.spec'
 
 		specFile = open(specPath, 'w')
 		specFile.write(template)
 		specFile.close()
 
-                version = self.getVersionFromCmake()
-                target = '../../bin/synergy-%s-%s.rpm' % (
-                        version, self.getLinuxPlatform())
-                
+		target = '../../bin/synergy-%s-%s.rpm' % (
+			self.getVersionForFilename(), self.getLinuxPlatform())
 
 		try:
 			self.try_chdir(rpmDir)
-                        cmd = 'rpmbuild -bb --define "_topdir `pwd`" synergy.spec'
-                        print "Command: " + cmd
+			cmd = 'rpmbuild -bb --define "_topdir `pwd`" synergy.spec'
+			print "Command: " + cmd
 			err = os.system(cmd)
 			if err != 0:
 				raise Exception('rpmbuild failed: ' + str(err))
 
 			self.unixMove('RPMS/*/*.rpm', target)
 
-                        cmd = 'rpmlint ' + target
-                        print "Command: " + cmd
+			cmd = 'rpmlint ' + target
+			print "Command: " + cmd
 			err = os.system(cmd)
 			if err != 0:
 				raise Exception('rpmlint failed: ' + str(err))
+
 		finally:
 			self.restore_chdir()
 
-        def distDeb(self):
+	def distDeb(self):
 		buildDir = self.getGenerator().buildDir
 		binDir = self.getGenerator().binDir
 		resDir = self.cmake_dir
 
-                version = self.getVersionFromCmake()
-                package = '%s-%s-%s' % (
-                        self.project, version, self.getLinuxPlatform())
+		package = '%s-%s-%s' % (
+			self.project,
+			self.getVersionForFilename(),
+			self.getLinuxPlatform())
 
-                debDir = '%s/deb' % buildDir
-                if os.path.exists(debDir):
+		debDir = '%s/deb' % buildDir
+		if os.path.exists(debDir):
 			shutil.rmtree(debDir)
 
-		metaDir = '%s/%s/DEBIAN' % (debDir, package)		
+		metaDir = '%s/%s/DEBIAN' % (debDir, package)    
 		os.makedirs(metaDir)
 
 		templateFile = open(resDir + '/deb/control.in')
 		template = templateFile.read()
 
 		template = template.replace('${in:version}',
-			self.getVersionFromCmake())
+			self.getVersionNumber())
 
 		template = template.replace('${in:arch}',
 			self.getDebianArch())
@@ -1072,12 +1151,14 @@ class InternalCommands:
 		controlFile.close()
 
 		targetBin = '%s/%s/usr/bin' % (debDir, package)
+		targetPlugin = '%s/%s/usr/lib/synergy/plugins' % (debDir, package)
 		targetShare = '%s/%s/usr/share' % (debDir, package)
 		targetApplications = "%s/applications" % targetShare
 		targetIcons = "%s/icons" % targetShare
 		targetDocs = "%s/doc/%s" % (targetShare, self.project)
 
 		os.makedirs(targetBin)
+		os.makedirs(targetPlugin)
 		os.makedirs(targetApplications)
 		os.makedirs(targetIcons)
 		os.makedirs(targetDocs)
@@ -1091,6 +1172,17 @@ class InternalCommands:
 			shutil.copy("%s/%s" % (binDir, f), targetBin)
 			target = "%s/%s" % (targetBin, f)
 			os.chmod(target, 0o0755)
+			err = os.system("strip " + target)
+			if err != 0:
+				raise Exception('strip failed: ' + str(err))
+
+		pluginDir = "%s/plugins" % binDir
+
+		pluginFiles = [ 'libns.so']
+		for f in pluginFiles:
+			shutil.copy("%s/%s" % (pluginDir, f), targetPlugin)
+			target = "%s/%s" % (targetPlugin, f)
+			os.chmod(target, 0o0644)
 			err = os.system("strip " + target)
 			if err != 0:
 				raise Exception('strip failed: ' + str(err))
@@ -1118,14 +1210,14 @@ class InternalCommands:
 			self.try_chdir(debDir)
 
 			# TODO: consider dpkg-buildpackage (higher level tool)
-                        cmd = 'fakeroot dpkg-deb --build %s' % package
-                        print "Command: " + cmd
+			cmd = 'fakeroot dpkg-deb --build %s' % package
+			print "Command: " + cmd
 			err = os.system(cmd)
 			if err != 0:
 				raise Exception('dpkg-deb failed: ' + str(err))
 
-                        cmd = 'lintian %s.deb' % package
-                        print "Command: " + cmd
+			cmd = 'lintian %s.deb' % package
+			print "Command: " + cmd
 			err = os.system(cmd)
 			if err != 0:
 				raise Exception('lintian failed: ' + str(err))
@@ -1135,8 +1227,11 @@ class InternalCommands:
 			self.restore_chdir()
 
 	def distSrc(self):
-		version = self.getVersionFromCmake()
-		name = (self.project + '-' + version + '-Source')
+		name = '%s-%s-%s' % (
+			self.project,
+			self.getVersionForFilename(),
+			'Source')
+
 		exportPath = self.getGenerator().buildDir + '/' + name
 
 		if os.path.exists(exportPath):
@@ -1189,7 +1284,7 @@ class InternalCommands:
 		
 		fileName = "%s-%s-%s.dmg" % (
 			self.project, 
-			self.getVersionFromCmake(),
+			self.getVersionForFilename(),
 			self.getMacPackageName())
 		
 		cmd = "hdiutil create " + fileName + " -srcfolder ./" + name + "/ -ov"
@@ -1205,7 +1300,7 @@ class InternalCommands:
 		if generator.endswith('Win64'):
 			arch = 'x64'
 		
-		version = self.getVersionFromCmake()
+		version = self.getVersionNumber()
 		args = "/p:DefineConstants=\"Version=%s\"" % version
 		
 		self.run_vcbuild(
@@ -1214,11 +1309,11 @@ class InternalCommands:
 		
 		filename = "%s-%s-Windows-%s.msi" % (
 			self.project, 
-			version,
+			self.getVersionForFilename(),
 			arch)
 			
 		old = "bin/Release/synergy.msi"
-		new = "bin/%s" % (filename)
+		new = "bin/Release/%s" % (filename)
 		
 		try:
 			os.remove(new)
@@ -1244,12 +1339,12 @@ class InternalCommands:
 
 		if generator.endswith('Win64'):
 			arch = 'x64'
-			installDirVar = '$PROGRAMFILES64'			
+			installDirVar = '$PROGRAMFILES64'      
 		
 		templateFile = open(self.cmake_dir + '\Installer.nsi.in')
 		template = templateFile.read()
 
-		template = template.replace('${in:version}', self.getVersionFromCmake())
+		template = template.replace('${in:version}', self.getVersionNumber())
 		template = template.replace('${in:arch}', arch)
 		template = template.replace('${in:vcRedistDir}', vcRedistDir)
 		template = template.replace('${in:qtDir}', qtDir)
@@ -1266,7 +1361,7 @@ class InternalCommands:
 		if err != 0:
 			raise Exception('Package failed: ' + str(err))
 
-	def getVersionFromCmake(self):
+	def getVersionNumber(self):
 		cmakeFile = open('CMakeLists.txt')
 		cmake = cmakeFile.read()
 
@@ -1279,58 +1374,70 @@ class InternalCommands:
 		revRe = re.search('VERSION_REV (\d+)', cmake)
 		rev = revRe.group(1)
 
-		return major + '.' + minor + '.' + rev
+		return "%s.%s.%s" % (major, minor, rev)
+
+	def getVersionStage(self):
+		cmakeFile = open('CMakeLists.txt')
+		cmake = cmakeFile.read()
+
+		stageRe = re.search('VERSION_STAGE (\w+)', cmake)
+		return stageRe.group(1)
+
+	def getVersionForFilename(self):
+		versionStage = self.getVersionStage()
+		gitBranch = self.getGitBranchName()
+		gitRevision = self.getGitRevision()
+		return "%s-%s-%s" % (gitBranch, versionStage, gitRevision)
 
 	def distftp(self, type, ftp):
 		if not type:
-			raise Exception('Type not specified.')
-		
-		if not ftp:
-			raise Exception('FTP info not defined.')
+			raise Exception('Platform type not specified.')
 		
 		self.loadConfig()
-		src = self.dist_name(type)
-		dest = self.dist_name_rev(type)
-		print 'Uploading %s to FTP server %s...' % (dest, ftp.host)
 
 		binDir = self.getGenerator().getBinDir('Release')
-		ftp.run(binDir + '/' + src, dest) 
-		print 'Done'
-	
-	def getDebianArch(self):
-		if os.uname()[4][:3] == 'arm':
-			return 'armhf'
 
-                # os_bits should be loaded with '32bit' or '64bit'
-                import platform
-                (os_bits, other) = platform.architecture()
+		filename = self.getDistFilename(type)
+		packageSource = binDir + '/' + filename
+		packageTarget = filename
+		ftp.upload(packageSource, packageTarget)
+
+		if type != 'src':
+			pluginsDir = binDir + '/plugins'
+			nsPluginSource = self.findLibraryFile(type, pluginsDir, 'ns')
+			if nsPluginSource:
+				nsPluginTarget = self.getLibraryDistFilename(type, pluginsDir, 'ns')
+				ftp.upload(nsPluginSource, nsPluginTarget, "plugins")
+
+	def getLibraryDistFilename(self, type, dir, name):
+		(platform, packageExt, libraryExt) = self.getDistributePlatformInfo(type)
+		firstPart = '%s-%s-%s' % (name, self.getVersionForFilename(), platform)
+
+		filename = '%s.%s' % (firstPart, libraryExt)
+		if type == 'rpm' or type == 'deb':
+			# linux is a bit special, include dist type (deb/rpm in filename)
+			filename = '%s-%s.%s' % (firstPart, packageExt, libraryExt)
+
+		return filename
+
+	def findLibraryFile(self, type, dir, name):
+		if not os.path.exists(dir):
+			return None
+
+		(platform, packageExt, libraryExt) = self.getDistributePlatformInfo(type)
+		ext = libraryExt
+
+		pattern = name + '\.' + ext
+
+		for filename in os.listdir(dir):
+			if re.search(pattern, filename):
+				return dir + '/' + filename
 		
-                # get platform based on current platform
-                if os_bits == '32bit':
-                        return 'i386'
-                elif os_bits == '64bit':
-                        return 'amd64'
-                else:
-                        raise Exception("unknown os bits: " + os_bits)
+		return None
 
-        def getLinuxPlatform(self):
-		if os.uname()[4][:3] == 'arm':
-			return 'Linux-armv6l'
-
-                # os_bits should be loaded with '32bit' or '64bit'
-                import platform
-                (os_bits, other) = platform.architecture()
-		
-                # get platform based on current platform
-                if os_bits == '32bit':
-                        return 'Linux-i686'
-                elif os_bits == '64bit':
-                        return 'Linux-x86_64'
-                else:
-                        raise Exception("unknown os bits: " + os_bits)
-
-	def dist_name(self, type):
+	def getDistributePlatformInfo(self, type):
 		ext = None
+		libraryExt = None
 		platform = None
 		
 		if type == 'src':
@@ -1338,14 +1445,14 @@ class InternalCommands:
 			platform = 'Source'
 			
 		elif type == 'rpm' or type == 'deb':
-		
 			ext = type
-                        platform = self.getLinuxPlatform()
+			libraryExt = 'so'
+			platform = self.getLinuxPlatform()
 			
 		elif type == 'win':
-			
 			# get platform based on last generator used
 			ext = 'msi'
+			libraryExt = 'dll'
 			generator = self.getGeneratorFromConfig().cmakeName
 			if generator.find('Win64') != -1:
 				platform = 'Windows-x64'
@@ -1354,30 +1461,53 @@ class InternalCommands:
 			
 		elif type == 'mac':
 			ext = "dmg"
+			libraryExt = 'dylib'
 			platform = self.getMacPackageName()
 		
 		if not platform:
-			raise Exception('Unable to detect package platform.')
-		
-		pattern = re.escape(self.project + '-') + '\d+\.\d+\.\d+' + re.escape('-' + platform + '.' + ext)
-		
-		target = ''
-		if type == 'mac':
-			target = 'Release'
+			raise Exception('Unable to detect distributable platform.')
 
-		for filename in os.listdir(self.getBinDir(target)):
+		return (platform, ext, libraryExt)
+
+	def getDistFilename(self, type):
+		pattern = self.getVersionForFilename()
+		for filename in os.listdir(self.getBinDir('Release')):
 			if re.search(pattern, filename):
 				return filename
 		
-		# still here? package probably not created yet.
 		raise Exception('Could not find package name with pattern: ' + pattern)
 	
-	def dist_name_rev(self, type):
-		# find the version number (we're puting the rev in after this)
-		pattern = '(\d+\.\d+\.\d+)'
-		replace = "%s-%s" % (
-			self.getGitBranchName(), self.getGitRevision())
-		return re.sub(pattern, replace, self.dist_name(type))
+	def getDebianArch(self):
+		if os.uname()[4][:3] == 'arm':
+			return 'armhf'
+
+		# os_bits should be loaded with '32bit' or '64bit'
+		import platform
+		(os_bits, other) = platform.architecture()
+
+		# get platform based on current platform
+		if os_bits == '32bit':
+			return 'i386'
+		elif os_bits == '64bit':
+			return 'amd64'
+		else:
+			raise Exception("unknown os bits: " + os_bits)
+
+	def getLinuxPlatform(self):
+		if os.uname()[4][:3] == 'arm':
+			return 'Linux-armv6l'
+
+		# os_bits should be loaded with '32bit' or '64bit'
+		import platform
+		(os_bits, other) = platform.architecture()
+
+		# get platform based on current platform
+		if os_bits == '32bit':
+			return 'Linux-i686'
+		elif os_bits == '64bit':
+			return 'Linux-x86_64'
+		else:
+			raise Exception("unknown os bits: " + os_bits)
 
 	def dist_usage(self):
 		print ('Usage: %s package [package-type]\n'
@@ -1441,7 +1571,7 @@ class InternalCommands:
 
 		oldGenerator = self.findGeneratorFromConfig()
 		if not oldGenerator == None:
-			for target in ['debug', 'release']:				
+			for target in ['debug', 'release']:
 				buildDir = oldGenerator.getBuildDir(target)
 
 				cmakeCacheFilename = 'CMakeCache.txt'
@@ -1597,7 +1727,7 @@ class InternalCommands:
 
 		return generators[generator_id]
 
-	def get_vcvarsall(self, generator):	
+	def get_vcvarsall(self, generator):
 		import platform, _winreg
 		
 		# os_bits should be loaded with '32bit' or '64bit'
@@ -1627,7 +1757,7 @@ class InternalCommands:
 		if os_bits == '64bit':
 			path = value + r'vc\vcvarsall.bat'
 		else:
-			path = value + r'vcvarsall.bat'		
+			path = value + r'vcvarsall.bat' 
 		
 		if not os.path.exists(path):
 			raise Exception("'%s' not found." % path)
@@ -1757,7 +1887,7 @@ class InternalCommands:
 		
 		# qt 4.3 generates ui_ files.
 		for filename in glob.glob("src/gui/ui_*"):
-		  os.remove(filename)
+			os.remove(filename)
 
 # the command handler should be called only from hm.py (i.e. directly 
 # from the command prompt). the purpose of this class is so that we 
@@ -1826,7 +1956,7 @@ class CommandHandler:
 		
 		type = None
 		if len(self.args) > 0:
-			type = self.args[0]		
+			type = self.args[0]    
 				
 		self.ic.dist(type, self.vcRedistDir, self.qtDir)
 
@@ -1850,10 +1980,11 @@ class CommandHandler:
 			elif o == '--dir':
 				dir = a
 		
-		ftp = None
-		if host:
-			ftp = ftputil.FtpUploader(
-				host, user, password, dir)
+		if not host:
+			raise Exception('FTP host was not specified.')
+
+		ftp = ftputil.FtpUploader(
+			host, user, password, dir)
 		
 		self.ic.distftp(type, ftp)
 	

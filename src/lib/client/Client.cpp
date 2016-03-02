@@ -5,7 +5,7 @@
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  * 
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -22,12 +22,13 @@
 #include "client/ServerProxy.h"
 #include "synergy/Screen.h"
 #include "synergy/Clipboard.h"
+#include "synergy/FileChunk.h"
 #include "synergy/DropHelper.h"
 #include "synergy/PacketStreamFilter.h"
 #include "synergy/ProtocolUtil.h"
 #include "synergy/protocol_types.h"
 #include "synergy/XSynergy.h"
-#include "synergy/FileChunker.h"
+#include "synergy/StreamChunker.h"
 #include "synergy/IPlatformScreen.h"
 #include "mt/Thread.h"
 #include "net/TCPSocket.h"
@@ -38,18 +39,13 @@
 #include "base/IEventQueue.h"
 #include "base/TMethodEventJob.h"
 #include "base/TMethodJob.h"
+#include "common/PluginVersion.h"
 #include "common/stdexcept.h"
 
 #include <cstring>
 #include <cstdlib>
 #include <sstream>
 #include <fstream>
-
-#if defined _WIN32
-static const char s_networkSecurity[] = { "ns" };
-#else
-static const char s_networkSecurity[] = { "libns" };
-#endif
 
 //
 // Client
@@ -60,8 +56,7 @@ Client::Client(
 		const String& name, const NetworkAddress& address,
 		ISocketFactory* socketFactory,
 		synergy::Screen* screen,
-		bool enableDragDrop,
-		bool enableCrypto) :
+		ClientArgs& args) :
 	m_mock(false),
 	m_name(name),
 	m_serverAddress(address),
@@ -77,9 +72,10 @@ Client::Client(
 	m_events(events),
 	m_sendFileThread(NULL),
 	m_writeToDropDirThread(NULL),
-	m_enableDragDrop(enableDragDrop),
 	m_socket(NULL),
-	m_useSecureNetwork(false)
+	m_useSecureNetwork(false),
+	m_args(args),
+	m_sendClipboardThread(NULL)
 {
 	assert(m_socketFactory != NULL);
 	assert(m_screen        != NULL);
@@ -94,19 +90,19 @@ Client::Client(
 							new TMethodEventJob<Client>(this,
 								&Client::handleResume));
 
-	if (m_enableDragDrop) {
-		m_events->adoptHandler(m_events->forIScreen().fileChunkSending(),
+	if (m_args.m_enableDragDrop) {
+		m_events->adoptHandler(m_events->forFile().fileChunkSending(),
 								this,
 								new TMethodEventJob<Client>(this,
 									&Client::handleFileChunkSending));
-		m_events->adoptHandler(m_events->forIScreen().fileRecieveCompleted(),
+		m_events->adoptHandler(m_events->forFile().fileRecieveCompleted(),
 								this,
 								new TMethodEventJob<Client>(this,
 									&Client::handleFileRecieveCompleted));
 	}
 
-	if (enableCrypto) {
-		m_useSecureNetwork = ARCH->plugin().exists(s_networkSecurity);
+	if (m_args.m_enableCrypto) {
+		m_useSecureNetwork = ARCH->plugin().exists(s_pluginNames[kSecureSocket]);
 		if (m_useSecureNetwork == false) {
 			LOG((CLOG_NOTE "crypto disabled because of ns plugin not available"));
 		}
@@ -256,6 +252,11 @@ Client::enter(SInt32 xAbs, SInt32 yAbs, UInt32, KeyModifierMask mask, bool)
 	m_active = true;
 	m_screen->mouseMove(xAbs, yAbs);
 	m_screen->enter(mask);
+
+	if (m_sendFileThread != NULL) {
+		StreamChunker::interruptFile();
+		m_sendFileThread = NULL;
+	}
 }
 
 bool
@@ -265,11 +266,21 @@ Client::leave()
 
 	m_active = false;
 
-	// send clipboards that we own and that have changed
-	for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
-		if (m_ownClipboard[id]) {
-			sendClipboard(id);
-		}
+	if (m_sendClipboardThread != NULL) {
+		StreamChunker::interruptClipboard();
+		m_sendClipboardThread->wait();
+		m_sendClipboardThread = NULL;
+	}
+
+	m_sendClipboardThread = new Thread(
+								new TMethodJob<Client>(
+									this,
+									&Client::sendClipboardThread,
+									NULL));
+
+	if (!m_receivedFileData.empty()) {
+		m_receivedFileData.clear();
+		LOG((CLOG_DEBUG "file transmission interrupted"));
 	}
 
 	return true;
@@ -423,12 +434,12 @@ Client::sendConnectionFailedEvent(const char* msg)
 void
 Client::sendFileChunk(const void* data)
 {
-	FileChunker::FileChunk* fileChunk = reinterpret_cast<FileChunker::FileChunk*>(const_cast<void*>(data));
-	LOG((CLOG_DEBUG1 "sendFileChunk"));
+	FileChunk* chunk = reinterpret_cast<FileChunk*>(const_cast<void*>(data));
+	LOG((CLOG_DEBUG1 "send file chunk"));
 	assert(m_server != NULL);
 
 	// relay
-	m_server->fileChunkSending(fileChunk->m_chunk[0], &(fileChunk->m_chunk[1]), fileChunk->m_dataSize);
+	m_server->fileChunkSending(chunk->m_chunk[0], &chunk->m_chunk[1], chunk->m_dataSize);
 }
 
 void
@@ -471,6 +482,10 @@ Client::setupConnection()
 							m_stream->getEventTarget(),
 							new TMethodEventJob<Client>(this,
 								&Client::handleDisconnected));
+
+	m_events->adoptHandler(m_events->forISocket().stopRetry(),
+						   m_stream->getEventTarget(),
+						   new TMethodEventJob<Client>(this, &Client::handleStopRetry));
 }
 
 void
@@ -484,7 +499,7 @@ Client::setupScreen()
 							getEventTarget(),
 							new TMethodEventJob<Client>(this,
 								&Client::handleShapeChanged));
-	m_events->adoptHandler(m_events->forIScreen().clipboardGrabbed(),
+	m_events->adoptHandler(m_events->forClipboard().clipboardGrabbed(),
 							getEventTarget(),
 							new TMethodEventJob<Client>(this,
 								&Client::handleClipboardGrabbed));
@@ -526,6 +541,8 @@ Client::cleanupConnection()
 							m_stream->getEventTarget());
 		m_events->removeHandler(m_events->forISocket().disconnected(),
 							m_stream->getEventTarget());
+		m_events->removeHandler(m_events->forISocket().stopRetry(),
+								m_stream->getEventTarget());
 		cleanupStream();
 	}
 }
@@ -540,7 +557,7 @@ Client::cleanupScreen()
 		}
 		m_events->removeHandler(m_events->forIScreen().shapeChanged(),
 							getEventTarget());
-		m_events->removeHandler(m_events->forIScreen().clipboardGrabbed(),
+		m_events->removeHandler(m_events->forClipboard().clipboardGrabbed(),
 							getEventTarget());
 		delete m_server;
 		m_server = NULL;
@@ -567,7 +584,7 @@ Client::cleanupStream()
 	// we need to tell the dynamic lib that allocated this object
 	// to do the deletion.
 	if (m_useSecureNetwork) {
-		ARCH->plugin().invoke(s_networkSecurity, "deleteSocket", NULL);
+		ARCH->plugin().invoke(s_pluginNames[kSecureSocket], "deleteSocket", NULL);
 	}
 }
 
@@ -744,6 +761,24 @@ Client::onFileRecieveCompleted()
 	}
 }
 
+void
+Client::sendClipboardThread(void*)
+{
+	// send clipboards that we own and that have changed
+	for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
+		if (m_ownClipboard[id]) {
+			sendClipboard(id);
+		}
+	}
+
+	m_sendClipboardThread = NULL;
+}
+
+void
+Client::handleStopRetry(const Event&, void*)
+{
+	m_args.m_restartable = false;
+}
 
 void
 Client::writeToDropDirThread(void*)
@@ -759,28 +794,10 @@ Client::writeToDropDirThread(void*)
 }
 
 void
-Client::clearReceivedFileData()
-{
-	m_receivedFileData.clear();
-}
-
-void
-Client::setExpectedFileSize(String data)
-{
-	std::istringstream iss(data);
-	iss >> m_expectedFileSize;
-}
-
-void
-Client::fileChunkReceived(String data)
-{
-	m_receivedFileData += data;
-}
-
-void
 Client::dragInfoReceived(UInt32 fileNum, String data)
 {
-	if (!m_enableDragDrop) {
+	// TODO: fix duplicate function from CServer
+	if (!m_args.m_enableDragDrop) {
 		LOG((CLOG_DEBUG "drag drop not enabled, ignoring drag info."));
 		return;
 	}
@@ -799,6 +816,10 @@ Client::isReceivedFileSizeValid()
 void
 Client::sendFileToServer(const char* filename)
 {
+	if (m_sendFileThread != NULL) {
+		StreamChunker::interruptFile();
+	}
+	
 	m_sendFileThread = new Thread(
 		new TMethodJob<Client>(
 			this, &Client::sendFileThread,
@@ -810,7 +831,7 @@ Client::sendFileThread(void* filename)
 {
 	try {
 		char* name  = reinterpret_cast<char*>(filename);
-		FileChunker::sendFileChunks(name, m_events, this);
+		StreamChunker::sendFile(name, m_events, this);
 	}
 	catch (std::runtime_error error) {
 		LOG((CLOG_ERR "failed sending file chunks: %s", error.what()));

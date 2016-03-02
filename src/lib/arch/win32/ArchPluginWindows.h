@@ -5,7 +5,7 @@
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  * 
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -41,11 +41,13 @@ public:
 	bool				exists(const char* name);
 	void*				invoke(const char* pluginName,
 							const char* functionName,
-							void** args);
+							void** args,
+							void* library = NULL);
 
 private:
 	void				getFilenames(const String& pattern, std::vector<String>& filenames);
 	String				getPluginsDir();
+	String				getCurrentVersion(const String& name, void* handle);
 
 private:
 	PluginTable			m_pluginTable;

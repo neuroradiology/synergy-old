@@ -5,7 +5,7 @@
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  * 
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -19,6 +19,7 @@
 #include "arch/unix/ArchPluginUnix.h"
 
 #include "arch/unix/XArchUnix.h"
+#include "common/PluginVersion.h"
 #include "base/IEventQueue.h"
 #include "base/Event.h"
 #include "base/Log.h"
@@ -71,18 +72,41 @@ ArchPluginUnix::load()
 
 	std::vector<String>::iterator it;
 	for (it = plugins.begin(); it != plugins.end(); ++it) {
-		LOG((CLOG_DEBUG "loading plugin: %s", (*it).c_str()));
-		String path = String(getPluginsDir()).append("/").append(*it);
-		void* library = dlopen(path.c_str(), RTLD_LAZY);
+		String filename = *it;
+		String path = synergy::string::sprintf(
+			"%s/%s", pluginsDir.c_str(), filename.c_str());
+		String name = synergy::string::removeFileExt(filename.substr(3));
 
-		if (library == NULL) {
-			LOG((CLOG_ERR "failed to load plugin: %s", (*it).c_str()));
-			throw XArch(dlerror());
+		LOG((CLOG_DEBUG "loading plugin: %s", filename.c_str()));
+		void* handle = dlopen(path.c_str(), RTLD_LAZY);
+
+		if (handle == NULL) {
+			LOG((CLOG_ERR "failed to load plugin '%s', error: %s",
+				filename.c_str(), dlerror()));
+			continue;
 		}
 
-		String filename = synergy::string::removeFileExt(*it);
-		m_pluginTable.insert(std::make_pair(filename, library));
-		LOG((CLOG_DEBUG "loaded plugin: %s", (*it).c_str()));
+
+		String expectedVersion = getExpectedPluginVersion(name.c_str());
+		String currentVersion =  getCurrentVersion(name, handle);
+
+		if (currentVersion.empty() || (expectedVersion != currentVersion)) {
+			LOG((CLOG_ERR
+				"failed to load plugin '%s', "
+				"expected version %s but was %s",
+				filename.c_str(),
+				expectedVersion.c_str(),
+				currentVersion.empty() ? "unknown" : currentVersion.c_str()));
+
+			dlclose(handle);
+			continue;
+		}
+
+		LOG((CLOG_DEBUG "plugin loaded: %s (version %s)",
+			filename.c_str(),
+			currentVersion.c_str()));
+
+		m_pluginTable.insert(std::make_pair(name, handle));
 	}
 }
 
@@ -149,32 +173,54 @@ void*
 ArchPluginUnix::invoke(
 	const char* plugin,
 	const char* command,
-	void** args)
+	void** args,
+	void* library)
 {
-	PluginTable::iterator it;
-	it = m_pluginTable.find(plugin);
-	if (it != m_pluginTable.end()) {
-		invokeFunc invokePlugin = (invokeFunc)dlsym(it->second, "invoke");
-		void* result = NULL;
-		if (invokePlugin != NULL) {
-			result = invokePlugin(command, args);
+	void* lib = NULL;
+
+	if (library == NULL) {
+		PluginTable::iterator it;
+		it = m_pluginTable.find(plugin);
+		if (it != m_pluginTable.end()) {
+			lib = it->second;
 		}
 		else {
-			LOG((CLOG_DEBUG "no invoke function in %s", it->first.c_str()));
+			LOG((CLOG_DEBUG "invoke command failed, plugin: %s command: %s",
+					plugin, command));
+			return NULL;
 		}
-		return result;
 	}
 	else {
-		LOG((CLOG_DEBUG "invoke command failed, plugin: %s command: %s",
-				plugin, command));
-		return NULL;
+		lib = library;
 	}
+	
+	invokeFunc invokePlugin = (invokeFunc)dlsym(lib, "invoke");
+	void* result = NULL;
+	if (invokePlugin != NULL) {
+		result = invokePlugin(command, args);
+	}
+	else {
+		LOG((CLOG_DEBUG "no invoke function in %s", plugin));
+	}
+
+	return result;
 }
 
 String
 ArchPluginUnix::getPluginsDir()
 {
 	return ARCH->getPluginDirectory();
+}
+
+String
+ArchPluginUnix::getCurrentVersion(const String& name, void* handle)
+{
+	char* version = (char*)invoke(name.c_str(), "version", NULL, handle);
+	if (version == NULL) {
+		return "";
+	}
+
+	return version;
 }
 
 void

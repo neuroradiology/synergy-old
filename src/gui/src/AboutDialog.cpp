@@ -5,7 +5,7 @@
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  * 
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -20,7 +20,6 @@
 
 #include <QtCore>
 #include <QtGui>
-#include <QtNetwork>
 
 AboutDialog::AboutDialog(QWidget* parent, const QString& synergyApp) :
 	QDialog(parent, Qt::WindowTitleHint | Qt::WindowSystemMenuHint),
@@ -29,7 +28,11 @@ AboutDialog::AboutDialog(QWidget* parent, const QString& synergyApp) :
 	setupUi(this);
 
 	m_versionChecker.setApp(synergyApp);
-	m_pLabelSynergyVersion->setText(m_versionChecker.getVersion());
+	QString version = m_versionChecker.getVersion();
+	version = version + '-' + VERSION_STAGE +  '-' + VERSION_REVISION;
+	m_pLabelSynergyVersion->setText(version);
+
+	m_pLabelBuildDate->setText(QDate::currentDate().toString());
 
 	// change default size based on os
 #if defined(Q_OS_MAC)

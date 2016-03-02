@@ -4,7 +4,7 @@
  *
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  *
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -19,7 +19,6 @@
 #define WEBCLIENT_H
 
 #include <QString>
-#include <QStringList>
 #include <QObject>
 
 #include "CoreInterface.h"
@@ -39,24 +38,17 @@ public:
 			QWidget* w);
 	void setEmail(QString& e) { m_Email = e; }
 	void setPassword(QString& p) { m_Password = p; }
-	QStringList& getPluginList() { return m_PluginList; }
-
-public slots:
-	void queryPluginList();
 
 signals:
 	void error(QString e);
-	void queryPluginDone();
 
 private:
 	QString request(const QString& email,
-			const QString& password,
-			QStringList& args);
+			const QString& password);
 
 private:
 	QString m_Email;
 	QString m_Password;
-	QStringList m_PluginList;
 	CoreInterface m_CoreInterface;
 };
 

@@ -5,7 +5,7 @@
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  * 
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -52,6 +52,7 @@ public:
 	virtual void		shutdownInput();
 	virtual void		shutdownOutput();
 	virtual bool		isReady() const;
+	virtual bool		isFatal() const;
 	virtual UInt32		getSize() const;
 
 	// IDataSocket overrides
@@ -59,14 +60,15 @@ public:
 
 	virtual void		secureConnect() {}
 	virtual void		secureAccept() {}
+	virtual void		setFingerprintFilename(String& f) {}
 
 protected:
 	ArchSocket			getSocket() { return m_socket; }
 	IEventQueue*		getEvents() { return m_events; }
 	virtual bool		isSecureReady() { return false; }
 	virtual bool		isSecure() { return false; }
-	virtual UInt32		secureRead(void* buffer, UInt32) { return 0; }
-	virtual UInt32		secureWrite(const void*, UInt32) { return 0; }
+	virtual int			secureRead(void* buffer, int, int& ) { return 0; }
+	virtual int			secureWrite(const void*, int, int& ) { return 0; }
 
 	void				setJob(ISocketMultiplexerJob*);
 	ISocketMultiplexerJob*
@@ -94,6 +96,10 @@ private:
 						serviceConnected(ISocketMultiplexerJob*,
 							bool, bool, bool);
 
+protected:
+	bool				m_readable;
+	bool				m_writable;
+
 private:
 	Mutex				m_mutex;
 	ArchSocket			m_socket;
@@ -101,8 +107,6 @@ private:
 	StreamBuffer		m_outputBuffer;
 	CondVar<bool>		m_flushed;
 	bool				m_connected;
-	bool				m_readable;
-	bool				m_writable;
 	IEventQueue*		m_events;
 	SocketMultiplexer*	m_socketMultiplexer;
 };

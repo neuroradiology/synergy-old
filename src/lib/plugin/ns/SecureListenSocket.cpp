@@ -4,7 +4,7 @@
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  * 
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -23,6 +23,7 @@
 #include "net/TSocketMultiplexerMethodJob.h"
 #include "arch/XArch.h"
 
+static const char s_certificateDir[] = { "SSL" };
 static const char s_certificateFilename[] = { "Synergy.pem" };
 
 //
@@ -54,39 +55,41 @@ SecureListenSocket::accept()
 						m_events,
 						m_socketMultiplexer,
 						ARCH->acceptSocket(m_socket, NULL));
+		socket->initSsl(true);
+
+		if (socket != NULL) {
+			setListeningJob();
+		}
+
+		String certificateFilename = synergy::string::sprintf(
+			"%s/%s/%s",
+			ARCH->getProfileDirectory().c_str(),
+			s_certificateDir,
+			s_certificateFilename);
+
+		bool loaded = socket->loadCertificates(certificateFilename);
+		if (!loaded) {
+			delete socket;
+			return NULL;
+		}
+
+		socket->secureAccept();
 
 		m_secureSocketSet.insert(socket);
 
-		socket->initSsl(true);
-		// TODO: customized certificate path
-		String certificateFilename = ARCH->getProfileDirectory();
-#if SYSAPI_WIN32
-		certificateFilename.append("\\");
-#elif SYSAPI_UNIX
-		certificateFilename.append("/");
-#endif
-		certificateFilename.append(s_certificateFilename);
-
-		socket->loadCertificates(certificateFilename.c_str());
-		socket->secureAccept();
-
-		if (socket != NULL) {
-			m_socketMultiplexer->addSocket(this,
-							new TSocketMultiplexerMethodJob<TCPListenSocket>(
-								this, &TCPListenSocket::serviceListening,
-								m_socket, true, false));
-		}
 		return dynamic_cast<IDataSocket*>(socket);
 	}
 	catch (XArchNetwork&) {
 		if (socket != NULL) {
 			delete socket;
+			setListeningJob();
 		}
 		return NULL;
 	}
 	catch (std::exception &ex) {
 		if (socket != NULL) {
 			delete socket;
+			setListeningJob();
 		}
 		throw ex;
 	}

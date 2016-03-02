@@ -4,7 +4,7 @@
 # 
 # This package is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
-# found in the file COPYING that should have accompanied this file.
+# found in the file LICENSE that should have accompanied this file.
 # 
 # This package is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -19,6 +19,7 @@ if (WIN32)
 endif()
 
 if (APPLE)
+	# 10.7 should be supported, but gives is a _NXArgv linker error
 	if (OSX_TARGET_MINOR GREATER 7)
 		add_subdirectory(ns)
 	endif()

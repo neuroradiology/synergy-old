@@ -5,7 +5,7 @@
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  * 
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -18,6 +18,7 @@
 
 #include "arch/win32/ArchPluginWindows.h"
 #include "arch/win32/XArchWindows.h"
+#include "common/PluginVersion.h"
 #include "base/Log.h"
 #include "base/IEventQueue.h"
 #include "base/Event.h"
@@ -34,6 +35,7 @@ typedef void (*cleanupFunc)();
 
 void* g_eventTarget = NULL;
 IEventQueue* g_events = NULL;
+static const char * kPre174Plugin = "Pre-1.7.v";
 
 ArchPluginWindows::ArchPluginWindows()
 {
@@ -55,20 +57,42 @@ ArchPluginWindows::load()
 
 	std::vector<String>::iterator it;
 	for (it = plugins.begin(); it != plugins.end(); ++it) {
-		LOG((CLOG_DEBUG "loading plugin: %s", (*it).c_str()));
-		String path = String(dir).append("\\").append(*it);
-		HINSTANCE library = LoadLibrary(path.c_str());
+		String filename = *it;
+		String name = synergy::string::removeFileExt(filename);
+		String path = synergy::string::sprintf(
+			"%s\\%s", dir.c_str(), filename.c_str());
+		
+		LOG((CLOG_DEBUG "loading plugin: %s", filename.c_str()));
+		HINSTANCE handle = LoadLibrary(path.c_str());
+		void* voidHandle = reinterpret_cast<void*>(handle);
 
-		if (library == NULL) {
-			LOG((CLOG_ERR "failed to load plugin: %s %d", (*it).c_str(), GetLastError()));
-			throw XArch(new XArchEvalWindows);
+		if (handle == NULL) {
+			String error = XArchEvalWindows().eval();
+			LOG((CLOG_ERR "failed to load plugin '%s', error: %s",
+				filename.c_str(), error.c_str()));
+			continue;
 		}
 
-		void* lib = reinterpret_cast<void*>(library);
-		String filename = synergy::string::removeFileExt(*it);
-		m_pluginTable.insert(std::make_pair(filename, lib));
+		String expectedVersion = getExpectedPluginVersion(name.c_str());
+		String currentVersion =  getCurrentVersion(name.c_str(), voidHandle);
 
-		LOG((CLOG_DEBUG "loaded plugin: %s", (*it).c_str()));
+		if (currentVersion.empty() || (expectedVersion != currentVersion)) {
+			LOG((CLOG_ERR
+				"failed to load plugin '%s', "
+				"expected version %s but was %s",
+				filename.c_str(),
+				expectedVersion.c_str(),
+				currentVersion.empty() ? "unknown" : currentVersion.c_str()));
+
+			FreeLibrary(handle);
+			continue;
+		}
+
+		LOG((CLOG_DEBUG "plugin loaded: %s (version %s)",
+			filename.c_str(),
+			currentVersion.c_str()));
+
+		m_pluginTable.insert(std::make_pair(name, voidHandle));
 	}
 }
 
@@ -142,28 +166,37 @@ void*
 ArchPluginWindows::invoke(
 	const char* plugin,
 	const char* command,
-	void** args)
+	void** args,
+	void* library)
 {
-	PluginTable::iterator it;
-	it = m_pluginTable.find(plugin);
-	if (it != m_pluginTable.end()) {
-		HINSTANCE lib = reinterpret_cast<HINSTANCE>(it->second);
-		invokeFunc invokePlugin = (invokeFunc)GetProcAddress(lib, "invoke");
-		void* result = NULL;
-		if (invokePlugin != NULL) {
-			 result = invokePlugin(command, args);
+	HINSTANCE lib = NULL;
+
+	if (library == NULL) {
+		PluginTable::iterator it;
+		it = m_pluginTable.find(plugin);
+		if (it != m_pluginTable.end()) {
+			lib = reinterpret_cast<HINSTANCE>(it->second);
 		}
 		else {
-			LOG((CLOG_DEBUG "no invoke function in %s", it->first.c_str()));
+			LOG((CLOG_DEBUG "invoke command failed, plugin: %s command: %s",
+					plugin, command));
+			return NULL;
 		}
-
-		return result;
 	}
 	else {
-		LOG((CLOG_DEBUG "invoke command failed, plugin: %s command: %s",
-				plugin, command));
-		return NULL;
+		lib = reinterpret_cast<HINSTANCE>(library);
 	}
+
+	invokeFunc invokePlugin = (invokeFunc)GetProcAddress(lib, "invoke");
+	void* result = NULL;
+	if (invokePlugin != NULL) {
+		result = invokePlugin(command, args);
+	}
+	else {
+		LOG((CLOG_DEBUG "no invoke function in %s", plugin));
+	}
+
+	return result;
 }
 
 void
@@ -184,10 +217,23 @@ ArchPluginWindows::getFilenames(const String& pattern, std::vector<String>& file
 	FindClose(find);
 }
 
-String ArchPluginWindows::getPluginsDir()
+String
+ArchPluginWindows::getPluginsDir()
 {
 	return ARCH->getPluginDirectory();
 }
+
+String
+ArchPluginWindows::getCurrentVersion(const String& name, void* handle)
+{
+	char* version = (char*)invoke(name.c_str(), "version", NULL, handle);
+	if (version == NULL) {
+		return "";
+	}
+
+	return version;
+}
+
 
 void
 sendEvent(const char* eventName, void* data)

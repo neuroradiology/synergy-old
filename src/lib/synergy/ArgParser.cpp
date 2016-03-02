@@ -4,7 +4,7 @@
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  * 
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,12 +17,15 @@
 
 #include "synergy/ArgParser.h"
 
+#include "synergy/StreamChunker.h"
 #include "synergy/App.h"
 #include "synergy/ServerArgs.h"
 #include "synergy/ClientArgs.h"
 #include "synergy/ToolArgs.h"
 #include "synergy/ArgsBase.h"
+#include "synergy/DpiHelper.h"
 #include "base/Log.h"
+#include "base/String.h"
 
 ArgsBase* ArgParser::m_argsBase = NULL;
 
@@ -44,6 +47,9 @@ ArgParser::parseServerArgs(ServerArgs& args, int argc, const char* const* argv)
 		else if (parseGenericArgs(argc, argv, i)) {
 			continue;
 		}
+		else if (parseDeprecatedArgs(argc, argv, i)) {
+			continue;
+		}
 		else if (isArg(i, argc, argv, "-a", "--address", 1)) {
 			// save listen address
 			args.m_synergyAddress = argv[++i];
@@ -51,6 +57,18 @@ ArgParser::parseServerArgs(ServerArgs& args, int argc, const char* const* argv)
 		else if (isArg(i, argc, argv, "-c", "--config", 1)) {
 			// save configuration file path
 			args.m_configFile = argv[++i];
+		}
+		else if (isArg(i, argc, argv, "", "--res-w", 1)) {
+			DpiHelper::s_resolutionWidth = synergy::string::stringToSizeType(argv[++i]);
+		}
+		else if (isArg(i, argc, argv, "", "--res-h", 1)) {
+			DpiHelper::s_resolutionHeight = synergy::string::stringToSizeType(argv[++i]);
+		}
+		else if (isArg(i, argc, argv, "", "--prm-wc", 1)) {
+			DpiHelper::s_primaryWidthCenter = synergy::string::stringToSizeType(argv[++i]);
+		}
+		else if (isArg(i, argc, argv, "", "--prm-hc", 1)) {
+			DpiHelper::s_primaryHeightCenter = synergy::string::stringToSizeType(argv[++i]);
 		}
 		else {
 			LOG((CLOG_PRINT "%s: unrecognized option `%s'" BYE, args.m_pname, argv[i], args.m_pname));
@@ -77,6 +95,9 @@ ArgParser::parseClientArgs(ClientArgs& args, int argc, const char* const* argv)
 			continue;
 		}
 		else if (parseGenericArgs(argc, argv, i)) {
+			continue;
+		}
+		else if (parseDeprecatedArgs(argc, argv, i)) {
 			continue;
 		}
 		else if (isArg(i, argc, argv, NULL, "--camp")) {
@@ -156,7 +177,6 @@ ArgParser::parsePlatformArg(ArgsBase& argsBase, const int& argc, const char* con
 #endif
 }
 
-
 bool
 ArgParser::parseToolArgs(ToolArgs& args, int argc, const char* const* argv)
 {
@@ -173,6 +193,10 @@ ArgParser::parseToolArgs(ToolArgs& args, int argc, const char* const* argv)
 			args.m_getPluginList = true;
 			return true;
 		}
+		else if (isArg(i, argc, argv, NULL, "--get-installed-dir", 0)) {
+			args.m_getInstalledDir = true;
+			return true;
+		}
 		else if (isArg(i, argc, argv, NULL, "--get-plugin-dir", 0)) {
 			args.m_getPluginDir = true;
 			return true;
@@ -183,6 +207,26 @@ ArgParser::parseToolArgs(ToolArgs& args, int argc, const char* const* argv)
 		}
 		else if (isArg(i, argc, argv, NULL, "--get-arch", 0)) {
 			args.m_getArch = true;
+			return true;
+		}
+		else if (isArg(i, argc, argv, NULL, "--subscription-serial", 1)) {
+			args.m_subscriptionSerial = argv[++i];
+			if (args.m_subscriptionSerial.empty()) {
+				LOG((CLOG_CRIT "subscription error: serial was not provided"));
+				return false;
+			}
+			return true;
+		}
+		else if (isArg(i, argc, argv, NULL, "--get-subscription-filename", 0)) {
+			args.m_getSubscriptionFilename = true;
+			return true;
+		}
+		else if (isArg(i, argc, argv, NULL, "--check-subscription", 0)) {
+			args.m_checkSubscription = true;
+			return true;
+		}
+		else if (isArg(i, argc, argv, NULL, "--notify-activation", 0)) {
+			args.m_notifyActivation = true;
 			return true;
 		}
 		else {
@@ -282,6 +326,7 @@ ArgParser::parseGenericArgs(int argc, const char* const* argv, int& i)
 	}
 	else if (isArg(i, argc, argv, NULL, "--enable-crypto")) {
 		argsBase().m_enableCrypto = true;
+		StreamChunker::updateChunkSize(true);
 	}
 	else if (isArg(i, argc, argv, NULL, "--profile-dir", 1)) {
 		argsBase().m_profileDirectory = argv[++i];
@@ -295,6 +340,18 @@ ArgParser::parseGenericArgs(int argc, const char* const* argv, int& i)
 	}
 
 	return true;
+}
+
+bool
+ArgParser::parseDeprecatedArgs(int argc, const char* const* argv, int& i)
+{
+	if (isArg(i, argc, argv, NULL, "--crypto-pass")) {
+		LOG((CLOG_NOTE "--crypto-pass is deprecated"));
+		i++;
+		return true;
+	}
+
+	return false;
 }
 
 bool

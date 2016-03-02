@@ -5,7 +5,7 @@
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  * 
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -23,6 +23,7 @@
 #include "synergy/IClipboard.h"
 #include "synergy/DragInformation.h"
 #include "synergy/INode.h"
+#include "synergy/ClientArgs.h"
 #include "net/NetworkAddress.h"
 #include "base/EventTypes.h"
 
@@ -59,13 +60,8 @@ public:
 							const String& name, const NetworkAddress& address,
 							ISocketFactory* socketFactory,
 							synergy::Screen* screen,
-							bool enableDragDrop,
-							bool enableCrypto);
+							ClientArgs& args);
 	~Client();
-	
-#ifdef TEST_ENV
-	Client() : m_mock(true) { }
-#endif
 
 	//! @name manipulators
 	//@{
@@ -88,15 +84,6 @@ public:
 	Notifies the client that the connection handshake has completed.
 	*/
 	virtual void		handshakeComplete();
-
-	//! Clears the file buffer
-	void				clearReceivedFileData();
-
-	//! Set the expected size of receiving file
-	void				setExpectedFileSize(String data);
-
-	//! Received a chunk of file data
-	void				fileChunkReceived(String data);
 
 	//! Received drag information
 	void				dragInfoReceived(UInt32 fileNum, String data);
@@ -135,7 +122,13 @@ public:
 	bool				isReceivedFileSizeValid();
 
 	//! Return expected file size
-	size_t				getExpectedFileSize() { return m_expectedFileSize; }
+	size_t&				getExpectedFileSize() { return m_expectedFileSize; }
+
+	//! Return received file data
+	String&				getReceivedFileData() { return m_receivedFileData; }
+
+	//! Return drag file list
+	DragFileList		getDragFileList() { return m_dragFileList; }
 
 	//@}
 
@@ -196,7 +189,9 @@ private:
 	void				handleResume(const Event& event, void*);
 	void				handleFileChunkSending(const Event&, void*);
 	void				handleFileRecieveCompleted(const Event&, void*);
+	void				handleStopRetry(const Event&, void*);
 	void				onFileRecieveCompleted();
+	void				sendClipboardThread(void*);
 
 public:
 	bool				m_mock;
@@ -224,7 +219,8 @@ private:
 	String				m_dragFileExt;
 	Thread*				m_sendFileThread;
 	Thread*				m_writeToDropDirThread;
-	bool				m_enableDragDrop;
 	TCPSocket*			m_socket;
 	bool				m_useSecureNetwork;
+	ClientArgs&			m_args;
+	Thread*				m_sendClipboardThread;
 };

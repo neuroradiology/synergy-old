@@ -1,10 +1,10 @@
 /*
  * synergy -- mouse and keyboard sharing utility
- * Copyright (C) 2013 Synergy Si Ltd.
+ * Copyright (C) 2015 Synergy Seamless Inc.
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  * 
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,30 +17,22 @@
 
 #pragma once
 
-#include "base/String.h"
+#include "common/common.h"
 
-class IEventQueue;
-
-class FileChunker {
+class DpiHelper {
 public:
-	//! FileChunk data
-	class FileChunk {
-	public:
-		FileChunk(size_t chunkSize) : m_dataSize(chunkSize - 2)
-		{
-			m_chunk = new char[chunkSize]; 
-		}
-
-		~FileChunk() { delete[] m_chunk; }
-
-	public:
-		const size_t	m_dataSize;
-		char*			m_chunk;
+	enum EDpi {
+		kDefaultDpi = 100
 	};
 
-	static void			sendFileChunks(char* filename, IEventQueue* events, void* eventTarget);
-	static String		intToString(size_t i);
+	static void calculateDpi(size_t width, size_t height);
+	static float getDpi() { return (float)(s_dpi / 100.0f); }
 
-private:
-	static const size_t m_chunkSize;
+public:
+	static size_t s_dpi;
+	static bool s_dpiScaled;
+	static size_t s_resolutionWidth;
+	static size_t s_resolutionHeight;
+	static size_t s_primaryWidthCenter;
+	static size_t s_primaryHeightCenter;
 };

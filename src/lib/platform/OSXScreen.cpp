@@ -5,7 +5,7 @@
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  * 
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -528,6 +528,10 @@ OSXScreen::postMouseEvent(CGPoint& pos) const
     // Dragging events also need the click state
     CGEventSetIntegerValueField(event, kCGMouseEventClickState, m_clickState);
     
+    // Fix for sticky keys
+    CGEventFlags modifiers = m_keyState->getModifierStateAsOSXFlags();
+    CGEventSetFlags(event, modifiers);
+    
 	CGEventPost(kCGHIDEventTap, event);
 	
 	CFRelease(event);
@@ -568,8 +572,8 @@ OSXScreen::fakeMouseButton(ButtonID id, bool press)
     // increase clickState (double click, triple click, etc)
     // This will allow for higher than triple click but the quartz documenation
     // does not specify that this should be limited to triple click
-    if(press) {
-        if((ARCH->time() - m_lastClickTime) <= clickTime && diff <= maxDiff){
+    if (press) {
+        if ((ARCH->time() - m_lastClickTime) <= clickTime && diff <= maxDiff){
             m_clickState++;
         }
         else {
@@ -579,7 +583,7 @@ OSXScreen::fakeMouseButton(ButtonID id, bool press)
         m_lastClickTime = ARCH->time();
     }
     
-    if(m_clickState == 1){
+    if (m_clickState == 1){
         m_lastSingleClickXCursor = m_xCursor;
         m_lastSingleClickYCursor = m_yCursor;
     }
@@ -594,6 +598,10 @@ OSXScreen::fakeMouseButton(ButtonID id, bool press)
     CGEventRef event = CGEventCreateMouseEvent(NULL, type, pos, index);
     
     CGEventSetIntegerValueField(event, kCGMouseEventClickState, m_clickState);
+    
+    // Fix for sticky keys
+    CGEventFlags modifiers = m_keyState->getModifierStateAsOSXFlags();
+    CGEventSetFlags(event, modifiers);
     
     m_buttonState.set(index, state);
     CGEventPost(kCGHIDEventTap, event);
@@ -705,6 +713,10 @@ OSXScreen::fakeMouseWheel(SInt32 xDelta, SInt32 yDelta) const
 			mapScrollWheelFromSynergy(yDelta),
 			-mapScrollWheelFromSynergy(xDelta));
 		
+        // Fix for sticky keys
+        CGEventFlags modifiers = m_keyState->getModifierStateAsOSXFlags();
+        CGEventSetFlags(scrollEvent, modifiers);
+        
 		CGEventPost(kCGHIDEventTap, scrollEvent);
 		CFRelease(scrollEvent);
 #else
@@ -929,7 +941,7 @@ OSXScreen::leave()
 bool
 OSXScreen::setClipboard(ClipboardID, const IClipboard* src)
 {
-	if(src != NULL) {
+	if (src != NULL) {
 		LOG((CLOG_DEBUG "setting clipboard"));
 		Clipboard::copy(&m_pasteboard, src);	
 	}	
@@ -942,8 +954,8 @@ OSXScreen::checkClipboards()
 	LOG((CLOG_DEBUG2 "checking clipboard"));
 	if (m_pasteboard.synchronize()) {
 		LOG((CLOG_DEBUG "clipboard changed"));
-		sendClipboardEvent(m_events->forIScreen().clipboardGrabbed(), kClipboardClipboard);
-		sendClipboardEvent(m_events->forIScreen().clipboardGrabbed(), kClipboardSelection);
+		sendClipboardEvent(m_events->forClipboard().clipboardGrabbed(), kClipboardClipboard);
+		sendClipboardEvent(m_events->forClipboard().clipboardGrabbed(), kClipboardSelection);
 	}
 }
 
@@ -1987,7 +1999,7 @@ OSXScreen::handleCGInputEvent(CGEventTapProxy proxy,
 		case kCGEventTapDisabledByTimeout:
 			// Re-enable our event-tap
 			CGEventTapEnable(screen->m_eventTapPort, true);
-			LOG((CLOG_NOTE "quartz event tap was disabled by timeout, re-enabling"));
+			LOG((CLOG_INFO "quartz event tap was disabled by timeout, re-enabling"));
 			break;
 		case kCGEventTapDisabledByUserInput:
 			LOG((CLOG_ERR "quartz event tap was disabled by user input"));
@@ -2001,10 +2013,10 @@ OSXScreen::handleCGInputEvent(CGEventTapProxy proxy,
 		case NX_NUMPROCS:
 			break;
 		default:
-			LOG((CLOG_NOTE "unknown quartz event type: 0x%02x", type));
+			LOG((CLOG_WARN "unknown quartz event type: 0x%02x", type));
 	}
 	
-	if(screen->m_isOnScreen) {
+	if (screen->m_isOnScreen) {
 		return event;
 	} else {
 		return NULL;
@@ -2130,7 +2142,7 @@ OSXScreen::waitForCarbonLoop() const
 
 	double timeout = ARCH->time() + kCarbonLoopWaitTimeout;
 	while (!m_carbonLoopReady->wait()) {
-		if(ARCH->time() > timeout) {
+		if (ARCH->time() > timeout) {
 			LOG((CLOG_DEBUG "carbon loop not ready, waiting again"));
 			timeout = ARCH->time() + kCarbonLoopWaitTimeout;
 		}

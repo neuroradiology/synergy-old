@@ -4,7 +4,7 @@
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  * 
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -22,6 +22,12 @@ ToolArgs::ToolArgs() :
 	m_loginAuthenticate(false),
 	m_getPluginList(false),
 	m_getPluginDir(false),
-	m_getProfileDir(false)
+	m_getInstalledDir(false),
+	m_getProfileDir(false),
+	m_getArch(false),
+	m_getSubscriptionFilename(false),
+	m_checkSubscription(false),
+	m_notifyActivation(false),
+	m_subscriptionSerial()
 {
 }

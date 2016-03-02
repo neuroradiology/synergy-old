@@ -5,7 +5,7 @@
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  * 
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -141,15 +141,6 @@ public:
 	*/
 	void				disconnect();
 
-	//! Clears the file buffer
-	void				clearReceivedFileData();
-
-	//! Set the expected size of receiving file
-	void				setExpectedFileSize(String data);
-	
-	//! Received a chunk of file data
-	void				fileChunkReceived(String data);
-
 	//! Create a new thread and use it to send file to client
 	void				sendFileToClient(const char* filename);
 
@@ -178,8 +169,14 @@ public:
 	//! Return true if recieved file size is valid
 	bool				isReceivedFileSizeValid();
 
-	//! Return expected file size
-	size_t				getExpectedFileSize() { return m_expectedFileSize; }
+	//! Return expected file data size
+	size_t&				getExpectedFileSize() { return m_expectedFileSize; }
+
+	//! Return received file data
+	String&				getReceivedFileData() { return m_receivedFileData; }
+
+	//! Return fake drag file list
+	DragFileList		getFakeDragFileList() { return m_fakeDragFileList; }
 
 	//@}
 
@@ -364,11 +361,14 @@ private:
 	// thread function for writing file to drop directory
 	void				writeToDropDirThread(void*);
 
-	// thread function for getting drag filename
-	void				getDragInfoThread(void*);
+	// thread function for sending drag information
+	void				sendDragInfoThread(void*);
 
 	// send drag info to new client screen
 	void				sendDragInfo(BaseClientProxy* newScreen);
+
+	// thread funciton for sending clipboard
+	void				sendClipboardThread(void*);
 
 public:
 	bool				m_mock;
@@ -470,14 +470,17 @@ private:
 	size_t				m_expectedFileSize;
 	String				m_receivedFileData;
 	DragFileList		m_dragFileList;
+	DragFileList		m_fakeDragFileList;
 	Thread*				m_sendFileThread;
 	Thread*				m_writeToDropDirThread;
 	String				m_dragFileExt;
 	bool				m_ignoreFileTransfer;
 	bool				m_enableDragDrop;
 
-	Thread*				m_getDragInfoThread;
+	Thread*				m_sendDragInfoThread;
 	bool				m_waitDragInfoThread;
 
 	ClientListener*		m_clientListener;
+
+	Thread*				m_sendClipboardThread;
 };

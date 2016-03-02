@@ -5,7 +5,7 @@
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  * 
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -50,6 +50,12 @@ public:
 	Get the position of the cursor when last jumping from client.
 	*/
 	void				getJumpCursorPos(SInt32& x, SInt32& y) const;
+
+	//! Get cursor position
+	/*!
+	Return if this proxy is for client or primary.
+	*/
+	virtual bool		isPrimary() const { return false; }
 
 	//@}
 

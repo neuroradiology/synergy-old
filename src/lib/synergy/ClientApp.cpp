@@ -5,7 +5,7 @@
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  * 
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -331,7 +331,6 @@ ClientApp::handleClientDisconnected(const Event&, void*)
 	updateStatus();
 }
 
-
 Client*
 ClientApp::openClient(const String& name, const NetworkAddress& address,
 				synergy::Screen* screen)
@@ -342,8 +341,7 @@ ClientApp::openClient(const String& name, const NetworkAddress& address,
 		address,
 		new TCPSocketFactory(m_events, getSocketMultiplexer()),
 		screen,
-		args().m_enableDragDrop,
-		args().m_enableCrypto);
+		args());
 
 	try {
 		m_events->adoptHandler(

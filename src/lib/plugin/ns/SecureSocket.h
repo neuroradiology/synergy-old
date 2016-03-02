@@ -4,7 +4,7 @@
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  * 
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -44,24 +44,30 @@ public:
 	void				secureConnect();
 	void				secureAccept();
 	bool				isReady() const { return m_secureReady; }
+	bool				isFatal() const { return m_fatal; }
+	void				isFatal(bool b) { m_fatal = b; }
 	bool				isSecureReady();
 	bool				isSecure() { return true; }
-	UInt32				secureRead(void* buffer, UInt32 n);
-	UInt32				secureWrite(const void* buffer, UInt32 n);
+	int					secureRead(void* buffer, int size, int& read);
+	int					secureWrite(const void* buffer, int size, int& wrote);
 	void				initSsl(bool server);
-	void				loadCertificates(const char* CertFile);
+	bool				loadCertificates(String& CertFile);
 
 private:
 	// SSL
 	void				initContext(bool server);
 	void				createSSL();
-	bool				secureAccept(int s);
-	bool				secureConnect(int s);
-	void				showCertificate();
-	void				checkResult(int n, bool& fatal, bool& retry);
-	void				showError();
-	void				throwError(const char* reason);
+	int					secureAccept(int s);
+	int					secureConnect(int s);
+	bool				showCertificate();
+	void				checkResult(int n, int& retry);
+	void				showError(const char* reason = NULL);
 	String				getError();
+	void				disconnect();
+	void				formatFingerprint(String& fingerprint,
+											bool hex = true,
+											bool separator = true);
+	bool				verifyCertFingerprint();
 
 	ISocketMultiplexerJob*
 						serviceConnect(ISocketMultiplexerJob*,
@@ -71,7 +77,12 @@ private:
 						serviceAccept(ISocketMultiplexerJob*,
 							bool, bool, bool);
 
+	void				showSecureConnectInfo();
+	void				showSecureLibInfo();
+	void				showSecureCipherInfo();
+
 private:
 	Ssl*				m_ssl;
 	bool				m_secureReady;
+	bool				m_fatal;
 };

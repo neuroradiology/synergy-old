@@ -4,7 +4,7 @@
  *
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * found in the file COPYING that should have accompanied this file.
+ * found in the file LICENSE that should have accompanied this file.
  *
  * This package is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -22,32 +22,34 @@
 #include <QStringList>
 #include <QObject>
 
+#include "SslCertificate.h"
 #include "CoreInterface.h"
 #include "DataDownloader.h"
+#include "Plugin.h"
 
 class PluginManager : public QObject
 {
 	Q_OBJECT
 
 public:
-	PluginManager(QStringList pluginList);
+	PluginManager();
 	~PluginManager();
 
-	int downloadIndex() { return m_DownloadIndex; }
+	void init();
+
+	int pluginCount() { return m_PluginList.count(); }
+	QStringList& getPluginList() { return m_PluginList; }
+
+	bool isDone() { return done; }
+	void setDone(bool b) { done = b; }
+	static bool exist(QString name);
 
 public slots:
-	void downloadPlugins();
-	void saveOpenSslSetup();
-	void generateCertificate();
-	void doGenerateCertificate();
+	void copyPlugins();
+	void queryPluginList();
 
 private:
-	void savePlugin();
 	QString getPluginUrl(const QString& pluginName);
-	QString getOpenSslSetupUrl();
-	QString getPluginOsSpecificName(const QString& pluginName);
-	bool checkOpenSslBinary();
-	void downloadOpenSslSetup();
 	bool runProgram(
 		const QString& program,
 		const QStringList& args,
@@ -55,18 +57,19 @@ private:
 
 signals:
 	void error(QString e);
-	void downloadNext();
-	void downloadFinished();
-	void openSslBinaryReady();
-	void generateCertificateFinished();
+	void info(QString i);
+	void updateCopyStatus(int);
+	void copyFinished();
+	void queryPluginDone();
 
 private:
 	QStringList m_PluginList;
 	QString m_PluginDir;
 	QString m_ProfileDir;
-	int m_DownloadIndex;
-	DataDownloader m_DataDownloader;
+	QString m_InstalledDir;
 	CoreInterface m_CoreInterface;
+	SslCertificate m_SslCertificate;
+	bool done;
 };
 
 #endif // PLUGINMANAGER_H

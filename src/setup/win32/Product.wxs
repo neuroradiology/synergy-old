@@ -84,11 +84,18 @@
       <Component Id="Core" Guid="EC9AD3B0-277C-4157-B5C8-5FD5B6A5F4AD">
         
         <File Source="$(var.BinPath)/synergyd.exe" KeyPath="yes" />
-        
+
         <ServiceInstall
             Id="ServiceInstall" Name="Synergy" DisplayName="$(var.Name)"
             Description="Controls the $(var.Name) foreground processes."
-            Type="ownProcess" Start="auto" ErrorControl="normal" />
+            Type="ownProcess" Start="auto" ErrorControl="normal">
+          <util:ServiceConfig
+            FirstFailureActionType='restart'
+            SecondFailureActionType='restart'
+            ThirdFailureActionType='restart'
+            RestartServiceDelayInSeconds='1'
+            ResetPeriodInDays='1'/>
+        </ServiceInstall>
         
         <ServiceControl
             Id="ServiceControl" Name="Synergy"
@@ -112,13 +119,13 @@
           <fire:FirewallException Id="GuiFirewallException" Name="$(var.Name)" Scope="any" IgnoreFailure="yes" />
         </File>
 
-        <File Source="$(var.QtPath)\libgcc_s_dw2-1.dll" CompanionFile="GuiProgram" />
-        <File Source="$(var.QtPath)\mingwm10.dll" CompanionFile="GuiProgram" />
-        <File Source="$(var.QtPath)\QtCore4.dll" CompanionFile="GuiProgram" />
-        <File Source="$(var.QtPath)\QtGui4.dll" CompanionFile="GuiProgram" />
-        <File Source="$(var.QtPath)\QtNetwork4.dll" CompanionFile="GuiProgram" />
+        <File Source="$(var.QtPath)\libgcc_s_dw2-1.dll" />
+        <File Source="$(var.QtPath)\mingwm10.dll" />
+        <File Source="$(var.QtPath)\QtCore4.dll" />
+        <File Source="$(var.QtPath)\QtGui4.dll" />
+        <File Source="$(var.QtPath)\QtNetwork4.dll" />
         
-        <File Source="$(var.ExtPath)\bonjour\x64\dnssd.dll" CompanionFile="GuiProgram" />
+        <File Source="$(var.ExtPath)\bonjour\x64\dnssd.dll" />
 
       </Component>
       

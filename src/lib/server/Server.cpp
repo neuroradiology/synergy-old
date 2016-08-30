@@ -496,6 +496,18 @@ Server::switchScreen(BaseClientProxy* dst,
 			}
 		}
 
+		// if already sending clipboard, we need to interupt it, otherwise
+		// clipboard data could be corrupted on the other side
+		// interrupt before switch active, as send clipboard uses active
+		// client proxy, which would cause race condition
+		if (m_sendClipboardThread != NULL) {
+			StreamChunker::setClipboardInterrupt(true);
+			m_sendClipboardThread->wait();
+			delete m_sendClipboardThread;
+			m_sendClipboardThread = NULL;
+			StreamChunker::setClipboardInterrupt(false);
+		}
+
 		// cut over
 		m_active = dst;
 
@@ -506,20 +518,13 @@ Server::switchScreen(BaseClientProxy* dst,
 		m_active->enter(x, y, m_seqNum,
 								m_primaryClient->getToggleMask(),
 								forScreensaver);
-		// if already sending clipboard, we need to interupt it, otherwise
-		// clipboard data could be corrupted on the other side
-		if (m_sendClipboardThread != NULL) {
-			StreamChunker::interruptClipboard();
-			m_sendClipboardThread->wait();
-			m_sendClipboardThread = NULL;
-		}
 		
 		// send the clipboard data to new active screen
 		m_sendClipboardThread = new Thread(
-										new TMethodJob<Server>(
-												this,
-												&Server::sendClipboardThread,
-												NULL));
+									new TMethodJob<Server>(
+										this,
+										&Server::sendClipboardThread,
+										NULL));
 
 		Server::SwitchToScreenInfo* info =
 			Server::SwitchToScreenInfo::alloc(m_active->getName());
@@ -1865,6 +1870,8 @@ Server::sendClipboardThread(void*)
 	for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
 		m_active->setClipboard(id, &m_clipboards[id].m_clipboard);
 	}
+
+	m_sendClipboardThread = NULL;
 }
 
 void

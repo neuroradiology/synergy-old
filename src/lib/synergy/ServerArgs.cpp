@@ -1,6 +1,6 @@
 /*
  * synergy -- mouse and keyboard sharing utility
- * Copyright (C) 2014 Synergy Si, Inc.
+ * Copyright (C) 2014-2020 Symless Ltd.
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -15,11 +15,19 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "synergy/ServerArgs.h"
+#include "ServerArgs.h"
 
-ServerArgs::ServerArgs() :
-	m_configFile(),
-	m_config(NULL)
-{
+namespace lib {
+    namespace synergy {
+
+        ServerArgs::~ServerArgs() {
+        }
+
+
+        ServerArgs::ServerArgs() {
+            m_classType = kServer;
+        }
+    }
 }
+
 

@@ -1,6 +1,6 @@
 /*
  * synergy -- mouse and keyboard sharing utility
- * Copyright (C) 2012 Synergy Si Ltd.
+ * Copyright (C) 2012-2016 Symless Ltd.
  * Copyright (C) 2002 Chris Schoeneman
  * 
  * This package is free software; you can redistribute it and/or
@@ -160,15 +160,12 @@ XWindowsScreen::XWindowsScreen(
 
 	// primary/secondary screen only initialization
 	if (m_isPrimary) {
-		// start watching for events on other windows
-		selectEvents(m_root);
-		m_xi2detected = detectXI2();
-
-		if (m_xi2detected) {
 #ifdef HAVE_XI2
+		m_xi2detected = detectXI2();
+		if (m_xi2detected) {
 			selectXIRawMotion();
-#endif
 		} else
+#endif
 		{
 			// start watching for events on other windows
 			selectEvents(m_root);
@@ -745,7 +742,7 @@ XWindowsScreen::registerHotKey(KeyID key, KeyModifierMask mask)
 		LOG((CLOG_WARN "failed to register hotkey %s (id=%04x mask=%04x)", synergy::KeyMap::formatKey(key, mask).c_str(), key, mask));
 		return 0;
 	}
-	
+
 	LOG((CLOG_DEBUG "registered hotkey %s (id=%04x mask=%04x) as id=%d", synergy::KeyMap::formatKey(key, mask).c_str(), key, mask, id));
 	return id;
 }
@@ -827,7 +824,7 @@ void
 XWindowsScreen::fakeMouseButton(ButtonID button, bool press)
 {
 	const unsigned int xButton = mapButtonToX(button);
-	if (xButton != 0) {
+	if (xButton > 0 && xButton < 11) {
 		XTestFakeButtonEvent(m_display, xButton,
 							press ? True : False, CurrentTime);
 		XFlush(m_display);
@@ -851,12 +848,7 @@ void
 XWindowsScreen::fakeMouseRelativeMove(SInt32 dx, SInt32 dy) const
 {
 	// FIXME -- ignore xinerama for now
-	if (false && m_xinerama && m_xtestIsXineramaUnaware) {
-//		XWarpPointer(m_display, None, m_root, 0, 0, 0, 0, x, y);
-	}
-	else {
-		XTestFakeRelativeMotionEvent(m_display, dx, dy, CurrentTime);
-	}
+	XTestFakeRelativeMotionEvent(m_display, dx, dy, CurrentTime);
 	XFlush(m_display);
 }
 
@@ -977,22 +969,6 @@ XWindowsScreen::saveShape()
 	m_w = WidthOfScreen(DefaultScreenOfDisplay(m_display));
 	m_h = HeightOfScreen(DefaultScreenOfDisplay(m_display));
 
-#if HAVE_X11_EXTENSIONS_XRANDR_H
-	if (m_xrandr){
-	  int numSizes;
-	  XRRScreenSize* xrrs;
-	  Rotation rotation;
-	  xrrs = XRRSizes(m_display, DefaultScreen(m_display), &numSizes);
-	  XRRRotations(m_display, DefaultScreen(m_display), &rotation);
-	  if (xrrs != NULL) {
-	    if (rotation & (RR_Rotate_90|RR_Rotate_270) ){
-	      m_w = xrrs->height;
-	      m_h = xrrs->width;
-	    }
-	  }
-	}
-#endif
-
 	// get center of default screen
 	m_xCenter = m_x + (m_w >> 1);
 	m_yCenter = m_y + (m_h >> 1);
@@ -1019,6 +995,53 @@ XWindowsScreen::saveShape()
 		XineramaScreenInfo* screens;
 		screens = XineramaQueryScreens(m_display, &numScreens);
 		if (screens != NULL) {
+			if (numScreens > 1) {
+				m_xinerama = true;
+				m_xCenter  = screens[0].x_org + (screens[0].width  >> 1);
+				m_yCenter  = screens[0].y_org + (screens[0].height >> 1);
+			}
+			XFree(screens);
+		}
+	}
+#endif
+}
+
+void
+XWindowsScreen::setShape(SInt32 width, SInt32 height)
+{
+	// set shape
+	m_x = 0;
+	m_y = 0;
+
+	m_w = width;
+	m_h = height;
+
+	// get center of default screen
+	m_xCenter = m_x + (m_w >> 1);
+	m_yCenter = m_y + (m_h >> 1);
+
+	// check if xinerama is enabled and there is more than one screen.
+	// get center of first Xinerama screen.  Xinerama appears to have
+	// a bug when XWarpPointer() is used in combination with
+	// XGrabPointer().  in that case, the warp is successful but the
+	// next pointer motion warps the pointer again, apparently to
+	// constrain it to some unknown region, possibly the region from
+	// 0,0 to Wm,Hm where Wm (Hm) is the minimum width (height) over
+	// all physical screens.  this warp only seems to happen if the
+	// pointer wasn't in that region before the XWarpPointer().  the
+	// second (unexpected) warp causes synergy to think the pointer
+	// has been moved when it hasn't.  to work around the problem,
+	// we warp the pointer to the center of the first physical
+	// screen instead of the logical screen.
+	m_xinerama = false;
+#if HAVE_X11_EXTENSIONS_XINERAMA_H
+	int eventBase, errorBase;
+	if ((XineramaQueryExtension(m_display, &eventBase, &errorBase) != 0) &&
+		(XineramaIsActive(m_display) != 0)) {
+		int numScreens;
+		XineramaScreenInfo* screens;
+		screens = XineramaQueryScreens(m_display, &numScreens);
+		if (screens != nullptr) {
 			if (numScreens > 1) {
 				m_xinerama = true;
 				m_xCenter  = screens[0].x_org + (screens[0].width  >> 1);
@@ -1143,6 +1166,9 @@ XWindowsScreen::openIM()
 	XWindowAttributes attr;
 	XGetWindowAttributes(m_display, m_window, &attr);
 	XSelectInput(m_display, m_window, attr.your_event_mask | mask);
+
+	// listen for screen-resize messages
+	XSelectInput (m_display, m_root, StructureNotifyMask);
 }
 
 void
@@ -1179,7 +1205,7 @@ XWindowsScreen::findKeyEvent(Display*, XEvent* xevent, XPointer arg)
 void
 XWindowsScreen::handleSystemEvent(const Event& event, void*)
 {
-	XEvent* xevent = reinterpret_cast<XEvent*>(event.getData());
+	XEvent* xevent = static_cast<XEvent*>(event.getData());
 	assert(xevent != NULL);
 
 	// update key state
@@ -1300,7 +1326,7 @@ XWindowsScreen::handleSystemEvent(const Event& event, void*)
 	// handle the event ourself
 	switch (xevent->type) {
 	case CreateNotify:
-		if (m_isPrimary) {
+		if (m_isPrimary && !m_xi2detected) {
 			// select events on new window
 			selectEvents(xevent->xcreatewindow.window);
 		}
@@ -1405,6 +1431,13 @@ XWindowsScreen::handleSystemEvent(const Event& event, void*)
 		}
 		return;
 
+	case ConfigureNotify:
+		if (!m_isPrimary && xevent->xconfigure.window == m_root) {
+			setShape(xevent->xconfigure.width, xevent->xconfigure.height);
+			sendEvent(m_events->forIScreen().shapeChanged());
+		}
+		return;
+
 	default:
 #if HAVE_XKB_EXTENSION
 		if (m_xkb && xevent->type == m_xkbEventBase) {
@@ -1442,6 +1475,8 @@ XWindowsScreen::handleSystemEvent(const Event& event, void*)
 					XMoveWindow(m_display, m_window, m_x, m_y);
 					XResizeWindow(m_display, m_window, m_w, m_h);
 				}
+
+				sendEvent(m_events->forIScreen().shapeChanged());
 			}
 		}
 #endif
@@ -1475,6 +1510,7 @@ XWindowsScreen::onKeyPress(XKeyEvent& xkey)
 			keycode = static_cast<KeyButton>(m_lastKeycode);
 			if (keycode == 0) {
 				// no keycode
+				LOG((CLOG_DEBUG1 "event: KeyPress no keycode"));
 				return;
 			}
 		}
@@ -1489,6 +1525,9 @@ XWindowsScreen::onKeyPress(XKeyEvent& xkey)
 							false, false, key, mask, 1, keycode);
 		}
 	}
+    else {
+		LOG((CLOG_DEBUG1 "can't map keycode to key id"));
+    }
 }
 
 void
@@ -1862,8 +1901,12 @@ XWindowsScreen::mapKeyFromX(XKeyEvent* event) const
 		XLookupString(event, dummy, 0, &keysym, NULL);
 	}
 
+	LOG((CLOG_DEBUG2 "mapped code=%d to keysym=0x%04x", event->keycode, keysym));
+
 	// convert key
-	return XWindowsUtil::mapKeySymToKeyID(keysym);
+	KeyID result = XWindowsUtil::mapKeySymToKeyID(keysym);
+	LOG((CLOG_DEBUG2 "mapped keysym=0x%04x to keyID=%d", keysym, result));
+	return result;
 }
 
 ButtonID

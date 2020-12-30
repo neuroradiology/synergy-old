@@ -1,6 +1,6 @@
 /*
  * synergy -- mouse and keyboard sharing utility
- * Copyright (C) 2012 Synergy Si Ltd.
+ * Copyright (C) 2012-2016 Symless Ltd.
  * Copyright (C) 2002 Chris Schoeneman
  * 
  * This package is free software; you can redistribute it and/or
@@ -21,7 +21,7 @@
 #include "common/common.h"
 
 // set version macro if not set yet
-#if !defined(VERSION)
+#if !defined(SYNERGY_VERSION)
 #error Version was not set (should be passed to compiler).
 #endif
 
@@ -30,6 +30,7 @@ extern const char* kApplication;
 extern const char* kCopyright;
 extern const char* kContact;
 extern const char* kWebsite;
+extern const char* kBuildYear;
 
 // build version.  follows linux kernel style:  an even minor number implies
 // a release version, odd implies development version.

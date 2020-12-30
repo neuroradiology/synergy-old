@@ -1,6 +1,6 @@
 /*
  * synergy -- mouse and keyboard sharing utility
- * Copyright (C) 2014 Synergy Si, Inc.
+ * Copyright (C) 2014-2016 Symless Ltd.
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -15,9 +15,17 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "synergy/ClientArgs.h"
+#include "ClientArgs.h"
 
-ClientArgs::ClientArgs() :
-	m_yscroll(0)
-{
+namespace lib {
+    namespace synergy {
+
+        ClientArgs::~ClientArgs() {
+
+        }
+
+        ClientArgs::ClientArgs() {
+            m_classType = kClient;
+        }
+    }
 }

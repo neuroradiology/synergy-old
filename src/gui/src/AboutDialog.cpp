@@ -1,6 +1,6 @@
 /*
  * synergy -- mouse and keyboard sharing utility
- * Copyright (C) 2012 Synergy Si Ltd.
+ * Copyright (C) 2012-2016 Symless Ltd.
  * Copyright (C) 2008 Volker Lanz (vl@fidra.de)
  * 
  * This package is free software; you can redistribute it and/or
@@ -21,18 +21,38 @@
 #include <QtCore>
 #include <QtGui>
 
+#include "OSXHelpers.h"
+
 AboutDialog::AboutDialog(QWidget* parent, const QString& synergyApp) :
 	QDialog(parent, Qt::WindowTitleHint | Qt::WindowSystemMenuHint),
 	Ui::AboutDialogBase()
 {
 	setupUi(this);
 
+	QString aboutText(R"(<p>
+Keyboard and mouse sharing application. Cross platform and open source.<br /><br />
+Copyright © 2012-%%YEAR%% Symless Ltd.<br />
+Copyright © 2002-2012 Chris Schoeneman, Nick Bolton, Volker Lanz.<br /><br />
+Synergy is released under the GNU General Public License (GPLv2).<br /><br />
+Synergy is based on CosmoSynergy by Richard Lee and Adam Feder.<br />
+The Synergy GUI is based on QSynergy by Volker Lanz.<br /><br />
+Visit our website for help and info (symless.com).
+</p>)");
+
 	m_versionChecker.setApp(synergyApp);
 	QString version = m_versionChecker.getVersion();
-	version = version + '-' + VERSION_STAGE +  '-' + VERSION_REVISION;
+#ifdef SYNERGY_REVISION
+    version +=  '-';
+    version += SYNERGY_REVISION;
+#endif
 	m_pLabelSynergyVersion->setText(version);
 
-	m_pLabelBuildDate->setText(QDate::currentDate().toString());
+	QString buildDateString = QString::fromLocal8Bit(__DATE__).simplified();
+	QDate buildDate = QLocale("en_US").toDate(buildDateString, "MMM d yyyy");
+	m_pLabelBuildDate->setText(buildDate.toString(Qt::SystemLocaleLongDate));
+
+	//Sets the current build year into the copyright text
+	label_3->setText(aboutText.replace(QString("%%YEAR%%"), QString::number(buildDate.year())));
 
 	// change default size based on os
 #if defined(Q_OS_MAC)
@@ -40,6 +60,14 @@ AboutDialog::AboutDialog(QWidget* parent, const QString& synergyApp) :
 	setMaximumSize(size);
 	setMinimumSize(size);
 	resize(size);
+
+    if (isOSXInterfaceStyleDark()) {
+        QPixmap logo(":/res/image/about-dark.png");
+        if (!logo.isNull()) {
+            label_Logo->setPixmap(logo);
+        }
+    }
+
 #elif defined(Q_OS_LINUX)
 	QSize size(600, 330);
 	setMaximumSize(size);

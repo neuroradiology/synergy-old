@@ -1,6 +1,6 @@
 /*
  * synergy -- mouse and keyboard sharing utility
- * Copyright (C) 2015 Synergy Si Inc.
+ * Copyright (C) 2015-2016 Symless Ltd.
  * 
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -21,10 +21,15 @@
 
 class Chunk {
 public:
-	Chunk(size_t size);
-	~Chunk();
+    Chunk(size_t size);
+    Chunk(Chunk const &) =delete;
+    Chunk(Chunk &&) =delete;
+    ~Chunk();
+
+    Chunk& operator=(Chunk const &) =delete;
+    Chunk& operator=(Chunk &&) =delete;
 
 public:
-	size_t				m_dataSize;
-	char*				m_chunk;
+    size_t                m_dataSize;
+    char*                m_chunk;
 };

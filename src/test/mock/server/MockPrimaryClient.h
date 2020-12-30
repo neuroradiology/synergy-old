@@ -1,6 +1,6 @@
 /*
  * synergy -- mouse and keyboard sharing utility
- * Copyright (C) 2013 Synergy Si Ltd.
+ * Copyright (C) 2013-2016 Symless Ltd.
  *
  * This package is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -27,15 +27,15 @@
 class MockPrimaryClient : public PrimaryClient
 {
 public:
-	MOCK_CONST_METHOD0(getEventTarget, void*());
-	MOCK_CONST_METHOD2(getCursorPos, void(SInt32&, SInt32&));
-	MOCK_CONST_METHOD2(setJumpCursorPos, void(SInt32, SInt32));
-	MOCK_METHOD1(reconfigure, void(UInt32));
-	MOCK_METHOD0(resetOptions, void());
-	MOCK_METHOD1(setOptions, void(const OptionsList&));
-	MOCK_METHOD0(enable, void());
-	MOCK_METHOD0(disable, void());
-	MOCK_METHOD2(registerHotKey, UInt32(KeyID, KeyModifierMask));
-	MOCK_CONST_METHOD0(getToggleMask, KeyModifierMask());
-	MOCK_METHOD1(unregisterHotKey, void(UInt32));
+    MOCK_METHOD(void*, getEventTarget, (), (const, override));
+    MOCK_METHOD(void, getCursorPos, (SInt32&, SInt32&), (const, override));
+    MOCK_METHOD(void, setJumpCursorPos, (SInt32, SInt32), (const));
+    MOCK_METHOD(void, reconfigure, (UInt32), (override));
+    MOCK_METHOD(void, resetOptions, (), (override));
+    MOCK_METHOD(void, setOptions, (const OptionsList&), (override));
+    MOCK_METHOD(void, enable, (), (override));
+    MOCK_METHOD(void, disable, (), (override));
+    MOCK_METHOD(UInt32, registerHotKey, (KeyID, KeyModifierMask), (override));
+    MOCK_METHOD(KeyModifierMask, getToggleMask, (), (const, override));
+    MOCK_METHOD(void, unregisterHotKey, (UInt32), (override));
 };

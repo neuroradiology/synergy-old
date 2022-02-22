@@ -42,13 +42,12 @@ static const struct
 
 const int serverDefaultIndex = 7;
 
-ServerConfig::ServerConfig(int numColumns, int numRows ,
-                QString serverName, MainWindow* mainWindow) :
+ServerConfig::ServerConfig(int numColumns, int numRows, AppConfig* appConfig, MainWindow* mainWindow) :
 
-        m_Screens(),
+        m_Screens(numColumns),
         m_NumColumns(numColumns),
         m_NumRows(numRows),
-        m_ServerName(serverName),
+        m_pAppConfig(appConfig),
         m_IgnoreAutoConfigClient(false),
         m_EnableDragAndDrop(false),
         m_DisableLockToScreen(false),
@@ -77,6 +76,31 @@ bool ServerConfig::save(const QString& fileName) const
     return true;
 }
 
+bool ServerConfig::operator==(const ServerConfig& sc) const
+{
+    return m_Screens                == sc.m_Screens                &&
+           m_NumColumns             == sc.m_NumColumns             &&
+           m_NumRows                == sc.m_NumRows                &&
+           m_HasHeartbeat           == sc.m_HasHeartbeat           &&
+           m_Heartbeat              == sc.m_Heartbeat              &&
+           m_RelativeMouseMoves     == sc.m_RelativeMouseMoves     &&
+           m_Win32KeepForeground    == sc.m_Win32KeepForeground    &&
+           m_HasSwitchDelay         == sc.m_HasSwitchDelay         &&
+           m_SwitchDelay            == sc.m_SwitchDelay            &&
+           m_HasSwitchDoubleTap     == sc.m_HasSwitchDoubleTap     &&
+           m_SwitchDoubleTap        == sc.m_SwitchDoubleTap        &&
+           m_SwitchCornerSize       == sc.m_SwitchCornerSize       &&
+           m_SwitchCorners          == sc.m_SwitchCorners          &&
+           m_Hotkeys                == sc.m_Hotkeys                &&
+           m_pAppConfig             == sc.m_pAppConfig             &&
+           m_IgnoreAutoConfigClient == sc.m_IgnoreAutoConfigClient &&
+           m_EnableDragAndDrop      == sc.m_EnableDragAndDrop      &&
+           m_DisableLockToScreen    == sc.m_DisableLockToScreen    &&
+           m_ClipboardSharing       == sc.m_ClipboardSharing       &&
+           m_ClipboardSharingSize   == sc.m_ClipboardSharingSize   &&
+           m_pMainWindow            == sc.m_pMainWindow;
+}
+
 void ServerConfig::save(QFile& file) const
 {
     QTextStream outStream(&file);
@@ -87,6 +111,7 @@ void ServerConfig::init()
 {
     switchCorners().clear();
     screens().clear();
+    hotkeys().clear();
 
     // m_NumSwitchCorners is used as a fixed size array. See Screen::init()
     for (int i = 0; i < NumSwitchCorners; i++)
@@ -109,7 +134,6 @@ void ServerConfig::saveSettings()
     settings().setValue("hasHeartbeat", hasHeartbeat());
     settings().setValue("heartbeat", heartbeat());
     settings().setValue("relativeMouseMoves", relativeMouseMoves());
-    settings().setValue("screenSaverSync", screenSaverSync());
     settings().setValue("win32KeepForeground", win32KeepForeground());
     settings().setValue("hasSwitchDelay", hasSwitchDelay());
     settings().setValue("switchDelay", switchDelay());
@@ -119,8 +143,8 @@ void ServerConfig::saveSettings()
     settings().setValue("ignoreAutoConfigClient", ignoreAutoConfigClient());
     settings().setValue("disableLockToScreen", disableLockToScreen());
     settings().setValue("enableDragAndDrop", enableDragAndDrop());
-	settings().setValue("clipboardSharing", clipboardSharing());
-	settings().setValue("clipboardSharingSize", QVariant::fromValue(clipboardSharingSize()));
+    settings().setValue("clipboardSharing", clipboardSharing());
+    settings().setValue("clipboardSharingSize", QVariant::fromValue(clipboardSharingSize()));
 
     writeSettings(settings(), switchCorners(), "switchCorner");
 
@@ -128,7 +152,11 @@ void ServerConfig::saveSettings()
     for (int i = 0; i < screens().size(); i++)
     {
         settings().setArrayIndex(i);
-        screens()[i].saveSettings(settings());
+        auto& screen = screens()[i];
+        screen.saveSettings(settings());
+        if (screen.isServer() && m_pAppConfig->screenName() != screen.name()){
+           m_pAppConfig->setScreenName(screen.name());
+        }
     }
     settings().endArray();
 
@@ -142,6 +170,7 @@ void ServerConfig::saveSettings()
 
     settings().endGroup();
 
+    m_pAppConfig->saveSettings();
     //Tell the config writer there are changes
     GUI::Config::ConfigWriter::make()->markUnsaved();
 }
@@ -159,7 +188,6 @@ void ServerConfig::loadSettings()
     haveHeartbeat(settings().value("hasHeartbeat", false).toBool());
     setHeartbeat(settings().value("heartbeat", 5000).toInt());
     setRelativeMouseMoves(settings().value("relativeMouseMoves", false).toBool());
-    setScreenSaverSync(settings().value("screenSaverSync", true).toBool());
     setWin32KeepForeground(settings().value("win32KeepForeground", false).toBool());
     haveSwitchDelay(settings().value("hasSwitchDelay", false).toBool());
     setSwitchDelay(settings().value("switchDelay", 250).toInt());
@@ -169,9 +197,9 @@ void ServerConfig::loadSettings()
     setIgnoreAutoConfigClient(settings().value("ignoreAutoConfigClient").toBool());
     setDisableLockToScreen(settings().value("disableLockToScreen", false).toBool());
     setEnableDragAndDrop(settings().value("enableDragAndDrop", true).toBool());
-	setClipboardSharing(settings().value("clipboardSharing", true).toBool());
 	setClipboardSharingSize(settings().value("clipboardSharingSize",
 						(int) ServerConfig::defaultClipboardSharingSize()).toULongLong());
+    setClipboardSharing(settings().value("clipboardSharing", true).toBool());
 
     readSettings(settings(), switchCorners(), "switchCorner", false, NumSwitchCorners);
 
@@ -181,6 +209,9 @@ void ServerConfig::loadSettings()
     {
         settings().setArrayIndex(i);
         screens()[i].loadSettings(settings());
+        if (getServerName() == screens()[i].name()) {
+            screens()[i].markAsServer();
+        }
     }
     settings().endArray();
 
@@ -256,7 +287,6 @@ QTextStream& operator<<(QTextStream& outStream, const ServerConfig& config)
         outStream << "\t" << "heartbeat = " << config.heartbeat() << endl;
 
     outStream << "\t" << "relativeMouseMoves = " << (config.relativeMouseMoves() ? "true" : "false") << endl;
-    outStream << "\t" << "screenSaverSync = " << (config.screenSaverSync() ? "true" : "false") << endl;
     outStream << "\t" << "win32KeepForeground = " << (config.win32KeepForeground() ? "true" : "false") << endl;
     outStream << "\t" << "disableLockToScreen = " << (config.disableLockToScreen() ? "true" : "false") << endl;
     outStream << "\t" << "clipboardSharing = " << (config.clipboardSharing() ? "true" : "false") << endl;
@@ -299,11 +329,12 @@ int ServerConfig::autoAddScreen(const QString name)
 {
     int serverIndex = -1;
     int targetIndex = -1;
-    if (!findScreenName(m_ServerName, serverIndex)) {
-        if (!fixNoServer(m_ServerName, serverIndex)) {
-            return kAutoAddScreenManualServer;
-        }
+    if (!findScreenName(m_pAppConfig->screenName(), serverIndex) &&
+        !fixNoServer(m_pAppConfig->screenName(), serverIndex))
+    {
+        return kAutoAddScreenManualServer;
     }
+
     if (findScreenName(name, targetIndex)) {
         m_pMainWindow->appendLogDebug(QString("ignoring screen already in config: %1").arg(name));
         return kAutoAddScreenIgnore;
@@ -362,6 +393,91 @@ int ServerConfig::autoAddScreen(const QString name)
     return kAutoAddScreenOk;
 }
 
+const QString& ServerConfig::getServerName() const
+{
+   return m_pAppConfig->screenName();
+}
+
+void ServerConfig::updateServerName()
+{
+   for (auto& screen : screens()) {
+      if (screen.isServer()) {
+         screen.setName(m_pAppConfig->screenName());
+         saveSettings();
+         break;
+      }
+   }
+}
+
+const QString& ServerConfig::getConfigFile() const
+{
+   return m_pAppConfig->getConfigFile();
+}
+
+bool ServerConfig::getUseExternalConfig() const
+{
+   return m_pAppConfig->getUseExternalConfig();
+}
+
+bool ServerConfig::isFull() const
+{
+    bool isFull = true;
+
+    for (const auto& screen : screens())
+    {
+        if (screen.isNull())
+        {
+            isFull = false;
+            break;
+        }
+    }
+
+    return isFull;
+}
+
+bool ServerConfig::isScreenExists(const QString& screenName) const
+{
+    bool isExists = false;
+
+    for (const auto& screen : screens())
+    {
+        if (!screen.isNull() &&
+            screen.name() == screenName)
+        {
+            isExists = true;
+            break;
+        }
+    }
+
+    return isExists;
+}
+
+void ServerConfig::addClient(const QString& clientName)
+{
+    int serverIndex = -1;
+
+    if (findScreenName(m_pAppConfig->screenName(), serverIndex))
+    {
+        m_Screens[serverIndex].markAsServer();
+    }
+    else
+    {
+        fixNoServer(m_pAppConfig->screenName(), serverIndex);
+    }
+
+    m_Screens.addScreenByPriority(clientName);
+}
+
+void ServerConfig::setConfigFile(const QString& configFile)
+{
+   m_pAppConfig->setConfigFile(configFile);
+}
+
+void ServerConfig::setUseExternalConfig(bool useExternalConfig)
+{
+   m_pAppConfig->setUseExternalConfig(useExternalConfig);
+}
+
 bool ServerConfig::findScreenName(const QString& name, int& index)
 {
     bool found = false;
@@ -381,6 +497,7 @@ bool ServerConfig::fixNoServer(const QString& name, int& index)
     bool fixed = false;
     if (screens()[serverDefaultIndex].isNull()) {
         m_Screens[serverDefaultIndex].setName(name);
+        m_Screens[serverDefaultIndex].markAsServer();
         index = serverDefaultIndex;
         fixed = true;
     }

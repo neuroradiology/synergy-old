@@ -150,8 +150,9 @@ ClientProxy1_0::handleData(const Event&, void*)
         LOG((CLOG_DEBUG2 "msg from \"%s\": %c%c%c%c", getName().c_str(), code[0], code[1], code[2], code[3]));
         if (!(this->*m_parser)(code)) {
             LOG((CLOG_ERR "invalid message from client \"%s\": %c%c%c%c", getName().c_str(), code[0], code[1], code[2], code[3]));
-            disconnect();
-            return;
+            // not possible to determine message boundaries
+            // read the whole stream to discard unkonwn data
+            while (getStream()->read(nullptr, 4));
         }
 
         // next message
@@ -295,7 +296,7 @@ ClientProxy1_0::setClipboardDirty(ClipboardID id, bool dirty)
 }
 
 void
-ClientProxy1_0::keyDown(KeyID key, KeyModifierMask mask, KeyButton)
+ClientProxy1_0::keyDown(KeyID key, KeyModifierMask mask, KeyButton, const String&)
 {
     LOG((CLOG_DEBUG1 "send key down to \"%s\" id=%d, mask=0x%04x", getName().c_str(), key, mask));
     ProtocolUtil::writef(getStream(), kMsgDKeyDown1_0, key, mask);
@@ -303,7 +304,7 @@ ClientProxy1_0::keyDown(KeyID key, KeyModifierMask mask, KeyButton)
 
 void
 ClientProxy1_0::keyRepeat(KeyID key, KeyModifierMask mask,
-                SInt32 count, KeyButton)
+                SInt32 count, KeyButton, const String&)
 {
     LOG((CLOG_DEBUG1 "send key repeat to \"%s\" id=%d, mask=0x%04x, count=%d", getName().c_str(), key, mask, count));
     ProtocolUtil::writef(getStream(), kMsgDKeyRepeat1_0, key, mask, count);
@@ -363,6 +364,21 @@ ClientProxy1_0::fileChunkSending(UInt8 mark, char* data, size_t dataSize)
 {
     // ignore -- not supported in protocol 1.0
     LOG((CLOG_DEBUG "fileChunkSending not supported"));
+}
+
+String
+ClientProxy1_0::getSecureInputApp() const
+{
+    // ignore -- not supported on clients
+    LOG((CLOG_DEBUG "getSecureInputApp not supported"));
+    return "";
+}
+
+void
+ClientProxy1_0::secureInputNotification(const String& app) const
+{
+    // ignore -- not supported in protocol 1.0
+    LOG((CLOG_DEBUG "secureInputNotification not supported"));
 }
 
 void

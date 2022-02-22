@@ -57,6 +57,7 @@
 #include "platform/OSXDragSimulator.h"
 #endif
 
+#include <memory>
 #include <iostream>
 #include <stdio.h>
 
@@ -125,6 +126,8 @@ ClientApp::help()
         buffer_size,
         "Usage: %s"
         " [--yscroll <delta>]"
+        " [--sync-language]"
+        " [--invert-scroll]"
         WINAPI_ARG
         HELP_SYS_ARGS
         HELP_COMMON_ARGS
@@ -137,6 +140,8 @@ ClientApp::help()
         HELP_SYS_INFO
         "      --yscroll <delta>    defines the vertical scrolling delta, which is\n"
         "                             120 by default.\n"
+        "      --sync-language      set this parameter to enable language synchronization.\n"
+        "      --invert-scroll      invert scroll direction on this computer.\n"
         HELP_COMMON_INFO_2
         "\n"
         "* marks defaults.\n"
@@ -175,13 +180,17 @@ ClientApp::createScreen()
 {
 #if WINAPI_MSWINDOWS
     return new synergy::Screen(new MSWindowsScreen(
-        false, args().m_noHooks, args().m_stopOnDeskSwitch, m_events), m_events);
+        false, args().m_noHooks, args().m_stopOnDeskSwitch, m_events,
+        args().m_enableLangSync, args().m_clientScrollDirection), m_events);
 #elif WINAPI_XWINDOWS
     return new synergy::Screen(new XWindowsScreen(
         args().m_display, false, args().m_disableXInitThreads,
-        args().m_yscroll, m_events), m_events);
+        args().m_yscroll, m_events, args().m_clientScrollDirection), m_events);
 #elif WINAPI_CARBON
-    return new synergy::Screen(new OSXScreen(m_events, false), m_events);
+	 return new synergy::Screen(new OSXScreen(m_events, false,
+                                              args().m_enableLangSync,
+                                              args().m_clientScrollDirection),
+                                m_events);
 #endif
 }
 
@@ -301,8 +310,26 @@ ClientApp::handleClientConnected(const Event&, void*)
 void
 ClientApp::handleClientFailed(const Event& e, void*)
 {
-    Client::FailInfo* info =
-        static_cast<Client::FailInfo*>(e.getData());
+    if ( (++m_lastServerAddressIndex) < m_client->getLastResolvedAddressesCount()) {
+        std::unique_ptr<Client::FailInfo> info(static_cast<Client::FailInfo*>(e.getData()));
+
+        updateStatus(String("Failed to connect to server: ") + info->m_what + " Trying next address...");
+        LOG((CLOG_NOTE "Failed to connect to server: %s. Trying next address...", info->m_what.c_str()));
+        if (!m_suspended) {
+            scheduleClientRestart(nextRestartTimeout());
+        }
+    }
+    else {
+        m_lastServerAddressIndex = 0;
+        handleClientRefused(e, nullptr);
+    }
+
+}
+
+void
+ClientApp::handleClientRefused(const Event& e, void*)
+{
+    std::unique_ptr<Client::FailInfo> info(static_cast<Client::FailInfo*>(e.getData()));
 
     updateStatus(String("Failed to connect to server: ") + info->m_what);
     if (!args().m_restartable || !info->m_retry) {
@@ -315,7 +342,6 @@ ClientApp::handleClientFailed(const Event& e, void*)
             scheduleClientRestart(nextRestartTimeout());
         }
     }
-    delete info;
 }
 
 
@@ -356,6 +382,11 @@ ClientApp::openClient(const String& name, const NetworkAddress& address,
             new TMethodEventJob<ClientApp>(this, &ClientApp::handleClientFailed));
 
         m_events->adoptHandler(
+            m_events->forClient().connectionRefused(),
+            client->getEventTarget(),
+            new TMethodEventJob<ClientApp>(this, &ClientApp::handleClientRefused));
+
+        m_events->adoptHandler(
             m_events->forClient().disconnected(),
             client->getEventTarget(),
             new TMethodEventJob<ClientApp>(this, &ClientApp::handleClientDisconnected));
@@ -378,6 +409,7 @@ ClientApp::closeClient(Client* client)
 
     m_events->removeHandler(m_events->forClient().connected(), client);
     m_events->removeHandler(m_events->forClient().connectionFailed(), client);
+    m_events->removeHandler(m_events->forClient().connectionRefused(), client);
     m_events->removeHandler(m_events->forClient().disconnected(), client);
     delete client;
 }
@@ -405,7 +437,7 @@ ClientApp::startClient()
             LOG((CLOG_NOTE "started client"));
         }
 
-        m_client->connect();
+        m_client->connect(m_lastServerAddressIndex);
 
         updateStatus();
         return true;

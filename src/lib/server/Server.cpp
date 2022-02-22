@@ -33,6 +33,7 @@
 #include "synergy/KeyState.h"
 #include "synergy/Screen.h"
 #include "synergy/PacketStreamFilter.h"
+#include "synergy/AppUtil.h"
 #include "net/TCPSocket.h"
 #include "net/IDataSocket.h"
 #include "net/IListenSocket.h"
@@ -100,7 +101,7 @@ Server::Server(
 	m_waitDragInfoThread(true),
 	m_args(args)
 {
-	// must have a primary client and it must have a canonical name
+     // must have a primary client and it must have a canonical name
 	assert(m_primaryClient != NULL);
 	assert(config.isScreen(primaryClient->getName()));
 	assert(m_screen != NULL);
@@ -510,6 +511,19 @@ Server::switchScreen(BaseClientProxy* dst,
 				}
 			}
 		}
+
+
+#if defined(__APPLE__)
+        if (dst != m_primaryClient) {
+            String secureInputApplication = m_primaryClient->getSecureInputApp();
+            if (secureInputApplication != "") {
+                // display notification on the server
+                m_primaryClient->secureInputNotification(secureInputApplication);
+                //display notification on the client
+                dst->secureInputNotification(secureInputApplication);
+            }
+        }
+#endif
 
 		// cut over
 		m_active = dst;
@@ -1294,6 +1308,13 @@ Server::handleClipboardGrabbed(const Event& event, void* vclient)
 			client->grabClipboard(info->m_id);
 		}
 	}
+
+    if (grabber == m_primaryClient && m_active != m_primaryClient) {
+        LOG((CLOG_INFO "clipboard grabbed, but we are already changed active screen. Resend clipboard data"));
+        for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
+            onClipboardChanged(m_primaryClient, id, m_clipboards[id].m_clipboardSeqNum);
+        }
+    }
 }
 
 void
@@ -1314,7 +1335,8 @@ Server::handleKeyDownEvent(const Event& event, void*)
 {
 	IPlatformScreen::KeyInfo* info =
 		static_cast<IPlatformScreen::KeyInfo*>(event.getData());
-	onKeyDown(info->m_key, info->m_mask, info->m_button, info->m_screens);
+    auto lang = AppUtil::instance().getCurrentLanguageCode();
+    onKeyDown(info->m_key, info->m_mask, info->m_button, lang, info->m_screens);
 }
 
 void
@@ -1330,7 +1352,8 @@ Server::handleKeyRepeatEvent(const Event& event, void*)
 {
 	IPlatformScreen::KeyInfo* info =
 		static_cast<IPlatformScreen::KeyInfo*>(event.getData());
-	onKeyRepeat(info->m_key, info->m_mask, info->m_count, info->m_button);
+    auto lang = AppUtil::instance().getCurrentLanguageCode();
+    onKeyRepeat(info->m_key, info->m_mask, info->m_count, info->m_button, lang);
 }
 
 void
@@ -1562,7 +1585,6 @@ Server::onClipboardChanged(BaseClientProxy* sender,
 	// get data
 	sender->getClipboard(id, &clipboard.m_clipboard);
 
-	// ignore if data hasn't changed
 	String data = clipboard.m_clipboard.marshall();
 	if (data.size() > m_maximumClipboardSize * 1024) {
 		LOG((CLOG_NOTE "not updating clipboard because it's over the size limit (%i KB) configured by the server",
@@ -1570,6 +1592,7 @@ Server::onClipboardChanged(BaseClientProxy* sender,
 		return;
 	}
 
+    // ignore if data hasn't changed
 	if (data == clipboard.m_clipboardData) {
 		LOG((CLOG_DEBUG "ignored screen \"%s\" update of clipboard %d (unchanged)", clipboard.m_clipboardOwner.c_str(), id));
 		return;
@@ -1646,15 +1669,15 @@ Server::onScreensaver(bool activated)
 }
 
 void
-Server::onKeyDown(KeyID id, KeyModifierMask mask, KeyButton button,
+Server::onKeyDown(KeyID id, KeyModifierMask mask, KeyButton button, const String& lang,
 				const char* screens)
 {
-	LOG((CLOG_DEBUG1 "onKeyDown id=%d mask=0x%04x button=0x%04x", id, mask, button));
+    LOG((CLOG_DEBUG1 "onKeyDown id=%d mask=0x%04x button=0x%04x lang=%s", id, mask, button, lang.c_str()));
 	assert(m_active != NULL);
 
 	// relay
 	if (!m_keyboardBroadcasting && IKeyState::KeyInfo::isDefault(screens)) {
-		m_active->keyDown(id, mask, button);
+        m_active->keyDown(id, mask, button, lang);
 	}
 	else {
 		if (!screens && m_keyboardBroadcasting) {
@@ -1666,7 +1689,7 @@ Server::onKeyDown(KeyID id, KeyModifierMask mask, KeyButton button,
 		for (ClientList::const_iterator index = m_clients.begin();
 								index != m_clients.end(); ++index) {
 			if (IKeyState::KeyInfo::contains(screens, index->first)) {
-				index->second->keyDown(id, mask, button);
+                index->second->keyDown(id, mask, button, lang);
 			}
 		}
 	}
@@ -1701,13 +1724,13 @@ Server::onKeyUp(KeyID id, KeyModifierMask mask, KeyButton button,
 
 void
 Server::onKeyRepeat(KeyID id, KeyModifierMask mask,
-				SInt32 count, KeyButton button)
+                SInt32 count, KeyButton button, const String& lang)
 {
-	LOG((CLOG_DEBUG1 "onKeyRepeat id=%d mask=0x%04x count=%d button=0x%04x", id, mask, count, button));
+    LOG((CLOG_DEBUG1 "onKeyRepeat id=%d mask=0x%04x count=%d button=0x%04x lang=\"%s\"", id, mask, count, button, lang.c_str()));
 	assert(m_active != NULL);
 
 	// relay
-	m_active->keyRepeat(id, mask, count, button);
+    m_active->keyRepeat(id, mask, count, button, lang);
 }
 
 void
@@ -2350,7 +2373,7 @@ Server::SwitchToScreenInfo::alloc(const String& screen)
 	SwitchToScreenInfo* info =
 		(SwitchToScreenInfo*)malloc(sizeof(SwitchToScreenInfo) +
 								screen.size());
-	strcpy(info->m_screen, screen.c_str());
+	strcpy(info->m_screen, screen.c_str()); // Compliant: we made sure the buffer is large enough
 	return info;
 }
 
@@ -2389,7 +2412,7 @@ Server::KeyboardBroadcastInfo::alloc(State state, const String& screens)
 		(KeyboardBroadcastInfo*)malloc(sizeof(KeyboardBroadcastInfo) +
 								screens.size());
 	info->m_state = state;
-	strcpy(info->m_screens, screens.c_str());
+	strcpy(info->m_screens, screens.c_str()); // Compliant: we made sure that screens variable ended with null
 	return info;
 }
 

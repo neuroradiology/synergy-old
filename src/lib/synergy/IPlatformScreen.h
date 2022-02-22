@@ -133,6 +133,12 @@ public:
     //! Change dragging status
     virtual void        setDraggingStarted(bool started) = 0;
 
+    //! Determine the name of the app causing a secure input state
+    /*!
+    On MacOS check which app causes a secure input state to be enabled. No alternative on other platforms
+    */
+    virtual String      getSecureInputApp() const = 0;
+
     //@}
     //! @name accessors
     //@{
@@ -174,9 +180,9 @@ public:
     virtual void        updateKeyState() = 0;
     virtual void        setHalfDuplexMask(KeyModifierMask) = 0;
     virtual void        fakeKeyDown(KeyID id, KeyModifierMask mask,
-                            KeyButton button) = 0;
+                            KeyButton button, const String& lang) = 0;
     virtual bool        fakeKeyRepeat(KeyID id, KeyModifierMask mask,
-                            SInt32 count, KeyButton button) = 0;
+                            SInt32 count, KeyButton button, const String& lang) = 0;
     virtual bool        fakeKeyUp(KeyButton button) = 0;
     virtual void        fakeAllKeysUp() = 0;
     virtual bool        fakeCtrlAltDel() = 0;

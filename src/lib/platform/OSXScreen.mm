@@ -46,6 +46,15 @@
 #include <AvailabilityMacros.h>
 #include <IOKit/hidsystem/event_status_driver.h>
 #include <AppKit/NSEvent.h>
+#include <libproc.h>
+
+// The following creates a section that tells Mac OS X
+// that it is OK to let us inject input in the login screen.
+// Just the name of the section is important, not its contents.
+__attribute__((used))
+__attribute__((section ("__CGPreLoginApp,__cgpreloginapp")))
+static const char magic_section[] = "";
+////////////////////////////////////////////////////////////
 
 // This isn't in any Apple SDK that I know of as of yet.
 enum {
@@ -57,6 +66,9 @@ enum {
 enum {
 	kCarbonLoopWaitTimeout = 10
 };
+
+int getSecureInputEventPID();
+String getProcessName(int pid);
 
 // TODO: upgrade deprecated function usage in these functions.
 void setZeroSuppressionInterval();
@@ -71,8 +83,11 @@ void avoidHesitatingCursor();
 bool					OSXScreen::s_testedForGHOM = false;
 bool					OSXScreen::s_hasGHOM	    = false;
 
-OSXScreen::OSXScreen(IEventQueue* events, bool isPrimary, bool autoShowHideCursor) :
-	PlatformScreen(events),
+OSXScreen::OSXScreen(IEventQueue* events,
+							bool isPrimary,
+							bool enableLangSync,
+							lib::synergy::ClientScrollDirection scrollDirection) :
+	PlatformScreen(events, scrollDirection),
 	m_isPrimary(isPrimary),
 	m_isOnScreen(m_isPrimary),
 	m_cursorPosValid(false),
@@ -101,7 +116,6 @@ OSXScreen::OSXScreen(IEventQueue* events, bool isPrimary, bool autoShowHideCurso
 	m_clickState(1),
 	m_lastSingleClickXCursor(0),
 	m_lastSingleClickYCursor(0),
-	m_autoShowHideCursor(autoShowHideCursor),
 	m_events(events),
 	m_getDropTargetThread(NULL),
 	m_impl(NULL)
@@ -113,8 +127,14 @@ OSXScreen::OSXScreen(IEventQueue* events, bool isPrimary, bool autoShowHideCurso
 
 	try {
 		m_screensaver = new OSXScreenSaver(m_events, getEventTarget());
-		m_keyState	  = new OSXKeyState(m_events);
-		
+		m_keyState	  = new OSXKeyState(m_events,
+						AppUtil::instance().getKeyboardLayoutList(),
+						enableLangSync);
+
+        if (App::instance().argsBase().m_preventSleep) {
+            m_powerManager.disableSleep();
+        }
+
 		// only needed when running as a server.
 		if (m_isPrimary) {
 		
@@ -170,7 +190,7 @@ OSXScreen::OSXScreen(IEventQueue* events, bool isPrimary, bool autoShowHideCurso
 		if (m_switchEventHandlerRef != 0) {
 			RemoveEventHandler(m_switchEventHandlerRef);
 		}
-		
+
 		CGDisplayRemoveReconfigurationCallback(displayReconfigurationCallback, this);
 
 		delete m_keyState;
@@ -190,6 +210,7 @@ OSXScreen::OSXScreen(IEventQueue* events, bool isPrimary, bool autoShowHideCurso
 OSXScreen::~OSXScreen()
 {
 	disable();
+
 	m_events->adoptBuffer(NULL);
 	m_events->removeHandler(Event::kSystem, m_events->getSystemTarget());
 
@@ -681,8 +702,8 @@ OSXScreen::fakeMouseWheel(SInt32 xDelta, SInt32 yDelta) const
 		CGEventRef scrollEvent = CGEventCreateScrollWheelEvent(
 			NULL, kCGScrollEventUnitLine, 2,
 			mapScrollWheelFromSynergy(yDelta),
-			-mapScrollWheelFromSynergy(xDelta));
-		
+			mapScrollWheelFromSynergy(xDelta));
+
         // Fix for sticky keys
         CGEventFlags modifiers = m_keyState->getModifierStateAsOSXFlags();
         CGEventSetFlags(scrollEvent, modifiers);
@@ -767,9 +788,7 @@ OSXScreen::enable()
 	else {
 		// FIXME -- prevent system from entering power save mode
 
-		if (m_autoShowHideCursor) {
-			hideCursor();
-		}
+		hideCursor();
 
 		// warp the mouse to the cursor center
 		fakeMouseMove(m_xCenter, m_yCenter);
@@ -783,25 +802,25 @@ OSXScreen::enable()
 										this);
 	}
 
-	if (!m_eventTapPort) {
+	if (m_eventTapPort) {
+		m_eventTapRLSR = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, m_eventTapPort, 0);
+		if (m_eventTapRLSR) {
+			CFRunLoopAddSource(CFRunLoopGetCurrent(), m_eventTapRLSR, kCFRunLoopDefaultMode);
+		}
+		else{
+			LOG((CLOG_ERR "failed to create a CFRunLoopSourceRef for the quartz event tap"));
+		}
+	}
+	else{
 		LOG((CLOG_ERR "failed to create quartz event tap"));
 	}
-
-	m_eventTapRLSR = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, m_eventTapPort, 0);
-	if (!m_eventTapRLSR) {
-		LOG((CLOG_ERR "failed to create a CFRunLoopSourceRef for the quartz event tap"));
-	}
-
-	CFRunLoopAddSource(CFRunLoopGetCurrent(), m_eventTapRLSR, kCFRunLoopDefaultMode);
 }
 
 void
 OSXScreen::disable()
 {
-	if (m_autoShowHideCursor) {
-		showCursor();
-	}
-    
+	showCursor();
+
 	// FIXME -- stop watching jump zones, stop capturing input
 	
 	if (m_eventTapRLSR) {
@@ -866,7 +885,7 @@ bool
 OSXScreen::leave()
 {
     hideCursor();
-    
+
 	if (isDraggingStarted()) {
 		String& fileList = getDraggingFilename();
 		
@@ -1437,9 +1456,8 @@ OSXScreen::mapMacButtonToSynergy(UInt16 macButton) const
 SInt32
 OSXScreen::mapScrollWheelToSynergy(SInt32 x) const
 {
-	// return accelerated scrolling but not exponentially scaled as it is
-	// on the mac.
-	double d = (1.0 + getScrollSpeed()) * x / getScrollSpeedFactor();
+	// return accelerated scrolling
+	double d = (1.0 + getScrollSpeed()) * x;
 	return static_cast<SInt32>(120.0 * d);
 }
 
@@ -1448,7 +1466,8 @@ OSXScreen::mapScrollWheelFromSynergy(SInt32 x) const
 {
 	// use server's acceleration with a little boost since other platforms
 	// take one wheel step as a larger step than the mac does.
-	return static_cast<SInt32>(3.0 * x / 120.0);
+	auto result = static_cast<SInt32>(3.0 * x / 120.0);
+	return mapClientScrollDirection(result);
 }
 
 double
@@ -1475,12 +1494,6 @@ OSXScreen::getScrollSpeed() const
 	}
 
 	return scaling;
-}
-
-double
-OSXScreen::getScrollSpeedFactor() const
-{
-	return pow(10.0, getScrollSpeed());
 }
 
 void
@@ -2101,7 +2114,7 @@ OSXScreen::getDraggingFilename()
 		}
 
 		// fake a escape key down and up then left mouse button up
-		fakeKeyDown(kKeyEscape, 8192, 1);
+        fakeKeyDown(kKeyEscape, 8192, 1, AppUtil::instance().getCurrentLanguageCode());
 		fakeKeyUp(1);
 		fakeMouseButton(kButtonLeft, false);
 	}
@@ -2132,6 +2145,72 @@ OSXScreen::waitForCarbonLoop() const
 	LOG((CLOG_DEBUG "carbon loop ready"));
 #endif
 
+}
+
+String
+OSXScreen::getSecureInputApp() const
+{
+	if(IsSecureEventInputEnabled()) {
+		int secureInputProcessPID = getSecureInputEventPID();
+		if(secureInputProcessPID == 0) return "unknown";
+		return getProcessName(secureInputProcessPID);
+	}
+	return "";
+}
+
+int
+getSecureInputEventPID()
+{
+    io_service_t		service = MACH_PORT_NULL, service_root = MACH_PORT_NULL;
+    mach_port_t			masterPort;
+
+    kern_return_t kr = IOMasterPort( MACH_PORT_NULL, &masterPort );
+    if(kr != KERN_SUCCESS) return 0;
+
+    // IO registry refuses to tap into the root level directly
+    // as a workaround access the parent of the top user level
+    service = IORegistryEntryFromPath( masterPort, kIOServicePlane ":/" );
+    IORegistryEntryGetParentEntry(service, kIOServicePlane, &service_root);
+
+    std::unique_ptr<std::remove_pointer<CFTypeRef>::type, decltype(&CFRelease)> consoleUsers(
+        IORegistryEntrySearchCFProperty(service_root, kIOServicePlane, CFSTR("IOConsoleUsers"), NULL, kIORegistryIterateParents | kIORegistryIterateRecursively),
+        CFRelease
+    );
+    if(!consoleUsers) return 0;
+
+    CFTypeID type = CFGetTypeID(consoleUsers.get());
+    if(type != CFArrayGetTypeID()) return 0;
+
+    CFTypeRef dict = CFArrayGetValueAtIndex((CFArrayRef)consoleUsers.get(), 0);
+    if(!dict) return 0;
+
+    type = CFGetTypeID(dict);
+    if(type != CFDictionaryGetTypeID()) return 0;
+
+    CFTypeRef secureInputPID = nullptr;
+    CFDictionaryGetValueIfPresent((CFDictionaryRef)dict, CFSTR("kCGSSessionSecureInputPID"), &secureInputPID);
+
+    if(secureInputPID == nullptr) return 0;
+
+    type = CFGetTypeID(secureInputPID);
+    if(type != CFNumberGetTypeID()) return 0;
+
+    auto pidRef = (CFNumberRef)secureInputPID;
+    CFNumberType numberType = CFNumberGetType(pidRef);
+    if(numberType != kCFNumberSInt32Type) return 0;
+
+    int pid;
+    CFNumberGetValue(pidRef, kCFNumberSInt32Type, &pid);
+    return pid;
+}
+
+String
+getProcessName(int pid)
+{
+    if(!pid) return "";
+    char buf[128];
+    proc_name(pid, buf, sizeof(buf));
+    return buf;
 }
 
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"

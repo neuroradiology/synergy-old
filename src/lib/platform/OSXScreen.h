@@ -19,6 +19,7 @@
 #pragma once
 
 #include "platform/OSXClipboard.h"
+#include "platform/OSXPowerManager.h"
 #include "synergy/PlatformScreen.h"
 #include "synergy/DragInformation.h"
 #include "base/EventTypes.h"
@@ -30,7 +31,6 @@
 #include <mach/mach_port.h>
 #include <mach/mach_interface.h>
 #include <mach/mach_init.h>
-#include <IOKit/pwr_mgt/IOPMLib.h>
 #include <IOKit/IOMessage.h>
 
 extern "C" {
@@ -53,60 +53,65 @@ class Mutex;
 //! Implementation of IPlatformScreen for OS X
 class OSXScreen : public PlatformScreen {
 public:
-    OSXScreen(IEventQueue* events, bool isPrimary, bool autoShowHideCursor=true);
+	 OSXScreen(IEventQueue* events,
+				bool isPrimary,
+				bool enableLangSync = false,
+				lib::synergy::ClientScrollDirection scrollDirection = lib::synergy::ClientScrollDirection::SERVER);
+
     virtual ~OSXScreen();
 
     IEventQueue*        getEvents() const { return m_events; }
 
     // IScreen overrides
-    virtual void*        getEventTarget() const;
-    virtual bool        getClipboard(ClipboardID id, IClipboard*) const;
-    virtual void        getShape(SInt32& x, SInt32& y,
-                            SInt32& width, SInt32& height) const;
-    virtual void        getCursorPos(SInt32& x, SInt32& y) const;
+    void*       getEventTarget() const override;
+    bool        getClipboard(ClipboardID id, IClipboard*) const override;
+    void        getShape(SInt32& x, SInt32& y,
+                            SInt32& width, SInt32& height) const override;
+    void        getCursorPos(SInt32& x, SInt32& y) const override;
 
     // IPrimaryScreen overrides
-    virtual void        reconfigure(UInt32 activeSides);
-    virtual void        warpCursor(SInt32 x, SInt32 y);
-    virtual UInt32        registerHotKey(KeyID key, KeyModifierMask mask);
-    virtual void        unregisterHotKey(UInt32 id);
-    virtual void        fakeInputBegin();
-    virtual void        fakeInputEnd();
-    virtual SInt32        getJumpZoneSize() const;
-    virtual bool        isAnyMouseButtonDown(UInt32& buttonID) const;
-    virtual void        getCursorCenter(SInt32& x, SInt32& y) const;
+    void        reconfigure(UInt32 activeSides) override;
+    void        warpCursor(SInt32 x, SInt32 y) override;
+    UInt32      registerHotKey(KeyID key, KeyModifierMask mask) override;
+    void        unregisterHotKey(UInt32 id) override;
+    void        fakeInputBegin() override;
+    void        fakeInputEnd() override;
+    SInt32      getJumpZoneSize() const override;
+    bool        isAnyMouseButtonDown(UInt32& buttonID) const override;
+    void        getCursorCenter(SInt32& x, SInt32& y) const override;
 
     // ISecondaryScreen overrides
-    virtual void        fakeMouseButton(ButtonID id, bool press);
-    virtual void        fakeMouseMove(SInt32 x, SInt32 y);
-    virtual void        fakeMouseRelativeMove(SInt32 dx, SInt32 dy) const;
-    virtual void        fakeMouseWheel(SInt32 xDelta, SInt32 yDelta) const;
+    void        fakeMouseButton(ButtonID id, bool press) override;
+    void        fakeMouseMove(SInt32 x, SInt32 y) override;
+    void        fakeMouseRelativeMove(SInt32 dx, SInt32 dy) const override;
+    void        fakeMouseWheel(SInt32 xDelta, SInt32 yDelta) const override;
 
     // IPlatformScreen overrides
-    virtual void        enable();
-    virtual void        disable();
-    virtual void        enter();
-    virtual bool        leave();
-    virtual bool        setClipboard(ClipboardID, const IClipboard*);
-    virtual void        checkClipboards();
-    virtual void        openScreensaver(bool notify);
-    virtual void        closeScreensaver();
-    virtual void        screensaver(bool activate);
-    virtual void        resetOptions();
-    virtual void        setOptions(const OptionsList& options);
-    virtual void        setSequenceNumber(UInt32);
-    virtual bool        isPrimary() const;
-    virtual void        fakeDraggingFiles(DragFileList fileList);
-    virtual String&    getDraggingFilename();
+    void        enable() override;
+    void        disable() override;
+    void        enter() override;
+    bool        leave() override;
+    bool        setClipboard(ClipboardID, const IClipboard*) override;
+    void        checkClipboards() override;
+    void        openScreensaver(bool notify) override;
+    void        closeScreensaver() override;
+    void        screensaver(bool activate) override;
+    void        resetOptions() override;
+    void        setOptions(const OptionsList& options) override;
+    void        setSequenceNumber(UInt32) override;
+    bool        isPrimary() const override;
+    void        fakeDraggingFiles(DragFileList fileList) override;
+    String&     getDraggingFilename() override;
+    String      getSecureInputApp() const override;
     
-    const String&        getDropTarget() const { return m_dropTarget; }
-    void                waitForCarbonLoop() const;
+    const String&   getDropTarget() const override { return m_dropTarget; }
+    void            waitForCarbonLoop() const;
     
 protected:
     // IPlatformScreen overrides
-    virtual void        handleSystemEvent(const Event&, void*);
-    virtual void        updateButtons();
-    virtual IKeyState*    getKeyState() const;
+    void            handleSystemEvent(const Event&, void*) override;
+    void            updateButtons() override;
+    IKeyState*      getKeyState() const override;
 
 private:
     bool                updateScreenShape();
@@ -151,9 +156,6 @@ private:
 
     // get the current scroll wheel speed
     double                getScrollSpeed() const;
-
-    // get the current scroll wheel speed
-    double                getScrollSpeedFactor() const;
 
     // enable/disable drag handling for buttons 3 and up
     void                enableDragTimer(bool enable);
@@ -332,18 +334,17 @@ private:
     SInt32                    m_lastSingleClickXCursor;
     SInt32                    m_lastSingleClickYCursor;
 
-    // cursor will hide and show on enable and disable if true.
-    bool                    m_autoShowHideCursor;
-
     IEventQueue*            m_events;
     
     Thread*                m_getDropTargetThread;
     String                    m_dropTarget;
-    
+
 #if defined(MAC_OS_X_VERSION_10_7)
     Mutex*                    m_carbonLoopMutex;
     CondVar<bool>*            m_carbonLoopReady;
 #endif
+
+    OSXPowerManager m_powerManager;
 
     class OSXScreenImpl*    m_impl;
 };

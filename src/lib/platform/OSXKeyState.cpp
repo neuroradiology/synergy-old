@@ -118,6 +118,11 @@ static const KeyEntry    s_controlKeys[] = {
     // toggle modifiers
     { kKeyNumLock,        s_numLockVK },
     { kKeyCapsLock,        s_capsLockVK },
+
+    // for Apple Pro JIS Keyboard, map Kana (IME activate) to Henkan (show next IME conversion), and 
+    // Eisu (IME deactivate) to Zenkaku (IME activation toggle) on Windows Japanese keyboard (OADG109A)
+    { kKeyHenkan,        kVK_JIS_Kana },
+    { kKeyZenkaku,        kVK_JIS_Eisu },
     
     { kKeyMissionControl, s_missionControlVK },
     { kKeyLaunchpad, s_launchpadVK },
@@ -125,19 +130,79 @@ static const KeyEntry    s_controlKeys[] = {
     { kKeyBrightnessDown, s_brightnessDown }
 };
 
+namespace {
+
+io_connect_t
+getService(io_iterator_t iter) {
+    io_connect_t service = 0;
+    auto nextIterator = IOIteratorNext(iter);
+
+    if (nextIterator) {
+        IOServiceOpen(nextIterator, mach_task_self(), kIOHIDParamConnectType, &service);
+        IOObjectRelease(nextIterator);
+    }
+
+    return service;
+}
+
+io_connect_t
+getEventDriver()
+{
+    static io_connect_t sEventDrvrRef = 0;
+
+    if (!sEventDrvrRef) {
+        // Get master device port
+        mach_port_t masterPort = 0;
+        if (!IOMasterPort(bootstrap_port, &masterPort)) {
+            io_iterator_t iter = 0;
+            auto dict = IOServiceMatching(kIOHIDSystemClass);
+
+            if (!IOServiceGetMatchingServices(masterPort, dict, &iter)) {
+                sEventDrvrRef = getService(iter);
+            }
+            else {
+                LOG((CLOG_WARN, "IOService not found"));
+            }
+
+            IOObjectRelease(iter);
+        }
+        else {
+            LOG((CLOG_WARN, "Couldn't obtain IO master port"));
+        }
+    }
+
+    return sEventDrvrRef;
+}
+
+bool
+isModifier(UInt8 virtualKey) {
+    static std::set<UInt8> modifiers {
+        s_shiftVK,
+        s_superVK,
+        s_altVK,
+        s_controlVK,
+        s_capsLockVK
+    };
+
+    return (modifiers.find(virtualKey) != modifiers.end());
+}
+
+} //namespace
+
 
 //
 // OSXKeyState
 //
 
-OSXKeyState::OSXKeyState(IEventQueue* events) :
-    KeyState(events)
+OSXKeyState::OSXKeyState(IEventQueue* events, std::vector<String> layouts, bool isLangSyncEnabled) :
+    KeyState(events, std::move(layouts), isLangSyncEnabled)
 {
     init();
 }
 
-OSXKeyState::OSXKeyState(IEventQueue* events, synergy::KeyMap& keyMap) :
-    KeyState(events, keyMap)
+OSXKeyState::OSXKeyState(IEventQueue* events, synergy::KeyMap& keyMap,
+                         std::vector<String> layouts, bool isLangSyncEnabled) :
+    KeyState(events, keyMap, std::move(layouts), isLangSyncEnabled)
 {
     init();
 }
@@ -331,26 +396,26 @@ OSXKeyState::fakeCtrlAltDel()
 bool
 OSXKeyState::fakeMediaKey(KeyID id)
 {
-    return fakeNativeMediaKey(id);;
+    return fakeNativeMediaKey(id);
 }
 
 CGEventFlags
-OSXKeyState::getModifierStateAsOSXFlags()
+OSXKeyState::getModifierStateAsOSXFlags() const
 {
     CGEventFlags modifiers = 0;
-    
+
     if (m_shiftPressed) {
         modifiers |= kCGEventFlagMaskShift;
     }
-    
+
     if (m_controlPressed) {
         modifiers |= kCGEventFlagMaskControl;
     }
-    
+
     if (m_altPressed) {
         modifiers |= kCGEventFlagMaskAlternate;
     }
-    
+
     if (m_superPressed) {
         modifiers |= kCGEventFlagMaskCommand;
     }
@@ -358,7 +423,7 @@ OSXKeyState::getModifierStateAsOSXFlags()
     if (m_capsPressed) {
         modifiers |= kCGEventFlagMaskAlphaShift;
     }
-    
+
     return modifiers;
 }
 
@@ -406,7 +471,7 @@ OSXKeyState::pollActiveGroup() const
         return i->second;
     }
     
-    LOG((CLOG_DEBUG "can't get the active group, use the first group instead"));
+    LOG((CLOG_WARN "can't get the active group, use the first group instead"));
 
     return 0;
 }
@@ -471,102 +536,104 @@ OSXKeyState::getKeyMap(synergy::KeyMap& keyMap)
     }
 }
 
-static io_connect_t getEventDriver(void)
+CGEventFlags
+OSXKeyState::getDeviceDependedFlags() const
 {
-    static mach_port_t sEventDrvrRef = 0;
-    mach_port_t masterPort, service, iter;
-    kern_return_t kr;
-    
-    if (!sEventDrvrRef) {
-        // Get master device port
-        kr = IOMasterPort(bootstrap_port, &masterPort);
-        assert(KERN_SUCCESS == kr);
-        
-        kr = IOServiceGetMatchingServices(masterPort,
-                IOServiceMatching(kIOHIDSystemClass), &iter);
-        assert(KERN_SUCCESS == kr);
-        
-        service = IOIteratorNext(iter);
-        assert(service);
-        
-        kr = IOServiceOpen(service, mach_task_self(),
-                kIOHIDParamConnectType, &sEventDrvrRef);
-        assert(KERN_SUCCESS == kr);
+    CGEventFlags modifiers = 0;
 
-        IOObjectRelease(service);
-        IOObjectRelease(iter);
+    if (m_shiftPressed) {
+        modifiers |= NX_DEVICELSHIFTKEYMASK;
     }
-    
-    return sEventDrvrRef;
+
+    if (m_controlPressed) {
+        modifiers |= NX_DEVICELCTLKEYMASK;
+    }
+
+    if (m_altPressed) {
+        modifiers |= NX_DEVICELALTKEYMASK;
+    }
+
+    if (m_superPressed) {
+        modifiers |= NX_DEVICELCMDKEYMASK;
+    }
+
+    return modifiers;
+}
+
+
+CGEventFlags
+OSXKeyState::getKeyboardEventFlags() const
+{
+    // set the event flags for special keys
+    // http://tinyurl.com/pxl742y
+    CGEventFlags modifiers = getModifierStateAsOSXFlags();
+
+    if (!m_capsPressed) {
+        modifiers |= getDeviceDependedFlags();
+    }
+
+    return modifiers;
+}
+
+void 
+OSXKeyState::setKeyboardModifiers(CGKeyCode virtualKey, bool keyDown)
+{
+    switch(virtualKey) {
+        case s_shiftVK:
+            m_shiftPressed = keyDown;
+            break;
+        case s_controlVK:
+            m_controlPressed = keyDown;
+            break;
+        case s_altVK:
+            m_altPressed = keyDown;
+            break;
+        case s_superVK:
+            m_superPressed = keyDown;
+            break;
+        case s_capsLockVK:
+            m_capsPressed = keyDown;
+            break;
+        default:
+            LOG((CLOG_DEBUG1 "The key is not a modifier"));
+            break;
+    }
+}
+
+kern_return_t
+OSXKeyState::postHIDVirtualKey(UInt8 virtualKey, bool postDown)
+{
+    NXEventData event;
+    bzero(&event, sizeof(NXEventData));
+    auto driver = getEventDriver();
+    kern_return_t result = KERN_FAILURE;
+
+    if (driver) {
+        if (isModifier(virtualKey)) {
+            result = IOHIDPostEvent(driver, NX_FLAGSCHANGED, {0,0}, &event, kNXEventDataVersion, getKeyboardEventFlags(), true);
+        }
+        else {
+            event.key.keyCode = virtualKey;
+            const auto eventType = postDown ? NX_KEYDOWN : NX_KEYUP;
+            result = IOHIDPostEvent(driver, eventType, {0,0}, &event, kNXEventDataVersion, 0, false);
+        }
+
+    }
+
+    return result;
 }
 
 void
-OSXKeyState::postHIDVirtualKey(const UInt8 virtualKeyCode,
-                const bool postDown)
+OSXKeyState::postKeyboardKey(CGKeyCode virtualKey, bool keyDown)
 {
-    static UInt32 modifiers = 0;
-    
-    NXEventData event;
-    IOGPoint loc = { 0, 0 };
-    UInt32 modifiersDelta = 0;
-
-    bzero(&event, sizeof(NXEventData));
-
-    switch (virtualKeyCode)
-    {
-    case s_shiftVK:
-    case s_superVK:
-    case s_altVK:
-    case s_controlVK:
-    case s_capsLockVK:
-        switch (virtualKeyCode)
-        {
-        case s_shiftVK:
-                modifiersDelta = NX_SHIFTMASK;
-                m_shiftPressed = postDown;
-                break;
-        case s_superVK:
-                modifiersDelta = NX_COMMANDMASK;
-                m_superPressed = postDown;
-                break;
-        case s_altVK:
-                modifiersDelta = NX_ALTERNATEMASK;
-                m_altPressed = postDown;
-                break;
-        case s_controlVK:
-                modifiersDelta = NX_CONTROLMASK;
-                m_controlPressed = postDown;
-                break;
-        case s_capsLockVK:
-                modifiersDelta = NX_ALPHASHIFTMASK;
-                m_capsPressed = postDown;
-                break;
-        }
-        
-        // update the modifier bit
-        if (postDown) {
-            modifiers |= modifiersDelta;
-        }
-        else {
-            modifiers &= ~modifiersDelta;
-        }
-            
-        kern_return_t kr;
-        kr = IOHIDPostEvent(getEventDriver(), NX_FLAGSCHANGED, loc,
-                &event, kNXEventDataVersion, modifiers, true);
-        assert(KERN_SUCCESS == kr);
-        break;
-
-    default:
-        event.key.repeat = false;
-        event.key.keyCode = virtualKeyCode;
-        event.key.origCharSet = event.key.charSet = NX_ASCIISET;
-        event.key.origCharCode = event.key.charCode = 0;
-        kr = IOHIDPostEvent(getEventDriver(),
-                postDown ? NX_KEYDOWN : NX_KEYUP,
-                loc, &event, kNXEventDataVersion, 0, false);
-        assert(KERN_SUCCESS == kr);
-        break;
+    CGEventRef event = CGEventCreateKeyboardEvent(nullptr, virtualKey, keyDown);
+    if (event) {
+        CGEventSetFlags(event, getKeyboardEventFlags());
+        CGEventPost(kCGHIDEventTap, event);
+        CFRelease(event);
+    }
+    else {
+        LOG((CLOG_CRIT "unable to create keyboard event for keystroke"));
     }
 }
 
@@ -574,33 +641,43 @@ void
 OSXKeyState::fakeKey(const Keystroke& keystroke)
 {
     switch (keystroke.m_type) {
-    case Keystroke::kButton: {
-        
-        KeyButton button = keystroke.m_data.m_button.m_button;
-        bool keyDown = keystroke.m_data.m_button.m_press;
-        CGKeyCode virtualKey = mapKeyButtonToVirtualKey(button);
-        
-        LOG((CLOG_DEBUG1
-            "  button=0x%04x virtualKey=0x%04x keyDown=%s",
-            button, virtualKey, keyDown ? "down" : "up"));
+        case Keystroke::kButton: {
+            bool keyDown = keystroke.m_data.m_button.m_press;
+            UInt32 client = keystroke.m_data.m_button.m_client;
+            KeyButton button = keystroke.m_data.m_button.m_button;
+            CGKeyCode virtualKey = mapKeyButtonToVirtualKey(button);
 
-        postHIDVirtualKey(virtualKey, keyDown);
+            LOG((CLOG_DEBUG1
+                 "  button=0x%04x virtualKey=0x%04x keyDown=%s client=0x%04x",
+                    button, virtualKey, keyDown ? "down" : "up", client));
 
-        break;
-    }
+            setKeyboardModifiers(virtualKey, keyDown);
+            if (postHIDVirtualKey(virtualKey, keyDown) != KERN_SUCCESS) {
+                LOG((CLOG_WARN, "Fail to post HID event"));
+                postKeyboardKey(virtualKey, keyDown);
+            }
 
-    case Keystroke::kGroup: {
-        SInt32 group = keystroke.m_data.m_group.m_group;
-        if (keystroke.m_data.m_group.m_absolute) {
-            LOG((CLOG_DEBUG1 "  group %d", group));
-            setGroup(group);
+            break;
         }
-        else {
-            LOG((CLOG_DEBUG1 "  group %+d", group));
-            setGroup(getEffectiveGroup(pollActiveGroup(), group));
+
+        case Keystroke::kGroup: {
+            SInt32 group = keystroke.m_data.m_group.m_group;
+            if (!keystroke.m_data.m_group.m_restore) {
+                if (keystroke.m_data.m_group.m_absolute) {
+                    LOG((CLOG_DEBUG1 "  group %d", group));
+                    setGroup(group);
+                }
+                else {
+                    LOG((CLOG_DEBUG1 "  group %+d", group));
+                    setGroup(getEffectiveGroup(pollActiveGroup(), group));
+                }
+
+                if(pollActiveGroup() != group) {
+                    LOG((CLOG_WARN "Failed to set new keyboard layout!"));
+                }
+            }
+            break;
         }
-        break;
-    }
     }
 }
 
@@ -856,7 +933,29 @@ void
 OSXKeyState::setGroup(SInt32 group)
 {
     TISInputSourceRef keyboardLayout = (TISInputSourceRef)CFArrayGetValueAtIndex(m_groups.get(), group);
-    TISSetInputMethodKeyboardLayoutOverride(keyboardLayout);
+    if(!keyboardLayout) {
+        LOG((CLOG_WARN "Nedeed keyboard layout is null"));
+        return;
+    }
+    auto canBeSetted = (CFBooleanRef)TISGetInputSourceProperty(TISCopyCurrentKeyboardInputSource(), kTISPropertyInputSourceIsEnableCapable);
+    if(!canBeSetted) {
+        LOG((CLOG_WARN "Nedeed keyboard layout is disabled for programmatically selection"));
+        return;
+    }
+
+    if(TISSelectInputSource(keyboardLayout) != noErr) {
+        LOG((CLOG_WARN "Failed to set nedeed keyboard layout"));
+    }
+
+    LOG((CLOG_DEBUG1 "Keyboard layout change to %d", group));
+
+    //A minimal delay is needed after a group change because the
+    //keyboard key event often happens immediately after.
+    //Language (TIS) and event (CG) systems are not in the mutual
+    //event queue and without a delay the subsequent key press
+    //event could be applied before the keyboard layout would
+    //actually be changed.
+    ARCH->sleep(.01);
 }
 
 void

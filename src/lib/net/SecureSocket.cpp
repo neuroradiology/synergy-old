@@ -23,6 +23,7 @@
 #include "mt/Lock.h"
 #include "arch/XArch.h"
 #include "base/Log.h"
+#include "base/Path.h"
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -333,7 +334,7 @@ SecureSocket::loadCertificates(String& filename)
         return false;
     }
     else {
-        std::ifstream file(filename.c_str());
+        std::ifstream file(synergy::filesystem::path(filename));
         bool exist = file.good();
         file.close();
 
@@ -692,7 +693,7 @@ SecureSocket::verifyCertFingerprint()
     }
 
     // format fingerprint into hexdecimal format with colon separator
-    String fingerprint(reinterpret_cast<char*>(tempFingerprint), tempFingerprintLen);
+    String fingerprint(static_cast<char*>(static_cast<void*>(tempFingerprint)), tempFingerprintLen);
     formatFingerprint(fingerprint);
     LOG((CLOG_NOTE "server fingerprint: %s", fingerprint.c_str()));
 
@@ -706,17 +707,20 @@ SecureSocket::verifyCertFingerprint()
     // check if this fingerprint exist
     String fileLine;
     std::ifstream file;
-    file.open(trustedServersFilename.c_str());
+    file.open(synergy::filesystem::path(trustedServersFilename));
 
     bool isValid = false;
-    while (!file.eof() && file.is_open()) {
-        getline(file,fileLine);
-        if (!fileLine.empty()) {
-            if (fileLine.compare(fingerprint) == 0) {
+    if (file.is_open()) {
+        while (!file.eof()) {
+            getline(file,fileLine);
+            if (!fileLine.empty() && !fileLine.compare(fingerprint)) {
                 isValid = true;
                 break;
             }
         }
+    }
+    else {
+        LOG((CLOG_ERR "Fail to open trusted fingerprints file: %s", trustedServersFilename.c_str()));
     }
 
     file.close();
@@ -792,7 +796,7 @@ showCipherStackDesc(STACK_OF(SSL_CIPHER) * stack) {
         SSL_CIPHER_description(cipher, msg, kMsgSize);
 
         // Why does SSL put a newline in the description?
-        int pos = (int)strlen(msg) - 1;
+        int pos = (int)strnlen(msg, kMsgSize) - 1;
         if (msg[pos] == '\n') {
             msg[pos] = '\0';
         }

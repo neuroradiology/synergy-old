@@ -19,6 +19,7 @@
 #include "client/Client.h"
 
 #include "client/ServerProxy.h"
+#include "synergy/AppUtil.h"
 #include "synergy/Screen.h"
 #include "synergy/FileChunk.h"
 #include "synergy/DropHelper.h"
@@ -46,6 +47,7 @@
 #include <fstream>
 #include <algorithm>
 #include <climits>
+#include <iterator>
 
 //
 // Client
@@ -122,7 +124,7 @@ Client::~Client()
 }
 
 void
-Client::connect()
+Client::connect(size_t addressIndex)
 {
     if (m_stream != NULL) {
         return;
@@ -138,10 +140,10 @@ Client::connect()
         // has changed (which can happen frequently if this is a laptop
         // being shuttled between various networks).  patch by Brent
         // Priddy.
-        m_serverAddress.resolve();
+        m_resolvedAddressesCount = m_serverAddress.resolve(addressIndex);
         
         // m_serverAddress will be null if the hostname address is not reolved
-        if (m_serverAddress.getAddress() != NULL) {
+        if (m_serverAddress.getAddress() != nullptr) {
           // to help users troubleshoot, show server host name (issue: 60)
           LOG((CLOG_NOTE "connecting to '%s': %s:%i", 
           m_serverAddress.getHostname().c_str(),
@@ -176,16 +178,26 @@ Client::connect()
 void
 Client::disconnect(const char* msg)
 {
-    m_connectOnResume = false;
-    cleanupTimer();
-    cleanupScreen();
-    cleanupConnecting();
-    cleanupConnection();
-    if (msg != NULL) {
+    cleanup();
+
+    if (msg) {
         sendConnectionFailedEvent(msg);
     }
     else {
         sendEvent(m_events->forClient().disconnected(), NULL);
+    }
+}
+
+void
+Client::refuseConnection(const char* msg)
+{
+    cleanup();
+
+    if (msg) {
+        auto info = new FailInfo(msg);
+        info->m_retry = true;
+        Event event(m_events->forClient().connectionRefused(), getEventTarget(), info, Event::kDontFreeData);
+        m_events->addEvent(event);
     }
 }
 
@@ -294,16 +306,16 @@ Client::setClipboardDirty(ClipboardID, bool)
 }
 
 void
-Client::keyDown(KeyID id, KeyModifierMask mask, KeyButton button)
+Client::keyDown(KeyID id, KeyModifierMask mask, KeyButton button, const String &lang)
 {
-     m_screen->keyDown(id, mask, button);
+     m_screen->keyDown(id, mask, button, lang);
 }
 
 void
 Client::keyRepeat(KeyID id, KeyModifierMask mask,
-                SInt32 count, KeyButton button)
+                SInt32 count, KeyButton button, const String& lang)
 {
-     m_screen->keyRepeat(id, mask, count, button);
+     m_screen->keyRepeat(id, mask, count, button, lang);
 }
 
 void
@@ -534,10 +546,20 @@ Client::setupTimer()
 {
     assert(m_timer == NULL);
 
-    m_timer = m_events->newOneShotTimer(15.0, NULL);
+    m_timer = m_events->newOneShotTimer(2.0, NULL);
     m_events->adoptHandler(Event::kTimer, m_timer,
                             new TMethodEventJob<Client>(this,
                                 &Client::handleConnectTimeout));
+}
+
+void
+Client::cleanup()
+{
+    m_connectOnResume = false;
+    cleanupTimer();
+    cleanupScreen();
+    cleanupConnecting();
+    cleanupConnection();
 }
 
 void
@@ -697,6 +719,27 @@ Client::handleClipboardGrabbed(const Event& event, void*)
     }
 }
 
+bool
+Client::isCompatible(int major, int minor) const
+{
+    const std::map< int, std::set<int> > compatibleTable {
+        {6, {7, 8}}, //1.6 is compatible with 1.7 and 1.8
+        {7, {8}} //1.7 is compatible with 1.8
+    };
+
+    bool isCompatible = false;
+
+    if (major == kProtocolMajorVersion) {
+        auto versions = compatibleTable.find(minor);
+        if (versions != compatibleTable.end()) {
+            auto compatibleVersions = versions->second;
+            isCompatible = compatibleVersions.find(kProtocolMinorVersion) != compatibleVersions.end();
+        }
+    }
+
+    return isCompatible;
+}
+
 void
 Client::handleHello(const Event&, void*)
 {
@@ -710,7 +753,15 @@ Client::handleHello(const Event&, void*)
 
     // check versions
     LOG((CLOG_DEBUG1 "got hello version %d.%d", major, minor));
-    if (major < kProtocolMajorVersion ||
+    SInt16 helloBackMajor = kProtocolMajorVersion;
+    SInt16 helloBackMinor = kProtocolMinorVersion;
+
+    if (isCompatible(major, minor)) {
+        //because 1.6 is comptable with 1.7 and 1.8 - downgrading protocol for server
+        LOG((CLOG_NOTE "Downgrading protocol version for server"));
+        helloBackMinor = minor;
+    }
+    else if (major < kProtocolMajorVersion ||
         (major == kProtocolMajorVersion && minor < kProtocolMinorVersion)) {
         sendConnectionFailedEvent(XIncompatibleClient(major, minor).what());
         cleanupTimer();
@@ -719,10 +770,8 @@ Client::handleHello(const Event&, void*)
     }
 
     // say hello back
-    LOG((CLOG_DEBUG1 "say hello version %d.%d", kProtocolMajorVersion, kProtocolMinorVersion));
-    ProtocolUtil::writef(m_stream, kMsgHelloBack,
-                            kProtocolMajorVersion,
-                            kProtocolMinorVersion, &m_name);
+    LOG((CLOG_DEBUG1 "say hello version %d.%d", helloBackMajor, helloBackMinor));
+    ProtocolUtil::writef(m_stream, kMsgHelloBack, helloBackMajor, helloBackMinor, &m_name);
 
     // now connected but waiting to complete handshake
     setupScreen();
@@ -740,21 +789,25 @@ Client::handleHello(const Event&, void*)
 void
 Client::handleSuspend(const Event&, void*)
 {
-    LOG((CLOG_INFO "suspend"));
-    m_suspended       = true;
-    bool wasConnected = isConnected();
-    disconnect(NULL);
-    m_connectOnResume = wasConnected;
+    if (!m_suspended) {
+        LOG((CLOG_INFO "suspend"));
+        m_suspended       = true;
+        bool wasConnected = isConnected();
+        disconnect(NULL);
+        m_connectOnResume = wasConnected;
+    }
 }
 
 void
 Client::handleResume(const Event&, void*)
 {
-    LOG((CLOG_INFO "resume"));
-    m_suspended = false;
-    if (m_connectOnResume) {
-        m_connectOnResume = false;
-        connect();
+    if (m_suspended) {
+        LOG((CLOG_INFO "resume"));
+        m_suspended = false;
+        if (m_connectOnResume) {
+            m_connectOnResume = false;
+            connect();
+        }
     }
 }
 

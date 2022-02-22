@@ -33,7 +33,7 @@ public:
     static AppUtil& instance();
     static void exitAppStatic(int code) { instance().exitApp(code); }
     virtual void beforeAppExit() {}
-    
+
 private:
     IApp* m_app;
     static AppUtil* s_instance;

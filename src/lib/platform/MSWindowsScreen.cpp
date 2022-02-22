@@ -96,8 +96,10 @@ MSWindowsScreen::MSWindowsScreen(
     bool isPrimary,
     bool noHooks,
     bool stopOnDeskSwitch,
-    IEventQueue* events) :
-    PlatformScreen(events),
+    IEventQueue* events,
+    bool enableLangSync,
+    lib::synergy::ClientScrollDirection scrollDirection) :
+    PlatformScreen(events, scrollDirection),
     m_isPrimary(isPrimary),
     m_noHooks(noHooks),
     m_isOnScreen(m_isPrimary),
@@ -144,7 +146,9 @@ MSWindowsScreen::MSWindowsScreen(
                             new TMethodJob<MSWindowsScreen>(
                                 this, &MSWindowsScreen::updateKeysCB),
                             stopOnDeskSwitch);
-        m_keyState    = new MSWindowsKeyState(m_desks, getEventTarget(), m_events);
+        m_keyState    = new MSWindowsKeyState(m_desks, getEventTarget(), m_events,
+                                              AppUtil::instance().getKeyboardLayoutList(),
+                                              enableLangSync);
 
         updateScreenShape();
         m_class       = createWindowClass();
@@ -161,6 +165,10 @@ MSWindowsScreen::MSWindowsScreen(
         }
         else {
             LOG((CLOG_ERR "failed to get desktop path, no drop target available, error=%d", GetLastError()));
+        }
+
+        if (App::instance().argsBase().m_preventSleep) {
+            m_powerManager.disableSleep();
         }
 
         OleInitialize(0);
@@ -247,12 +255,6 @@ MSWindowsScreen::enable()
         // watch jump zones
         m_hook.setMode(kHOOK_WATCH_JUMP_ZONE);
     }
-    else {
-        // prevent the system from entering power saving modes.  if
-        // it did we'd be forced to disconnect from the server and
-        // the server would not be able to wake us up.
-        ArchMiscWindows::addBusyState(ArchMiscWindows::kSYSTEM);
-    }
 }
 
 void
@@ -267,11 +269,6 @@ MSWindowsScreen::disable()
 
         // enable special key sequences on win95 family
         enableSpecialKeys(true);
-    }
-    else {
-        // allow the system to enter power saving mode
-        ArchMiscWindows::removeBusyState(ArchMiscWindows::kSYSTEM |
-                            ArchMiscWindows::kDISPLAY);
     }
 
     // tell key state
@@ -337,9 +334,7 @@ MSWindowsScreen::leave()
     }
     // get keyboard layout of foreground window.  we'll use this
     // keyboard layout for translating keys sent to clients.
-    HWND window  = GetForegroundWindow();
-    DWORD thread = GetWindowThreadProcessId(window, NULL);
-    m_keyLayout  = GetKeyboardLayout(thread);
+    m_keyLayout = AppUtilWindows::instance().getCurrentKeyboardLayout();
 
     // tell the key mapper about the keyboard layout
     m_keyState->setKeyLayout(m_keyLayout);
@@ -832,6 +827,8 @@ MSWindowsScreen::fakeMouseRelativeMove(SInt32 dx, SInt32 dy) const
 void
 MSWindowsScreen::fakeMouseWheel(SInt32 xDelta, SInt32 yDelta) const
 {
+    xDelta = mapClientScrollDirection(xDelta);
+    yDelta = mapClientScrollDirection(yDelta);
     m_desks->fakeMouseWheel(xDelta, yDelta);
 }
 
@@ -843,17 +840,17 @@ MSWindowsScreen::updateKeys()
 
 void
 MSWindowsScreen::fakeKeyDown(KeyID id, KeyModifierMask mask,
-                KeyButton button)
+                KeyButton button, const String& lang)
 {
-    PlatformScreen::fakeKeyDown(id, mask, button);
+    PlatformScreen::fakeKeyDown(id, mask, button, lang);
     updateForceShowCursor();
 }
 
 bool
 MSWindowsScreen::fakeKeyRepeat(KeyID id, KeyModifierMask mask,
-                SInt32 count, KeyButton button)
+                SInt32 count, KeyButton button, const String& lang)
 {
-    bool result = PlatformScreen::fakeKeyRepeat(id, mask, count, button);
+    bool result = PlatformScreen::fakeKeyRepeat(id, mask, count, button, lang);
     updateForceShowCursor();
     return result;
 }
@@ -1137,6 +1134,14 @@ MSWindowsScreen::onEvent(HWND, UINT msg,
     case WM_DISPLAYCHANGE:
         return onDisplayChange();
 
+    /* On windows 10 we don't receive WM_POWERBROADCAST after sleep.
+     We receive only WM_TIMECHANGE hence this message is used to resume.*/
+    case WM_TIMECHANGE:
+        m_events->addEvent(Event(m_events->forIScreen().resume(),
+                        getEventTarget(), NULL,
+                        Event::kDeliverImmediately));
+        break;
+
     case WM_POWERBROADCAST:
         switch (wParam) {
         case PBT_APMRESUMEAUTOMATIC:
@@ -1183,7 +1188,7 @@ MSWindowsScreen::onKey(WPARAM wParam, LPARAM lParam)
     static const KeyModifierMask s_ctrlAlt =
         KeyModifierControl | KeyModifierAlt;
 
-    LOG((CLOG_DEBUG1 "event: Key char=%d, vk=0x%02x, nagr=%d, lParam=0x%08x", (wParam & 0xff00u) >> 8, wParam & 0xffu, (wParam & 0x10000u) ? 1 : 0, lParam));
+    LOG((CLOG_DEBUG1 "event: Key char=%d, vk=0x%02x, nagr=%d, lParam=0x%08x", (wParam & 0xffffu), (wParam >> 16) & 0xffu, (wParam & 0x1000000u) ? 1 : 0, lParam));
 
     // get event info
     KeyButton button         = (KeyButton)((lParam & 0x01ff0000) >> 16);
@@ -1201,7 +1206,7 @@ MSWindowsScreen::onKey(WPARAM wParam, LPARAM lParam)
     // that maps mouse buttons to keys is known to do this.
     // alternatively, we could just throw these events out.
     if (button == 0) {
-        button = m_keyState->virtualKeyToButton(wParam & 0xffu);
+        button = m_keyState->virtualKeyToButton((wParam >> 16) & 0xffu);
         if (button == 0) {
             return true;
         }
@@ -1267,7 +1272,7 @@ MSWindowsScreen::onKey(WPARAM wParam, LPARAM lParam)
     if (!ignore()) {
         // check for ctrl+alt+del.  we do not want to pass that to the
         // client.  the user can use ctrl+alt+pause to emulate it.
-        UINT virtKey = (wParam & 0xffu);
+        UINT virtKey = ((wParam >> 16) & 0xffu);
         if (virtKey == VK_DELETE && (state & s_ctrlAlt) == s_ctrlAlt) {
             LOG((CLOG_DEBUG "discard ctrl+alt+del"));
             return true;
@@ -1281,9 +1286,9 @@ MSWindowsScreen::onKey(WPARAM wParam, LPARAM lParam)
             // pressed or released.  when mapping the key we require that
             // we not use AltGr (the 0x10000 flag in wParam) and we not
             // use the keypad delete key (the 0x01000000 flag in lParam).
-            wParam  = VK_DELETE | 0x00010000u;
+            wParam  = (VK_DELETE << 16) | 0x01000000u;
             lParam &= 0xfe000000;
-            lParam |= m_keyState->virtualKeyToButton(wParam & 0xffu) << 16;
+            lParam |= m_keyState->virtualKeyToButton(VK_DELETE) << 16;
             lParam |= 0x01000001;
         }
 
@@ -1311,7 +1316,7 @@ MSWindowsScreen::onHotKey(WPARAM wParam, LPARAM lParam)
 {
     // get the key info
     KeyModifierMask state = getActiveModifiers();
-    UINT virtKey   = (wParam & 0xffu);
+    UINT virtKey   = ((wParam >> 16) & 0xffu);
     UINT modifiers = 0;
     if ((state & KeyModifierShift) != 0) {
         modifiers |= MOD_SHIFT;
@@ -1503,18 +1508,12 @@ MSWindowsScreen::onScreensaver(bool activated)
             m_screensaver->checkStarted(SYNERGY_MSG_SCREEN_SAVER, FALSE, 0)) {
             m_screensaverActive = true;
             sendEvent(m_events->forIPrimaryScreen().screensaverActivated());
-
-            // enable display power down
-            ArchMiscWindows::removeBusyState(ArchMiscWindows::kDISPLAY);
         }
     }
     else {
         if (m_screensaverActive) {
             m_screensaverActive = false;
             sendEvent(m_events->forIPrimaryScreen().screensaverDeactivated());
-
-            // disable display power down
-            ArchMiscWindows::addBusyState(ArchMiscWindows::kDISPLAY);
         }
     }
 
@@ -1958,7 +1957,7 @@ MSWindowsScreen::getDraggingFilename()
             SWP_SHOWWINDOW);
 
         // TODO: fake these keys properly
-        fakeKeyDown(kKeyEscape, 8192, 1);
+        fakeKeyDown(kKeyEscape, 8192, 1, AppUtil::instance().getCurrentLanguageCode());
         fakeKeyUp(1);
         fakeMouseButton(kButtonLeft, false);
 
@@ -1997,13 +1996,20 @@ MSWindowsScreen::getDropTarget() const
     return m_desktopPath;
 }
 
+String
+MSWindowsScreen::getSecureInputApp() const
+{
+    // ignore on Windows
+    return "";
+}
+
 bool
 MSWindowsScreen::isModifierRepeat(KeyModifierMask oldState, KeyModifierMask state, WPARAM wParam) const
 {
     bool result = false;
 
     if (oldState == state && state != 0) {
-        UINT virtKey = (wParam & 0xffu);
+        UINT virtKey = ((wParam >> 16) & 0xffu);
         if ((state & KeyModifierShift) != 0
             && (virtKey == VK_LSHIFT || virtKey == VK_RSHIFT)) {
             result = true;

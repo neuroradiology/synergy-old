@@ -21,7 +21,7 @@
 #include "synergy/Screen.h"
 #include "synergy/Clipboard.h"
 #include "base/Log.h"
-
+#include "synergy/AppUtil.h"
 //
 // PrimaryClient
 //
@@ -184,7 +184,7 @@ PrimaryClient::setClipboardDirty(ClipboardID id, bool dirty)
 }
 
 void
-PrimaryClient::keyDown(KeyID key, KeyModifierMask mask, KeyButton button)
+PrimaryClient::keyDown(KeyID key, KeyModifierMask mask, KeyButton button, const String&)
 {
     if (m_fakeInputCount > 0) {
 // XXX -- don't forward keystrokes to primary screen for now
@@ -196,7 +196,7 @@ PrimaryClient::keyDown(KeyID key, KeyModifierMask mask, KeyButton button)
 }
 
 void
-PrimaryClient::keyRepeat(KeyID, KeyModifierMask, SInt32, KeyButton)
+PrimaryClient::keyRepeat(KeyID, KeyModifierMask, SInt32, KeyButton, const String&)
 {
     // ignore
 }
@@ -259,6 +259,29 @@ void
 PrimaryClient::fileChunkSending(UInt8 mark, char* data, size_t dataSize)
 {
     // ignore
+}
+
+String
+PrimaryClient::getSecureInputApp() const
+{
+    return m_screen->getSecureInputApp();
+}
+
+void
+PrimaryClient::secureInputNotification(const String& app) const
+{
+    if (app != "unknown") {
+        AppUtil::instance().showNotification(
+                    "The client keyboards may stop working.",
+                    "'Secure input' enabled by " + app + ". " \
+                    "Close " + app + " to continue using keyboards on the clients.");
+    }
+    else {
+        AppUtil::instance().showNotification(
+                    "The client keyboards may stop working.",
+                    "'Secure input' enabled by an application. " \
+                    "Close the application to continue using keyboards on the clients.");
+    }
 }
 
 void

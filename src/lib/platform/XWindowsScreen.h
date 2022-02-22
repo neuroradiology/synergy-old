@@ -18,10 +18,13 @@
 
 #pragma once
 
+#include "arch/Arch.h"
 #include "synergy/PlatformScreen.h"
 #include "synergy/KeyMap.h"
+#include "synergy/ClientArgs.h"
 #include "common/stdset.h"
 #include "common/stdvector.h"
+#include "platform/XWindowsPowerManager.h"
 
 #if X_DISPLAY_MISSING
 #    error X11 is required to build synergy
@@ -38,7 +41,8 @@ class XWindowsScreen : public PlatformScreen {
 public:
     XWindowsScreen(const char* displayName, bool isPrimary,
         bool disableXInitThreads, int mouseScrollDelta,
-        IEventQueue* events);
+        IEventQueue* events,
+        lib::synergy::ClientScrollDirection m_clientScrollDirection = lib::synergy::ClientScrollDirection::SERVER);
     virtual ~XWindowsScreen();
 
     //! @name manipulators
@@ -84,6 +88,7 @@ public:
     virtual void        setOptions(const OptionsList& options);
     virtual void        setSequenceNumber(UInt32);
     virtual bool        isPrimary() const;
+    String              getSecureInputApp() const override;
 
 protected:
     // IPlatformScreen overrides
@@ -250,4 +255,5 @@ private:
     // pointer to (singleton) screen.  this is only needed by
     // ioErrorHandler().
     static XWindowsScreen*    s_screen;
+    XWindowsPowerManager      m_powerManager;
 };

@@ -14,8 +14,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-file(GLOB_RECURSE headers "*.h")
-file(GLOB_RECURSE sources "*.cpp")
+file(GLOB_RECURSE headers "*.h" "languages/*.h")
+file(GLOB_RECURSE sources "*.cpp" "languages/*.cpp")
 
 file(GLOB_RECURSE remove_platform "platform/*")
 list(REMOVE_ITEM headers ${remove_platform})
@@ -45,8 +45,8 @@ elseif (UNIX)
     file(GLOB platform_headers "platform/XWindows*.h")
 endif()
 
-list(APPEND sources ${platform_headers})
-list(APPEND headers ${platform_sources})
+list(APPEND sources ${platform_sources})
+list(APPEND headers ${platform_headers})
 
 include_directories(
     ../../
@@ -68,4 +68,4 @@ endif()
 
 add_executable(unittests ${sources})
 target_link_libraries(unittests
-    arch base client server common io net platform server synlib mt ipc gtest gmock shared ${libs} ${OPENSSL_LIBS})
+    arch base client server common io net platform server synlib mt ipc gtest gmock shared ${libs})

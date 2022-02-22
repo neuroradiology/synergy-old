@@ -26,6 +26,7 @@
 #include "synergy/INode.h"
 #include "synergy/DragInformation.h"
 #include "synergy/ServerArgs.h"
+#include "synergy/languages/LanguageManager.h"
 #include "base/Event.h"
 #include "base/Stopwatch.h"
 #include "base/EventTypes.h"
@@ -155,7 +156,7 @@ public:
 
     //! Store ClientListener pointer
     void                setListener(ClientListener* p) { m_clientListener = p; }
-    
+
     //@}
     //! @name accessors
     //@{
@@ -325,11 +326,11 @@ private:
     void                onClipboardChanged(BaseClientProxy* sender,
                             ClipboardID id, UInt32 seqNum);
     void                onScreensaver(bool activated);
-    void                onKeyDown(KeyID, KeyModifierMask, KeyButton,
+    void                onKeyDown(KeyID, KeyModifierMask, KeyButton, const String&,
                             const char* screens);
     void                onKeyUp(KeyID, KeyModifierMask, KeyButton,
                             const char* screens);
-    void                onKeyRepeat(KeyID, KeyModifierMask, SInt32, KeyButton);
+    void                onKeyRepeat(KeyID, KeyModifierMask, SInt32, KeyButton, const String&);
     void                onMouseDown(ButtonID);
     void                onMouseUp(ButtonID);
     bool                onMouseMovePrimary(SInt32 x, SInt32 y);

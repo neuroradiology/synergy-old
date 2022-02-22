@@ -75,13 +75,20 @@ public:
     Starts an attempt to connect to the server.  This is ignored if
     the client is trying to connect or is already connected.
     */
-    void                connect();
+    void                connect(size_t addressIndex = 0);
 
     //! Disconnect
     /*!
     Disconnects from the server with an optional error message.
     */
     void                disconnect(const char* msg);
+
+    //! Refuse connection
+    /*!
+    Disconnects from the server with an optional error message.
+    Unlike disconnect this function doesn't try to use other ip addresses
+    */
+    void                refuseConnection(const char* msg);
 
     //! Notify of handshake complete
     /*!
@@ -135,6 +142,9 @@ public:
     //! Return drag file list
     DragFileList        getDragFileList() { return m_dragFileList; }
 
+    //! Return last resolved adresses count
+    size_t              getLastResolvedAddressesCount() const { return m_resolvedAddressesCount; }
+
     //@}
 
     // IScreen overrides
@@ -152,9 +162,9 @@ public:
     virtual void        setClipboard(ClipboardID, const IClipboard*);
     virtual void        grabClipboard(ClipboardID);
     virtual void        setClipboardDirty(ClipboardID, bool);
-    virtual void        keyDown(KeyID, KeyModifierMask, KeyButton);
+    virtual void        keyDown(KeyID, KeyModifierMask, KeyButton, const String&);
     virtual void        keyRepeat(KeyID, KeyModifierMask,
-                            SInt32 count, KeyButton);
+                            SInt32 count, KeyButton, const String& lang);
     virtual void        keyUp(KeyID, KeyModifierMask, KeyButton);
     virtual void        mouseDown(ButtonID);
     virtual void        mouseUp(ButtonID);
@@ -177,6 +187,7 @@ private:
     void                setupConnection();
     void                setupScreen();
     void                setupTimer();
+    void                cleanup();
     void                cleanupConnecting();
     void                cleanupConnection();
     void                cleanupScreen();
@@ -189,6 +200,7 @@ private:
     void                handleDisconnected(const Event&, void*);
     void                handleShapeChanged(const Event&, void*);
     void                handleClipboardGrabbed(const Event&, void*);
+    bool                isCompatible(int major, int minor) const;
     void                handleHello(const Event&, void*);
     void                handleSuspend(const Event& event, void*);
     void                handleResume(const Event& event, void*);
@@ -229,4 +241,5 @@ private:
     bool                m_enableClipboard;
     size_t              m_maximumClipboardSize;
     lib::synergy::ClientArgs          m_args;
+    size_t              m_resolvedAddressesCount = 0;
 };

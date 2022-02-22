@@ -31,12 +31,12 @@ class MockKeyState : public KeyState
 {
 public:
     MockKeyState(const MockEventQueue& eventQueue) :
-        KeyState((IEventQueue*)&eventQueue)
+        KeyState((IEventQueue*)&eventQueue, {"en"}, true)
     {
     }
 
-    MockKeyState(const MockEventQueue& eventQueue, const MockKeyMap& keyMap) :
-        KeyState((IEventQueue*)&eventQueue, (synergy::KeyMap&)keyMap)
+    MockKeyState(const MockEventQueue& eventQueue, const synergy::KeyMap& keyMap) :
+        KeyState((IEventQueue*)&eventQueue, (synergy::KeyMap&)keyMap, {"en"}, true)
     {
     }
 

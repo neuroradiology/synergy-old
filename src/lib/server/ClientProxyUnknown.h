@@ -19,6 +19,7 @@
 #pragma once
 
 #include "base/Event.h"
+#include "base/String.h"
 #include "base/EventTypes.h"
 
 class ClientProxy;
@@ -59,6 +60,7 @@ private:
     void                addStreamHandlers();
     void                addProxyHandlers();
     void                removeHandlers();
+    void                initProxy(const String& name, int major, int minor);
     void                removeTimer();
     void                handleData(const Event&, void*);
     void                handleWriteError(const Event&, void*);

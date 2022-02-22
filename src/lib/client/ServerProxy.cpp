@@ -26,6 +26,7 @@
 #include "synergy/ProtocolUtil.h"
 #include "synergy/option_types.h"
 #include "synergy/protocol_types.h"
+#include "synergy/AppUtil.h"
 #include "io/IStream.h"
 #include "base/Log.h"
 #include "base/IEventQueue.h"
@@ -33,6 +34,8 @@
 #include "base/XBase.h"
 
 #include <memory>
+#include <algorithm>
+#include <cstring>
 
 //
 // ServerProxy
@@ -129,8 +132,10 @@ ServerProxy::handleData(const Event&, void*)
 
         case kUnknown:
             LOG((CLOG_ERR "invalid message from server: %c%c%c%c", code[0], code[1], code[2], code[3]));
-            m_client->disconnect("invalid message from server");
-            return;
+            // not possible to determine message boundaries
+            // read the whole stream to discard unkonwn data
+            while (m_stream->read(nullptr, 4));
+            break;
 
         case kDisconnect:
             return;
@@ -159,6 +164,7 @@ ServerProxy::parseHandshakeMessage(const UInt8* code)
 
         // handshake is complete
         m_parser = &ServerProxy::parseMessage;
+        checkMissedLanguages();
         m_client->handshakeComplete();
     }
 
@@ -188,26 +194,29 @@ ServerProxy::parseHandshakeMessage(const UInt8* code)
         ProtocolUtil::readf(m_stream,
                         kMsgEIncompatible + 4, &major, &minor);
         LOG((CLOG_ERR "server has incompatible version %d.%d", major, minor));
-        m_client->disconnect("server has incompatible version");
+        m_client->refuseConnection("server has incompatible version");
         return kDisconnect;
     }
 
     else if (memcmp(code, kMsgEBusy, 4) == 0) {
         LOG((CLOG_ERR "server already has a connected client with name \"%s\"", m_client->getName().c_str()));
-        m_client->disconnect("server already has a connected client with our name");
+        m_client->refuseConnection("server already has a connected client with our name");
         return kDisconnect;
     }
 
     else if (memcmp(code, kMsgEUnknown, 4) == 0) {
         LOG((CLOG_ERR "server refused client with name \"%s\"", m_client->getName().c_str()));
-        m_client->disconnect("server refused client with our name");
+        m_client->refuseConnection("server refused client with our name");
         return kDisconnect;
     }
 
     else if (memcmp(code, kMsgEBad, 4) == 0) {
         LOG((CLOG_ERR "server disconnected due to a protocol error"));
-        m_client->disconnect("server reported a protocol error");
+        m_client->refuseConnection("server reported a protocol error");
         return kDisconnect;
+    }
+    else if (memcmp(code, kMsgDLanguageSynchronisation, 4) == 0) {
+        setServerLanguages();
     }
     else {
         return kUnknown;
@@ -232,7 +241,25 @@ ServerProxy::parseMessage(const UInt8* code)
     }
 
     else if (memcmp(code, kMsgDKeyDown, 4) == 0) {
-        keyDown();
+        UInt16 id = 0;
+        UInt16 mask = 0;
+        UInt16 button = 0;
+        ProtocolUtil::readf(m_stream, kMsgDKeyDown + 4, &id, &mask, &button);
+        LOG((CLOG_DEBUG1 "recv key down id=0x%08x, mask=0x%04x, button=0x%04x", id, mask, button));
+
+        keyDown(id, mask, button, "");
+    }
+
+    else if (memcmp(code, kMsgDKeyDownLang, 4) == 0) {
+        String lang;
+        UInt16 id = 0;
+        UInt16 mask = 0;
+        UInt16 button = 0;
+
+        ProtocolUtil::readf(m_stream, kMsgDKeyDownLang + 4, &id, &mask, &button, &lang);
+        LOG((CLOG_DEBUG1 "recv key down id=0x%08x, mask=0x%04x, button=0x%04x, lang=\"%s\"", id, mask, button, lang.c_str()));
+
+        keyDown(id, mask, button, lang);
     }
 
     else if (memcmp(code, kMsgDKeyUp, 4) == 0) {
@@ -302,6 +329,9 @@ ServerProxy::parseMessage(const UInt8* code)
     }
     else if (memcmp(code, kMsgDDragInfo, 4) == 0) {
         dragInfoReceived();
+    }
+    else if (memcmp(code, kMsgDSecureInputNotification, 4) == 0) {
+        secureInputNotification();
     }
 
     else if (memcmp(code, kMsgCClose, 4) == 0) {
@@ -522,11 +552,13 @@ ServerProxy::enter()
     LOG((CLOG_DEBUG1 "recv enter, %d,%d %d %04x", x, y, seqNum, mask));
 
     // discard old compressed mouse motion, if any
-    m_compressMouse         = false;
-    m_compressMouseRelative = false;
-    m_dxMouse               = 0;
-    m_dyMouse               = 0;
-    m_seqNum                = seqNum;
+    m_compressMouse                        = false;
+    m_compressMouseRelative                = false;
+    m_dxMouse                              = 0;
+    m_dyMouse                              = 0;
+    m_seqNum                               = seqNum;
+    m_serverLanguage                       = "";
+    m_isUserNotifiedAboutLanguageSyncError = false;
 
     // forward
     m_client->enter(x, y, seqNum, static_cast<KeyModifierMask>(mask), false);
@@ -590,15 +622,11 @@ ServerProxy::grabClipboard()
 }
 
 void
-ServerProxy::keyDown()
+ServerProxy::keyDown(UInt16 id, UInt16 mask, UInt16 button, const String& lang)
 {
     // get mouse up to date
     flushCompressedMouse();
-
-    // parse
-    UInt16 id, mask, button;
-    ProtocolUtil::readf(m_stream, kMsgDKeyDown + 4, &id, &mask, &button);
-    LOG((CLOG_DEBUG1 "recv key down id=0x%08x, mask=0x%04x, button=0x%04x", id, mask, button));
+    setActiveServerLanguage(lang);
 
     // translate
     KeyID id2             = translateKey(static_cast<KeyID>(id));
@@ -609,7 +637,7 @@ ServerProxy::keyDown()
         LOG((CLOG_DEBUG1 "key down translated to id=0x%08x, mask=0x%04x", id2, mask2));
 
     // forward
-    m_client->keyDown(id2, mask2, button);
+    m_client->keyDown(id2, mask2, button, lang);
 }
 
 void
@@ -620,9 +648,10 @@ ServerProxy::keyRepeat()
 
     // parse
     UInt16 id, mask, count, button;
+    String lang;
     ProtocolUtil::readf(m_stream, kMsgDKeyRepeat + 4,
-                                &id, &mask, &count, &button);
-    LOG((CLOG_DEBUG1 "recv key repeat id=0x%08x, mask=0x%04x, count=%d, button=0x%04x", id, mask, count, button));
+                                &id, &mask, &count, &button, &lang);
+    LOG((CLOG_DEBUG1 "recv key repeat id=0x%08x, mask=0x%04x, count=%d, button=0x%04x, lang=\"%s\"", id, mask, count, button, lang.c_str()));
 
     // translate
     KeyID id2             = translateKey(static_cast<KeyID>(id));
@@ -633,7 +662,7 @@ ServerProxy::keyRepeat()
         LOG((CLOG_DEBUG1 "key repeat translated to id=0x%08x, mask=0x%04x", id2, mask2));
 
     // forward
-    m_client->keyRepeat(id2, mask2, count, button);
+    m_client->keyRepeat(id2, mask2, count, button, lang);
 }
 
 void
@@ -905,4 +934,68 @@ ServerProxy::sendDragInfo(UInt32 fileCount, const char* info, size_t size)
 {
     String data(info, size);
     ProtocolUtil::writef(m_stream, kMsgDDragInfo, fileCount, &data);
+}
+
+void
+ServerProxy::secureInputNotification()
+{
+    String app;
+    ProtocolUtil::readf(m_stream, kMsgDSecureInputNotification + 4, &app);
+
+    // display this notification on the client
+    if (app != "unknown") {
+        AppUtil::instance().showNotification(
+                    "The keyboard may stop working.",
+                    "'Secure input' enabled by " + app + " on the server. " \
+                    "To fix the keyboard, " + app + " must be closed.");
+    }
+    else {
+        AppUtil::instance().showNotification(
+                    "The keyboard may stop working.",
+                    "'Secure input' enabled by an application on the server. " \
+                    "To fix the keyboard, the application must be closed.");
+    }
+}
+
+void
+ServerProxy::setServerLanguages()
+{
+    String serverLanguages;
+    ProtocolUtil::readf(m_stream, kMsgDLanguageSynchronisation + 4, &serverLanguages);
+    m_languageManager.setRemoteLanguages(serverLanguages);
+}
+
+void
+ServerProxy::setActiveServerLanguage(const String& language)
+{
+    if (!language.empty() && std::strlen(language.c_str()) > 0) {
+        if(m_serverLanguage != language) {
+            m_isUserNotifiedAboutLanguageSyncError = false;
+            m_serverLanguage = language;
+        }
+
+        if (!m_languageManager.isLanguageInstalled(m_serverLanguage)) {
+            if(!m_isUserNotifiedAboutLanguageSyncError) {
+                AppUtil::instance().showNotification("Language error", "Current server language is not installed on client.");
+                m_isUserNotifiedAboutLanguageSyncError = true;
+            }
+        }
+        else {
+            m_isUserNotifiedAboutLanguageSyncError = false;
+        }
+    }
+    else {
+        LOG((CLOG_DEBUG1 "Active server langauge is empty!"));
+    }
+}
+
+void
+ServerProxy::checkMissedLanguages() const
+{
+    auto missedLanguages = m_languageManager.getMissedLanguages();
+    if (!missedLanguages.empty()) {
+        AppUtil::instance().showNotification("Language synchronization error",
+              "You need to install these languages on this computer and restart Synergy to enable support for multiple languages: "
+              + missedLanguages);
+    }
 }

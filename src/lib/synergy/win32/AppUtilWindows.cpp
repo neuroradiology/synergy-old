@@ -31,11 +31,15 @@
 #include "base/Event.h"
 #include "base/EventQueue.h"
 #include "common/Version.h"
+#include "wintoastlib.h"
 
+#include <memory>
 #include <sstream>
 #include <iostream>
 #include <conio.h>
 #include <VersionHelpers.h>
+
+#include <Windows.h>
 
 AppUtilWindows::AppUtilWindows(IEventQueue* events) :
     m_events(events),
@@ -71,9 +75,6 @@ AppUtilWindows::daemonNTMainLoop(int argc, const char** argv)
 {
     app().initApp(argc, argv);
     debugServiceWait();
-
-    // NB: what the hell does this do?!
-    app().argsBase().m_backend = false;
     
     return ArchMiscWindows::runDaemon(mainLoopStatic);
 }
@@ -183,3 +184,99 @@ AppUtilWindows::startNode()
 {
     app().startNode();
 }
+
+std::vector<String>
+AppUtilWindows::getKeyboardLayoutList()
+{
+    std::vector<String> layoutLangCodes;
+    {
+        auto uLayouts = GetKeyboardLayoutList(0, NULL);
+        auto lpList = (HKL*)LocalAlloc(LPTR, (uLayouts * sizeof(HKL)));
+        uLayouts = GetKeyboardLayoutList(uLayouts, lpList);
+
+        for (int i = 0; i < uLayouts; ++i){
+            String code("", 2);
+            GetLocaleInfoA(MAKELCID(((UINT)lpList[i] & 0xffffffff), SORT_DEFAULT), LOCALE_SISO639LANGNAME, &code[0], code.size());
+            layoutLangCodes.push_back(code);
+        }
+
+        if (lpList) {
+            LocalFree(lpList);
+        }
+    }
+    return layoutLangCodes;
+}
+
+String
+AppUtilWindows::getCurrentLanguageCode()
+{
+    String code("", 2);
+
+    auto hklLayout = getCurrentKeyboardLayout();
+    if (hklLayout) {
+        auto localLayoutID = MAKELCID(LOWORD(hklLayout), SORT_DEFAULT);
+        GetLocaleInfoA(localLayoutID, LOCALE_SISO639LANGNAME, &code[0], code.size());
+    }
+
+    return code;
+}
+
+HKL AppUtilWindows::getCurrentKeyboardLayout() const
+{
+    HKL layout = nullptr;
+
+    GUITHREADINFO gti = {sizeof(GUITHREADINFO)};
+    if (GetGUIThreadInfo(0, &gti) && gti.hwndActive) {
+        layout = GetKeyboardLayout(GetWindowThreadProcessId(gti.hwndActive, NULL));
+    }
+    else {
+        LOG((CLOG_WARN "Failed to determine current keyboard layout"));
+    }
+
+    return layout;
+}
+
+class WinToastHandler : public WinToastLib::IWinToastHandler {
+public:
+    WinToastHandler() {}
+    // Public interfaces
+    void toastActivated() const override {}
+    void toastActivated(int actionIndex) const override {}
+    void toastDismissed(WinToastDismissalReason state) const override {}
+    void toastFailed() const override {}
+};
+
+void
+AppUtilWindows::showNotification(const String & title, const String & text) const
+{
+    LOG((CLOG_INFO "Showing notification. Title: \"%s\". Text: \"%s\"", title.c_str(), text.c_str()));
+    if (!WinToastLib::WinToast::isCompatible()) {
+        LOG((CLOG_INFO "This system does not support toast notifications"));
+        return;
+    }
+    if (!WinToastLib::WinToast::instance()->isInitialized())
+    {
+        WinToastLib::WinToast::instance()->setAppName(L"Synergy");
+        const auto aumi = WinToastLib::WinToast::configureAUMI(L"Symless", L"Synergy", L"Synergy App", L"1.14.1+");
+        WinToastLib::WinToast::instance()->setAppUserModelId(aumi);
+
+        if (!WinToastLib::WinToast::instance()->initialize())
+        {
+            LOG((CLOG_DEBUG "Failed to initialize toast notifications"));
+            return;
+        }
+    }
+
+    WinToastLib::WinToast::WinToastError error;
+    auto handler = std::make_unique<WinToastHandler>();
+    WinToastLib::WinToastTemplate templ = WinToastLib::WinToastTemplate(WinToastLib::WinToastTemplate::Text02);
+    templ.setTextField(std::wstring(title.begin(), title.end()), WinToastLib::WinToastTemplate::FirstLine);
+    templ.setTextField(std::wstring(text.begin(), text.end()), WinToastLib::WinToastTemplate::SecondLine);
+
+    const bool launched = WinToastLib::WinToast::instance()->showToast(templ, handler.get(), &error);
+    if (!launched) {
+        LOG((CLOG_DEBUG "Failed to show toast notification. Error code: %d", error));
+        return;
+    }
+}
+

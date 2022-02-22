@@ -41,4 +41,9 @@ add_library(arch STATIC ${sources})
 
 if (UNIX)
     target_link_libraries(arch ${CMAKE_DL_LIBS} ${libs})
+
+    if (NOT APPLE)
+        find_package (Qt5 COMPONENTS DBus)
+        target_link_libraries (arch Qt5::DBus)
+    endif()
 endif()

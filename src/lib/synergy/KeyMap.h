@@ -50,15 +50,15 @@ public:
 	*/
 	struct KeyItem {
 	public:
-		KeyID			m_id;			//!< KeyID
-		SInt32			m_group;		//!< Group for key
-		KeyButton		m_button;		//!< Button to generate KeyID
-		KeyModifierMask	m_required;		//!< Modifiers required for KeyID
-		KeyModifierMask	m_sensitive;	//!< Modifiers key is sensitive to
-		KeyModifierMask	m_generates;	//!< Modifiers key is mapped to
-		bool			m_dead;			//!< \c true if this is a dead KeyID
-		bool			m_lock;			//!< \c true if this locks a modifier
-		UInt32			m_client;		//!< Client data
+		KeyID			m_id {};		//!< KeyID
+		SInt32			m_group {};		//!< Group for key
+		KeyButton		m_button {};	//!< Button to generate KeyID
+		KeyModifierMask	m_required {};	//!< Modifiers required for KeyID
+		KeyModifierMask	m_sensitive {};	//!< Modifiers key is sensitive to
+		KeyModifierMask	m_generates {};	//!< Modifiers key is mapped to
+		bool			m_dead {};		//!< \c true if this is a dead KeyID
+		bool			m_lock {};		//!< \c true if this locks a modifier
+		UInt32			m_client {};	//!< Client data
 
 	public:
 		bool			operator==(const KeyItem&) const;
@@ -90,16 +90,16 @@ public:
 	public:
 		struct Button {
 		public:
-			KeyButton	m_button;		//!< Button to synthesize
-			bool		m_press;		//!< \c true iff press
-			bool		m_repeat;		//!< \c true iff for an autorepeat
-			UInt32		m_client;		//!< Client data
+			KeyButton	m_button {};		//!< Button to synthesize
+			bool		m_press {};		//!< \c true iff press
+			bool		m_repeat {};		//!< \c true iff for an autorepeat
+			UInt32		m_client{};		//!< Client data
 		};
 		struct Group {
 		public:
-			SInt32		m_group;		//!< Group/offset to change to/by
-			bool		m_absolute;		//!< \c true iff change to, else by
-			bool		m_restore;		//!< \c true iff for restoring state
+			SInt32		m_group {};		//!< Group/offset to change to/by
+			bool		m_absolute {};		//!< \c true iff change to, else by
+			bool		m_restore {};		//!< \c true iff for restoring state
 		};
 		union Data {
 		public:
@@ -107,8 +107,8 @@ public:
 			Group		m_group;
 		};
 
-		EType			m_type;
-		Data			m_data;
+		EType			m_type {};
+		Data			m_data {};
 	};
 
 	//! A sequence of keystrokes
@@ -224,7 +224,9 @@ public:
 							ModifierToKeys& activeModifiers,
 							KeyModifierMask& currentState,
 							KeyModifierMask desiredMask,
-							bool isAutoRepeat) const;
+                            bool isAutoRepeat, const String& lang) const;
+
+    void                    setLanguageData(std::vector<String> layouts);
 
 	//! Get number of groups
 	/*!
@@ -375,7 +377,8 @@ private:
 							ModifierToKeys& activeModifiers,
 							KeyModifierMask& currentState,
 							KeyModifierMask desiredMask,
-							bool isAutoRepeat) const;
+                            bool isAutoRepeat,
+                            const String& lang) const;
 
 	// maps a character key.  a character key is trying to synthesize a
 	// particular KeyID and isn't entirely concerned with the modifiers
@@ -385,22 +388,22 @@ private:
 							ModifierToKeys& activeModifiers,
 							KeyModifierMask& currentState,
 							KeyModifierMask desiredMask,
-							bool isAutoRepeat) const;
+                            bool isAutoRepeat,
+                            const String& lang) const;
 
 	// maps a modifier key
-	const KeyItem*		mapModifierKey(Keystrokes& keys,
+    const KeyItem*		mapModifierKey(Keystrokes& keys,
 							KeyID id, SInt32 group,
 							ModifierToKeys& activeModifiers,
 							KeyModifierMask& currentState,
 							KeyModifierMask desiredMask,
-							bool isAutoRepeat) const;
+                            bool isAutoRepeat,
+                            const String& lang) const;
 
 	// returns the index into \p entryList of the KeyItemList requiring
 	// the fewest modifier changes between \p currentState and
 	// \p desiredState.
-	SInt32				findBestKey(const KeyEntryList& entryList,
-							KeyModifierMask currentState,
-							KeyModifierMask desiredState) const;
+    SInt32				findBestKey(const KeyEntryList& entryList, KeyModifierMask desiredState) const;
 
 	// gets the \c KeyItem used to synthesize the modifier who's bit is
 	// given by \p modifierBit in group \p group and does not synthesize
@@ -419,7 +422,8 @@ private:
 							KeyModifierMask desiredState,
 							KeyModifierMask overrideModifiers,
 							bool isAutoRepeat,
-							Keystrokes& keystrokes) const;
+                            Keystrokes& keystrokes,
+                            const String& lang) const;
 
 	// fills \p keystrokes with the keys to synthesize the modifiers
 	// in \p desiredModifiers from the active modifiers listed in
@@ -459,14 +463,19 @@ private:
 	// Initialize key name/id maps
 	static void			initKeyNameMaps();
 
+	// Ways to synthesize a KeyID over multiple keyboard groups
+	typedef std::vector<KeyEntryList> KeyGroupTable;
+
+    void addGroupToKeystroke(Keystrokes& keys, SInt32& group, const String& lang) const;
+
+	SInt32 getLanguageGroupID(SInt32 group, const String& lang) const;
+	const KeyItemList* getKeyItemList(const KeyGroupTable& keyGroupTable, SInt32 group, KeyModifierMask desiredMask) const;
+
 	// not implemented
 	KeyMap(const KeyMap&);
 	KeyMap&			operator=(const KeyMap&);
 
 private:
-	// Ways to synthesize a KeyID over multiple keyboard groups
-	typedef std::vector<KeyEntryList> KeyGroupTable;
-
 	// Table of KeyID to ways to synthesize that KeyID
 	typedef std::map<KeyID, KeyGroupTable> KeyIDMap;
 
@@ -504,6 +513,9 @@ private:
 
 	// dummy KeyItem for changing modifiers
 	KeyItem				m_modifierKeyItem;
+
+    //Language sync data
+    std::vector<String> m_keyboardLayouts;
 
 	// parsing/formatting tables
 	static NameToKeyMap*		s_nameToKeyMap;

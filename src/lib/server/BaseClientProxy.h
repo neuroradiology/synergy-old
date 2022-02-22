@@ -74,9 +74,9 @@ public:
     virtual void        setClipboard(ClipboardID, const IClipboard*) = 0;
     virtual void        grabClipboard(ClipboardID) = 0;
     virtual void        setClipboardDirty(ClipboardID, bool) = 0;
-    virtual void        keyDown(KeyID, KeyModifierMask, KeyButton) = 0;
+    virtual void        keyDown(KeyID, KeyModifierMask, KeyButton, const String&) = 0;
     virtual void        keyRepeat(KeyID, KeyModifierMask,
-                            SInt32 count, KeyButton) = 0;
+                            SInt32 count, KeyButton, const String& lang) = 0;
     virtual void        keyUp(KeyID, KeyModifierMask, KeyButton) = 0;
     virtual void        mouseDown(ButtonID) = 0;
     virtual void        mouseUp(ButtonID) = 0;
@@ -89,6 +89,8 @@ public:
     virtual void        sendDragInfo(UInt32 fileCount, const char* info,
                             size_t size) = 0;
     virtual void        fileChunkSending(UInt8 mark, char* data, size_t dataSize) = 0;
+    virtual String      getSecureInputApp() const = 0;
+    virtual void        secureInputNotification(const String& app) const = 0;
     virtual String        getName() const;
     virtual synergy::IStream*
                         getStream() const = 0;

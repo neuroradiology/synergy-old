@@ -19,8 +19,10 @@
 #pragma once
 
 #include "platform/MSWindowsHook.h"
+#include "platform/MSWindowsPowerManager.h"
 #include "synergy/PlatformScreen.h"
 #include "synergy/DragInformation.h"
+#include "synergy/ClientArgs.h"
 #include "platform/synwinhk.h"
 #include "mt/CondVar.h"
 #include "mt/Mutex.h"
@@ -43,7 +45,9 @@ public:
         bool isPrimary,
         bool noHooks,
         bool stopOnDeskSwitch,
-        IEventQueue* events);
+        IEventQueue* events,
+        bool enableLangSync = false,
+        lib::synergy::ClientScrollDirection scrollDirection = lib::synergy::ClientScrollDirection::SERVER);
     virtual ~MSWindowsScreen();
 
     //! @name manipulators
@@ -115,9 +119,9 @@ public:
     // IKeyState overrides
     virtual void        updateKeys();
     virtual void        fakeKeyDown(KeyID id, KeyModifierMask mask,
-                            KeyButton button);
+                            KeyButton button, const String& lang);
     virtual bool        fakeKeyRepeat(KeyID id, KeyModifierMask mask,
-                            SInt32 count, KeyButton button);
+                            SInt32 count, KeyButton button, const String& lang);
     virtual bool        fakeKeyUp(KeyButton button);
     virtual void        fakeAllKeysUp();
 
@@ -139,6 +143,7 @@ public:
     virtual String&    getDraggingFilename();
     virtual const String&    
                         getDropTarget() const;
+    String              getSecureInputApp() const override;
 
 protected:
     // IPlatformScreen overrides
@@ -365,4 +370,5 @@ private:
     Thread*            m_sendDragThread;
 
     PrimaryKeyDownList    m_primaryKeyDownList;
+    MSWindowsPowerManager m_powerManager;
 };

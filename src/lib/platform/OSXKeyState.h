@@ -36,8 +36,9 @@ class OSXKeyState : public KeyState {
 public:
     typedef std::vector<KeyID> KeyIDs;
 
-    OSXKeyState(IEventQueue* events);
-    OSXKeyState(IEventQueue* events, synergy::KeyMap& keyMap);
+    OSXKeyState(IEventQueue* events, std::vector<String> layouts, bool isLangSyncEnabled);
+    OSXKeyState(IEventQueue* events, synergy::KeyMap& keyMap,
+                std::vector<String> layouts, bool isLangSyncEnabled);
     virtual ~OSXKeyState();
 
     //! @name modifiers
@@ -98,7 +99,7 @@ public:
     virtual SInt32        pollActiveGroup() const;
     virtual void        pollPressedKeys(KeyButtonSet& pressedKeys) const;
 
-    CGEventFlags getModifierStateAsOSXFlags();
+    CGEventFlags getModifierStateAsOSXFlags() const;
 protected:
     // KeyState overrides
     virtual void        getKeyMap(synergy::KeyMap& keyMap);
@@ -149,12 +150,19 @@ private:
     static UInt32        mapKeyButtonToVirtualKey(KeyButton keyButton);
 
     void                init();
-    
+
     // Post a key event to HID manager. It posts an event to HID client, a
     // much lower level than window manager which's the target from carbon
     // CGEventPost
-    void                postHIDVirtualKey(const UInt8 virtualKeyCode,
-                            const bool postDown);
+    kern_return_t postHIDVirtualKey(UInt8 virtualKeyCode, bool postDown);
+
+    // Get keyboard event flags accorfing to keyboard modifiers
+    CGEventFlags getKeyboardEventFlags() const;
+    CGEventFlags getDeviceDependedFlags() const;
+
+    void setKeyboardModifiers(CGKeyCode virtualKey, bool keyDown);
+
+    void postKeyboardKey(CGKeyCode virtualKey, bool keyDown);
 
 private:
     // OS X uses a physical key if 0 for the 'A' key.  synergy reserves

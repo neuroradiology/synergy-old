@@ -67,6 +67,10 @@ ArgParser::parseServerArgs(lib::synergy::ServerArgs& args, int argc, const char*
         else if (isArg(i, argc, argv, "", "--serial-key", 1)) {
             args.m_serial = SerialKey(argv[++i]);
         }
+        else if (isArg(i, argc, argv, nullptr, "server")) {
+            ++i;
+            continue;
+        }
         else {
             LOG((CLOG_PRINT "%s: unrecognized option `%s'" BYE, args.m_pname, argv[i], args.m_pname));
             return false;
@@ -116,6 +120,13 @@ ArgParser::parseClientArgs(lib::synergy::ClientArgs& args, int argc, const char*
         }
         else if (isArg(i, argc, argv, nullptr, "--invert-scroll")) {
             args.m_clientScrollDirection = lib::synergy::ClientScrollDirection::INVERT_SERVER;
+        }
+        else if (isArg(i, argc, argv, nullptr, "--host")) {
+            args.m_hostMode = true;
+        }
+        else if (isArg(i, argc, argv, nullptr, "client")) {
+            ++i;
+            continue;
         }
         else {
             if (i + 1 == argc) {

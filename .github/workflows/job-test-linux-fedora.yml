@@ -15,16 +15,23 @@ jobs:
     strategy:
       matrix:
         include:
-#          - distro: fedora28 #Need to install git 2.18+
           - distro: fedora29
           - distro: fedora30
           - distro: fedora33
           - distro: fedora34
+          - distro: fedora35
+          - distro: fedora36
 
     name: ${{ matrix.distro }}
 
     steps:
     - uses: actions/checkout@v2
+      with:
+        submodules: 'recursive'
+
+    - name: Work around https://github.com/actions/checkout/issues/766
+      run: |
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
     - name: Build
       run: |

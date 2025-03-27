@@ -1,42 +1,27 @@
 /*
- * synergy -- mouse and keyboard sharing utility
- * Copyright (C) 2013-2016 Symless Ltd.
- * 
- * This package is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * found in the file LICENSE that should have accompanied this file.
- * 
- * This package is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2013 - 2016 Symless Ltd.
+ * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #include "base/EventTypes.h"
 #include "base/IEventQueue.h"
 
 #include <assert.h>
-#include <stddef.h>
 
-EventTypes::EventTypes() :
-    m_events(NULL)
+EventTypes::EventTypes() : m_events(NULL)
 {
 }
 
-IEventQueue*
-EventTypes::getEvents() const
+IEventQueue *EventTypes::getEvents() const
 {
-    assert(m_events != NULL);
-    return m_events;
+  assert(m_events != NULL);
+  return m_events;
 }
 
-void
-EventTypes::setEvents(IEventQueue* events)
+void EventTypes::setEvents(IEventQueue *events)
 {
-    m_events = events;
+  m_events = events;
 }
 
 //
@@ -57,26 +42,7 @@ REGISTER_EVENT(IStream, outputFlushed)
 REGISTER_EVENT(IStream, outputError)
 REGISTER_EVENT(IStream, inputShutdown)
 REGISTER_EVENT(IStream, outputShutdown)
-
-//
-// IpcClient
-//
-
-REGISTER_EVENT(IpcClient, connected)
-REGISTER_EVENT(IpcClient, messageReceived)
-
-//
-// IpcClientProxy
-//
-
-REGISTER_EVENT(IpcClientProxy, messageReceived)
-REGISTER_EVENT(IpcClientProxy, disconnected)
-
-//
-// IpcServerProxy
-//
-
-REGISTER_EVENT(IpcServerProxy, messageReceived)
+REGISTER_EVENT(IStream, inputFormatError)
 
 //
 // IDataSocket
@@ -181,13 +147,6 @@ REGISTER_EVENT(IScreen, suspend)
 REGISTER_EVENT(IScreen, resume)
 
 //
-// IpcServer
-//
-
-REGISTER_EVENT(IpcServer, clientConnected)
-REGISTER_EVENT(IpcServer, messageReceived)
-
-//
 // Clipboard
 //
 
@@ -200,5 +159,12 @@ REGISTER_EVENT(Clipboard, clipboardSending)
 //
 
 REGISTER_EVENT(File, fileChunkSending)
-REGISTER_EVENT(File, fileRecieveCompleted)
+REGISTER_EVENT(File, fileReceiveCompleted)
 REGISTER_EVENT(File, keepAlive)
+
+//
+// Ei
+//
+
+REGISTER_EVENT(Ei, connected)
+REGISTER_EVENT(Ei, sessionClosed)

@@ -1,0 +1,73 @@
+<CPackWiXPatch>
+  <CPackWiXFragment Id="CM_CP_deskflow_daemon.exe">
+    <ServiceInstall
+      Id="ServiceInstall"
+      Name="Deskflow"
+      DisplayName="Deskflow"
+      Description="Runs the Core process on secure desktops (UAC prompts, login screen, etc)."
+      ErrorControl="normal"
+      Start="auto"
+      Type="ownProcess">
+      <util:ServiceConfig
+        ResetPeriodInDays="1"
+        RestartServiceDelayInSeconds="1"
+        FirstFailureActionType="restart"
+        SecondFailureActionType="restart"
+        ThirdFailureActionType="none"
+      />
+    </ServiceInstall>
+    <ServiceControl Id="ServiceControl" Name="Deskflow" Remove="uninstall" Start="install" Stop="both"/>
+  </CPackWiXFragment>
+
+  <CPackWiXFragment Id="CM_CP_deskflow_server.exe">
+    <firewall:FirewallException Id="ServerFirewallException" Name="Deskflow Server" Program="[INSTALL_ROOT]deskflow-server.exe" Scope="any"/>
+  </CPackWiXFragment>
+
+  <CPackWiXFragment Id="CM_CP_deskflow_client.exe">
+    <firewall:FirewallException Id="ClientFirewallException" Name="Deskflow Client" Program="[INSTALL_ROOT]deskflow-client.exe" Scope="any"/>
+  </CPackWiXFragment>
+
+  <CPackWiXFragment Id="#PRODUCT">
+    <Property Id="VC_REDIST_INSTALLED">
+      <RegistrySearch
+        Id="FindVCRedist"
+        Root="HKLM"
+        Key="SOFTWARE\Microsoft\VisualStudio\@REQUIRED_MSVC_RUNTIME_MAJOR@.0\VC\Runtimes\x64"
+        Name="Installed"
+        Type="raw" />
+    </Property>
+
+    <Binary Id="CustomDLL" SourceFile="@CMAKE_CURRENT_BINARY_DIR@/wix-custom.dll" />
+
+    <CustomAction
+      Id="CheckVCRedist"
+      BinaryRef="CustomDLL"
+      DllEntry="CheckVCRedist"
+      Execute="immediate" />
+
+    <CustomAction
+      Id="ShowVCRedistError"
+      Error="Microsoft Visual C++ Redistributable v@REQUIRED_MSVC_RUNTIME_MAJOR@.@REQUIRED_MSVC_RUNTIME_MINOR@ or later is required. Please download and install the latest version and then restart the installation. See our documentation for instructions." />
+
+    <CustomAction
+      Id="RunDeskflow"
+      ExeCommand="Deskflow"
+      FileRef="CM_FP_deskflow.exe"
+      Return="asyncNoWait" />
+
+    <InstallExecuteSequence>
+      <Custom
+        Action="CheckVCRedist"
+        Before="InstallInitialize"
+        Condition="NOT Installed AND VC_REDIST_INSTALLED" />
+      <Custom
+        Action="ShowVCRedistError"
+        Before="InstallInitialize"
+        Condition="NOT Installed AND (NOT VC_REDIST_INSTALLED OR NOT VC_REDIST_VERSION_OK)" />
+      <Custom
+        Action="RunDeskflow"
+        OnExit="success"
+        Condition="NOT Installed" />
+    </InstallExecuteSequence>
+  </CPackWiXFragment>
+</CPackWiXPatch>

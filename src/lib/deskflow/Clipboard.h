@@ -17,7 +17,7 @@ class Clipboard : public IClipboard
 {
 public:
   Clipboard();
-  virtual ~Clipboard();
+  ~Clipboard() override = default;
 
   //! @name manipulators
   //@{
@@ -43,19 +43,19 @@ public:
   //@}
 
   // IClipboard overrides
-  virtual bool empty();
-  virtual void add(EFormat, const std::string &data);
-  virtual bool open(Time) const;
-  virtual void close() const;
-  virtual Time getTime() const;
-  virtual bool has(EFormat) const;
-  virtual std::string get(EFormat) const;
+  bool empty() final;
+  void add(EFormat, const std::string &data) override;
+  bool open(Time) const final;
+  void close() const override;
+  Time getTime() const override;
+  bool has(EFormat) const override;
+  std::string get(EFormat) const override;
 
 private:
-  mutable bool m_open;
+  mutable bool m_open = false;
   mutable Time m_time;
-  bool m_owner;
+  bool m_owner = false;
   Time m_timeOwned;
-  bool m_added[kNumFormats];
-  std::string m_data[kNumFormats];
+  bool m_added[kNumFormats] = {false, false, false};
+  std::string m_data[kNumFormats] = {"", "", ""};
 };

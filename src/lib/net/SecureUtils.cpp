@@ -23,12 +23,12 @@ namespace deskflow {
 
 namespace {
 
-const EVP_MD *digestForType(FingerprintType type)
+const EVP_MD *digestForType(Fingerprint::Type type)
 {
   switch (type) {
-  case FingerprintType::SHA1:
+  case Fingerprint::Type::SHA1:
     return EVP_sha1();
-  case FingerprintType::SHA256:
+  case Fingerprint::Type::SHA256:
     return EVP_sha256();
   default:
     break;
@@ -38,22 +38,15 @@ const EVP_MD *digestForType(FingerprintType type)
 
 } // namespace
 
-std::string formatSSLFingerprint(const std::vector<uint8_t> &fingerprint, bool enableSeparators)
+QString formatSSLFingerprint(const QByteArray &fingerprint, bool enableSeparators)
 {
-  std::string result = deskflow::string::toHex(fingerprint, 2);
-
-  deskflow::string::uppercase(result);
-
-  if (enableSeparators) {
-    const auto usedSpaces = 3;
-    size_t separators = result.size() / 2;
-    for (size_t i = 1; i < separators; i++)
-      result.insert(i * usedSpaces - 1, ":");
-  }
-  return result;
+  if (enableSeparators)
+    return fingerprint.toHex(':').toUpper();
+  else
+    return fingerprint.toHex().toUpper();
 }
 
-FingerprintData sslCertFingerprint(X509 *cert, FingerprintType type)
+Fingerprint sslCertFingerprint(const X509 *cert, Fingerprint::Type type)
 {
   if (!cert) {
     throw std::runtime_error("certificate is null");
@@ -61,18 +54,16 @@ FingerprintData sslCertFingerprint(X509 *cert, FingerprintType type)
 
   unsigned char digest[EVP_MAX_MD_SIZE];
   unsigned int digestLength = 0;
-  int result = X509_digest(cert, digestForType(type), digest, &digestLength);
 
-  if (result <= 0) {
+  if (int result = X509_digest(cert, digestForType(type), digest, &digestLength); result <= 0) {
     throw std::runtime_error("failed to calculate fingerprint, digest result: " + std::to_string(result));
   }
 
-  std::vector<std::uint8_t> digestVec;
-  digestVec.assign(reinterpret_cast<std::uint8_t *>(digest), reinterpret_cast<std::uint8_t *>(digest) + digestLength);
-  return {fingerprintTypeToString(type), digestVec};
+  QByteArray digestArray(reinterpret_cast<const char *>(digest), digestLength);
+  return {type, digestArray};
 }
 
-FingerprintData pemFileCertFingerprint(const std::string &path, FingerprintType type)
+Fingerprint pemFileCertFingerprint(const std::string &path, Fingerprint::Type type)
 {
   auto fp = fopenUtf8Path(path, "r");
   if (!fp) {
@@ -136,7 +127,7 @@ int getCertLength(const std::string &path)
     return -1;
   }
 
-  EVP_PKEY *privateKey = PEM_read_PrivateKey(fp, NULL, NULL, NULL);
+  EVP_PKEY *privateKey = PEM_read_PrivateKey(fp, nullptr, nullptr, nullptr);
 
   fclose(fp);
 
@@ -156,27 +147,25 @@ int getCertLength(const std::string &path)
   return size;
 }
 
-std::string formatSSLFingerprintColumns(const std::vector<uint8_t> &fingerprint)
+QString formatSSLFingerprintColumns(const QByteArray &fingerprint)
 {
-  auto kmaxColumns = 8;
+  auto kmaxColumns = 24;
 
-  std::string hex = deskflow::string::toHex(fingerprint, 2);
-  deskflow::string::uppercase(hex);
-  if (hex.empty() || hex.size() % 2 != 0) {
+  QString hex = fingerprint.toHex(':').toUpper();
+  if (hex.isEmpty()) {
     return hex;
   }
 
-  std::string separated;
-  for (std::size_t i = 0; i < hex.size(); i += kmaxColumns * 2) {
-    for (std::size_t j = i; j < i + 16 && j < hex.size() - 1; j += 2) {
-      separated.push_back(hex[j]);
-      separated.push_back(hex[j + 1]);
-      separated.push_back(':');
-    }
-    separated.push_back('\n');
+  QString formatedString;
+  while (!hex.isEmpty()) {
+    formatedString.append(hex.mid(0, kmaxColumns));
+    hex.remove(0, kmaxColumns);
+    if (formatedString.endsWith(':'))
+      formatedString.removeLast();
+    formatedString.append('\n');
   }
-  separated.pop_back(); // we don't need last newline character
-  return separated;
+  formatedString.removeLast();
+  return formatedString;
 }
 
 /*
@@ -206,12 +195,12 @@ walked in either direction.
     fail, too, because the key type would not fit in anymore.
 */
 
-std::string generateFingerprintArt(const std::vector<std::uint8_t> &rawDigest)
+QString generateFingerprintArt(const QByteArray &rawDigest)
 {
   const auto baseSize = 8;
   const auto rows = (baseSize + 1);
   const auto columns = (baseSize * 2 + 1);
-  const std::string characterPool = " .o+=*BOX@%&#/^SE";
+  const QString characterPool = " .o+=*BOX@%&#/^SE";
   const std::size_t len = characterPool.length() - 1;
 
   std::uint8_t field[columns][rows];
@@ -220,13 +209,12 @@ std::string generateFingerprintArt(const std::vector<std::uint8_t> &rawDigest)
   int y = rows / 2;
 
   /* process raw key */
-  for (size_t i = 0; i < rawDigest.size(); i++) {
+  for (int byte : rawDigest) {
     /* each byte conveys four 2-bit move commands */
-    int input = rawDigest[i];
     for (uint32_t b = 0; b < 4; b++) {
       /* evaluate 2 bit, rest is shifted later */
-      x += (input & 0x1) ? 1 : -1;
-      y += (input & 0x2) ? 1 : -1;
+      x += (byte & 0x1) ? 1 : -1;
+      y += (byte & 0x2) ? 1 : -1;
 
       /* assure we are still in bounds */
       x = std::clamp(x, 0, columns - 1);
@@ -235,7 +223,7 @@ std::string generateFingerprintArt(const std::vector<std::uint8_t> &rawDigest)
       /* augment the field */
       if (field[x][y] < len - 2)
         field[x][y]++;
-      input = input >> 2;
+      byte = byte >> 2;
     }
   }
 
@@ -243,7 +231,7 @@ std::string generateFingerprintArt(const std::vector<std::uint8_t> &rawDigest)
   field[columns / 2][rows / 2] = len - 1;
   field[x][y] = len;
 
-  std::string result;
+  QString result;
   result.reserve((columns + 3) * (rows + 2));
   result.append("╔═════════════════╗\n");
 
@@ -251,7 +239,7 @@ std::string generateFingerprintArt(const std::vector<std::uint8_t> &rawDigest)
   for (y = 0; y < rows; y++) {
     result.append("║");
     for (x = 0; x < columns; x++)
-      result.append(characterPool.substr(std::min<int>(field[x][y], len), 1));
+      result.append(characterPool.at(std::min<int>(field[x][y], len)));
     result.append("║\n");
   }
 

@@ -21,14 +21,16 @@ class ArgParser
 {
 
 public:
-  ArgParser(App *app);
+  explicit ArgParser(App *app);
 
-  bool parseServerArgs(deskflow::ServerArgs &args, int argc, const char *const *argv);
-  bool parseClientArgs(deskflow::ClientArgs &args, int argc, const char *const *argv);
-  bool parsePlatformArgs(deskflow::ArgsBase &argsBase, const int &argc, const char *const *argv, int &i, bool isServer);
-  bool parseGenericArgs(int argc, const char *const *argv, int &i);
-  bool parseDeprecatedArgs(int argc, const char *const *argv, int &i);
-  void setArgsBase(deskflow::ArgsBase &argsBase)
+  bool parseServerArgs(deskflow::ServerArgs &args, int argc, const char *const *argv) const;
+  bool parseClientArgs(deskflow::ClientArgs &args, int argc, const char *const *argv) const;
+  bool parsePlatformArgs(
+      deskflow::ArgsBase &argsBase, const int &argc, const char *const *argv, int &i, bool isServer
+  ) const;
+  bool parseGenericArgs(int argc, const char *const *argv, int &i) const;
+  bool parseDeprecatedArgs(int argc, const char *const *argv, int &i) const;
+  void setArgsBase(deskflow::ArgsBase &argsBase) const
   {
     m_argsBase = &argsBase;
   }
@@ -36,9 +38,9 @@ public:
   static bool isArg(
       int argi, int argc, const char *const *argv, const char *name1, const char *name2, int minRequiredParameters = 0
   );
-  static void splitCommandString(std::string &command, std::vector<std::string> &argv);
-  static bool searchDoubleQuotes(std::string &command, size_t &left, size_t &right, size_t startPos = 0);
-  static void removeDoubleQuotes(std::string &arg);
+  static void splitCommandString(const std::string_view &command, std::vector<std::string> &argv);
+  static bool searchDoubleQuotes(const std::string_view &command, size_t &left, size_t &right, size_t startPos = 0);
+  static void removeDoubleQuotes(std::string_view &arg);
   static const char **getArgv(std::vector<std::string> &argsArray);
   static std::string
   assembleCommand(std::vector<std::string> &argsArray, std::string ignoreArg = "", int parametersRequired = 0);
@@ -49,8 +51,8 @@ public:
   }
 
 private:
-  void updateCommonArgs(const char *const *argv);
-  bool checkUnexpectedArgs();
+  void updateCommonArgs(const char *const *argv) const;
+  bool checkUnexpectedArgs() const;
 
 private:
   App *m_app;

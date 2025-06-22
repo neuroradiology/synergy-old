@@ -16,14 +16,9 @@ FunctionEventJob::FunctionEventJob(void (*func)(const Event &, void *), void *ar
   // do nothing
 }
 
-FunctionEventJob::~FunctionEventJob()
-{
-  // do nothing
-}
-
 void FunctionEventJob::run(const Event &event)
 {
-  if (m_func != NULL) {
+  if (m_func != nullptr) {
     m_func(event, m_arg);
   }
 }

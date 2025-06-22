@@ -7,6 +7,8 @@
 
 #include "arch/Arch.h"
 
+#include <thread>
+
 #if SYSAPI_WIN32
 #include "arch/win32/ArchMiscWindows.h"
 #endif
@@ -15,21 +17,17 @@
 // Arch
 //
 
-Arch *Arch::s_instance = NULL;
+Arch *Arch::s_instance = nullptr;
 
 Arch::Arch()
 {
-  assert(s_instance == NULL);
+  assert(s_instance == nullptr);
   s_instance = this;
 }
 
 Arch::Arch(Arch *arch)
 {
   s_instance = arch;
-}
-
-Arch::~Arch()
-{
 }
 
 void Arch::init()
@@ -42,6 +40,22 @@ void Arch::init()
 
 Arch *Arch::getInstance()
 {
-  assert(s_instance != NULL);
+  assert(s_instance != nullptr);
   return s_instance;
+}
+
+void Arch::sleep(double timeout)
+{
+  ARCH->testCancelThread();
+  if (timeout < 0.0)
+    return;
+  const auto msec = static_cast<uint64_t>(timeout * 1000);
+  std::this_thread::sleep_for(std::chrono::milliseconds(msec));
+}
+
+double Arch::time()
+{
+  auto sinceEpoch = std::chrono::steady_clock::now().time_since_epoch();
+  auto uSecSinceEpoch = std::chrono::duration_cast<std::chrono::microseconds>(sinceEpoch).count();
+  return uSecSinceEpoch / 1000000.0;
 }

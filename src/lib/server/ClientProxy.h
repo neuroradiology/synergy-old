@@ -25,7 +25,7 @@ public:
   ClientProxy(const std::string &name, deskflow::IStream *adoptedStream);
   ClientProxy(ClientProxy const &) = delete;
   ClientProxy(ClientProxy &&) = delete;
-  ~ClientProxy();
+  ~ClientProxy() override;
 
   ClientProxy &operator=(ClientProxy const &) = delete;
   ClientProxy &operator=(ClientProxy &&) = delete;
@@ -37,7 +37,7 @@ public:
   /*!
   Ask the client to disconnect, using \p msg as the reason.
   */
-  void close(const char *msg);
+  void close(const char *msg) const;
 
   //@}
   //! @name accessors

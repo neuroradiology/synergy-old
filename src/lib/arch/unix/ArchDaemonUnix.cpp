@@ -1,5 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -7,6 +8,7 @@
 
 #include "arch/unix/ArchDaemonUnix.h"
 
+#include "arch/XArch.h"
 #include "arch/unix/XArchUnix.h"
 #include "base/Log.h"
 
@@ -20,16 +22,6 @@
 //
 // ArchDaemonUnix
 //
-
-ArchDaemonUnix::ArchDaemonUnix()
-{
-  // do nothing
-}
-
-ArchDaemonUnix::~ArchDaemonUnix()
-{
-  // do nothing
-}
 
 #ifdef __APPLE__
 
@@ -49,12 +41,12 @@ int execSelfNonDaemonized()
 
 bool alreadyDaemonized()
 {
-  return getenv("_DESKFLOW_DAEMONIZED") != NULL;
+  return std::getenv("_DESKFLOW_DAEMONIZED") != nullptr;
 }
 
 #endif
 
-int ArchDaemonUnix::daemonize(const char *name, DaemonFunc func)
+int ArchDaemonUnix::daemonize(const char *name, DaemonFunc const &func)
 {
 #ifdef __APPLE__
   if (alreadyDaemonized())
@@ -66,7 +58,7 @@ int ArchDaemonUnix::daemonize(const char *name, DaemonFunc func)
   switch (fork()) {
   case -1:
     // failed
-    throw XArchDaemonFailed(new XArchEvalUnix(errno));
+    throw XArchDaemonFailed(errorToString(errno));
 
   case 0:
     // child
@@ -84,8 +76,7 @@ int ArchDaemonUnix::daemonize(const char *name, DaemonFunc func)
   // NB: don't run chdir on apple; causes strange behaviour.
   // chdir to root so we don't keep mounted filesystems points busy
   // TODO: this is a bit of a hack - can we find a better solution?
-  int chdirErr = chdir("/");
-  if (chdirErr)
+  if (int chdirErr = chdir("/"); chdirErr)
     // NB: file logging actually isn't working at this point!
     LOG((CLOG_ERR "chdir error: %i", chdirErr));
 #endif
@@ -103,9 +94,7 @@ int ArchDaemonUnix::daemonize(const char *name, DaemonFunc func)
   open("/dev/null", O_RDONLY);
   open("/dev/null", O_RDWR);
 
-  int dupErr = dup(1);
-
-  if (dupErr < 0) {
+  if (int dupErr = dup(1); dupErr < 0) {
     // NB: file logging actually isn't working at this point!
     LOG((CLOG_ERR "dup error: %i", dupErr));
   }

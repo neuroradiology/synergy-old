@@ -1,5 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2005 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -35,8 +36,8 @@ public:
   class Condition
   {
   public:
-    Condition();
-    virtual ~Condition();
+    Condition() = default;
+    virtual ~Condition() = default;
 
     virtual Condition *clone() const = 0;
     virtual std::string format() const = 0;
@@ -53,20 +54,20 @@ public:
   public:
     KeystrokeCondition(IEventQueue *events, IPlatformScreen::KeyInfo *);
     KeystrokeCondition(IEventQueue *events, KeyID key, KeyModifierMask mask);
-    virtual ~KeystrokeCondition();
+    ~KeystrokeCondition() override = default;
 
     KeyID getKey() const;
     KeyModifierMask getMask() const;
 
     // Condition overrides
-    virtual Condition *clone() const;
-    virtual std::string format() const;
-    virtual EFilterStatus match(const Event &);
-    virtual void enablePrimary(PrimaryClient *);
-    virtual void disablePrimary(PrimaryClient *);
+    Condition *clone() const override;
+    std::string format() const override;
+    EFilterStatus match(const Event &) override;
+    void enablePrimary(PrimaryClient *) override;
+    void disablePrimary(PrimaryClient *) override;
 
   private:
-    uint32_t m_id;
+    uint32_t m_id = 0;
     KeyID m_key;
     KeyModifierMask m_mask;
     IEventQueue *m_events;
@@ -78,15 +79,15 @@ public:
   public:
     MouseButtonCondition(IEventQueue *events, IPlatformScreen::ButtonInfo *);
     MouseButtonCondition(IEventQueue *events, ButtonID, KeyModifierMask mask);
-    virtual ~MouseButtonCondition();
+    ~MouseButtonCondition() override = default;
 
     ButtonID getButton() const;
     KeyModifierMask getMask() const;
 
     // Condition overrides
-    virtual Condition *clone() const;
-    virtual std::string format() const;
-    virtual EFilterStatus match(const Event &);
+    Condition *clone() const override;
+    std::string format() const override;
+    EFilterStatus match(const Event &) override;
 
   private:
     ButtonID m_button;
@@ -99,12 +100,12 @@ public:
   {
   public:
     ScreenConnectedCondition(IEventQueue *events, const std::string &screen);
-    virtual ~ScreenConnectedCondition();
+    ~ScreenConnectedCondition() override = default;
 
     // Condition overrides
-    virtual Condition *clone() const;
-    virtual std::string format() const;
-    virtual EFilterStatus match(const Event &);
+    Condition *clone() const override;
+    std::string format() const override;
+    EFilterStatus match(const Event &) override;
 
   private:
     std::string m_screen;
@@ -118,8 +119,8 @@ public:
   class Action
   {
   public:
-    Action();
-    virtual ~Action();
+    Action() = default;
+    virtual ~Action() = default;
 
     virtual Action *clone() const = 0;
     virtual std::string format() const = 0;
@@ -143,9 +144,9 @@ public:
     Mode getMode() const;
 
     // Action overrides
-    virtual Action *clone() const;
-    virtual std::string format() const;
-    virtual void perform(const Event &);
+    Action *clone() const override;
+    std::string format() const override;
+    void perform(const Event &) override;
 
   private:
     Mode m_mode;
@@ -165,9 +166,9 @@ public:
     Mode getMode() const;
 
     // Action overrides
-    virtual Action *clone() const;
-    virtual std::string format() const;
-    virtual void perform(const Event &);
+    Action *clone() const override;
+    std::string format() const override;
+    void perform(const Event &) override;
 
   private:
     Mode m_mode;
@@ -183,9 +184,9 @@ public:
     std::string getScreen() const;
 
     // Action overrides
-    virtual Action *clone() const;
-    virtual std::string format() const;
-    virtual void perform(const Event &);
+    Action *clone() const override;
+    std::string format() const override;
+    void perform(const Event &) override;
 
   private:
     std::string m_screen;
@@ -201,9 +202,9 @@ public:
     EDirection getDirection() const;
 
     // Action overrides
-    virtual Action *clone() const;
-    virtual std::string format() const;
-    virtual void perform(const Event &);
+    Action *clone() const override;
+    std::string format() const override;
+    void perform(const Event &) override;
 
   private:
     EDirection m_direction;
@@ -228,9 +229,9 @@ public:
     std::set<std::string> getScreens() const;
 
     // Action overrides
-    virtual Action *clone() const;
-    virtual std::string format() const;
-    virtual void perform(const Event &);
+    Action *clone() const override;
+    std::string format() const override;
+    void perform(const Event &) override;
 
   private:
     Mode m_mode;
@@ -245,7 +246,7 @@ public:
     KeystrokeAction(IEventQueue *events, IPlatformScreen::KeyInfo *adoptedInfo, bool press);
     KeystrokeAction(KeystrokeAction const &) = delete;
     KeystrokeAction(KeystrokeAction &&) = delete;
-    ~KeystrokeAction();
+    ~KeystrokeAction() override;
 
     KeystrokeAction &operator=(KeystrokeAction const &) = delete;
     KeystrokeAction &operator=(KeystrokeAction &&) = delete;
@@ -255,9 +256,9 @@ public:
     bool isOnPress() const;
 
     // Action overrides
-    virtual Action *clone() const;
-    virtual std::string format() const;
-    virtual void perform(const Event &);
+    Action *clone() const override;
+    std::string format() const override;
+    void perform(const Event &) override;
 
   protected:
     virtual const char *formatName() const;
@@ -275,7 +276,7 @@ public:
     MouseButtonAction(IEventQueue *events, IPlatformScreen::ButtonInfo *adoptedInfo, bool press);
     MouseButtonAction(MouseButtonAction const &) = delete;
     MouseButtonAction(MouseButtonAction &&) = delete;
-    ~MouseButtonAction();
+    ~MouseButtonAction() override;
 
     MouseButtonAction &operator=(MouseButtonAction const &) = delete;
     MouseButtonAction &operator=(MouseButtonAction &&) = delete;
@@ -284,9 +285,9 @@ public:
     bool isOnPress() const;
 
     // Action overrides
-    virtual Action *clone() const;
-    virtual std::string format() const;
-    virtual void perform(const Event &);
+    Action *clone() const override;
+    std::string format() const override;
+    void perform(const Event &) override;
 
   protected:
     virtual const char *formatName() const;
@@ -300,8 +301,8 @@ public:
   class Rule
   {
   public:
-    Rule();
-    Rule(Condition *adopted);
+    Rule() = default;
+    explicit Rule(Condition *adopted);
     Rule(const Rule &);
     ~Rule();
 
@@ -324,7 +325,7 @@ public:
     void disable(PrimaryClient *);
 
     // event handling
-    bool handleEvent(const Event &);
+    bool handleEvent(const Event &e);
 
     // convert rule to a string
     std::string format() const;
@@ -345,7 +346,7 @@ public:
   private:
     using ActionList = std::vector<Action *>;
 
-    Condition *m_condition;
+    Condition *m_condition = nullptr;
     ActionList m_activateActions;
     ActionList m_deactivateActions;
   };
@@ -355,15 +356,9 @@ public:
   // -------------------------------------------------------------------------
   using RuleList = std::vector<Rule>;
 
-  InputFilter(IEventQueue *events);
+  explicit InputFilter(IEventQueue *events);
   InputFilter(const InputFilter &);
-  virtual ~InputFilter();
-
-#ifdef TEST_ENV
-  InputFilter() : m_primaryClient(NULL)
-  {
-  }
-#endif
+  ~InputFilter();
 
   InputFilter &operator=(const InputFilter &);
 
@@ -377,11 +372,11 @@ public:
   Rule &getRule(uint32_t index);
 
   // enable event filtering using the given primary client.  disable
-  // if client is NULL.
-  virtual void setPrimaryClient(PrimaryClient *client);
+  // if client is nullptr.
+  void setPrimaryClient(PrimaryClient *client);
 
   // convert rules to a string
-  std::string format(const std::string &linePrefix) const;
+  std::string format(const std::string_view &linePrefix) const;
 
   // get number of rules
   uint32_t getNumRules() const;
@@ -393,10 +388,10 @@ public:
 
 private:
   // event handling
-  void handleEvent(const Event &, void *);
+  void handleEvent(const Event &);
 
 private:
   RuleList m_ruleList;
-  PrimaryClient *m_primaryClient;
+  PrimaryClient *m_primaryClient = nullptr;
   IEventQueue *m_events;
 };

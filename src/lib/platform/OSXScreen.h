@@ -1,5 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -8,7 +9,6 @@
 #pragma once
 
 #include "base/EventTypes.h"
-#include "deskflow/DragInformation.h"
 #include "deskflow/PlatformScreen.h"
 #include "platform/OSXClipboard.h"
 #include "platform/OSXPowerManager.h"
@@ -94,19 +94,13 @@ public:
   void setOptions(const OptionsList &options) override;
   void setSequenceNumber(uint32_t) override;
   bool isPrimary() const override;
-  void fakeDraggingFiles(DragFileList fileList) override;
-  std::string &getDraggingFilename() override;
   std::string getSecureInputApp() const override;
 
-  const std::string &getDropTarget() const override
-  {
-    return m_dropTarget;
-  }
   void waitForCarbonLoop() const;
 
 protected:
   // IPlatformScreen overrides
-  void handleSystemEvent(const Event &, void *) override;
+  void handleSystemEvent(const Event &e) override;
   void updateButtons() override;
   IKeyState *getKeyState() const override;
 
@@ -116,8 +110,8 @@ private:
   void postMouseEvent(CGPoint &) const;
 
   // convenience function to send events
-  void sendEvent(Event::Type type, void * = NULL) const;
-  void sendClipboardEvent(Event::Type type, ClipboardID id) const;
+  void sendEvent(EventTypes type, void * = nullptr) const;
+  void sendClipboardEvent(EventTypes type, ClipboardID id) const;
 
   // message handlers
   bool onMouseMove(CGFloat mx, CGFloat my);
@@ -154,15 +148,6 @@ private:
   // get the current scroll wheel speed
   double getScrollSpeed() const;
 
-  // enable/disable drag handling for buttons 3 and up
-  void enableDragTimer(bool enable);
-
-  // drag timer handler
-  void handleDrag(const Event &, void *);
-
-  // clipboard check timer handler
-  void handleClipboardCheck(const Event &, void *);
-
   // Resolution switch callback
   static void displayReconfigurationCallback(CGDirectDisplayID, CGDisplayChangeSummaryFlags, void *);
 
@@ -175,7 +160,7 @@ private:
   static void powerChangeCallback(void *refcon, io_service_t service, natural_t messageType, void *messageArgument);
   void handlePowerChangeRequest(natural_t messageType, void *messageArgument);
 
-  void handleConfirmSleep(const Event &event, void *);
+  void handleConfirmSleep(const Event &event);
 
   // global hotkey operating mode
   static bool isGlobalHotKeyOperatingModeAvailable();
@@ -189,8 +174,6 @@ private:
 
   // convert CFString to char*
   static char *CFStringRefToUTF8String(CFStringRef aString);
-
-  void getDropTargetThread(void *);
 
 private:
   struct HotKeyItem
@@ -266,9 +249,6 @@ private:
   std::vector<MouseButtonEventMapType> MouseButtonEventMap;
 
   bool m_cursorHidden;
-  int32_t m_dragNumButtonsDown;
-  Point m_dragLastPoint;
-  EventQueueTimer *m_dragTimer;
 
   // keyboard stuff
   OSXKeyState *m_keyState;
@@ -329,10 +309,8 @@ private:
   std::unique_ptr<Thread> m_getDropTargetThread;
   std::string m_dropTarget;
 
-#if defined(MAC_OS_X_VERSION_10_7)
   Mutex *m_carbonLoopMutex;
   CondVar<bool> *m_carbonLoopReady;
-#endif
 
   OSXPowerManager m_powerManager;
 

@@ -1,5 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2006 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -9,7 +10,6 @@
 
 #include "base/IEventQueue.h"
 #include "base/Log.h"
-#include "base/TMethodEventJob.h"
 #include "deskflow/ProtocolUtil.h"
 
 #include <cstring>
@@ -21,8 +21,6 @@
 
 ClientProxy1_3::ClientProxy1_3(const std::string &name, deskflow::IStream *stream, IEventQueue *events)
     : ClientProxy1_2(name, stream, events),
-      m_keepAliveRate(kKeepAliveRate),
-      m_keepAliveTimer(NULL),
       m_events(events)
 {
   setHeartbeatRate(kKeepAliveRate, kKeepAliveRate * kKeepAlivesUntilDeath);
@@ -74,11 +72,8 @@ void ClientProxy1_3::addHeartbeatTimer()
 {
   // create and install a timer to periodically send keep alives
   if (m_keepAliveRate > 0.0) {
-    m_keepAliveTimer = m_events->newTimer(m_keepAliveRate, NULL);
-    m_events->adoptHandler(
-        Event::kTimer, m_keepAliveTimer,
-        new TMethodEventJob<ClientProxy1_3>(this, &ClientProxy1_3::handleKeepAlive, NULL)
-    );
+    m_keepAliveTimer = m_events->newTimer(m_keepAliveRate, nullptr);
+    m_events->addHandler(EventTypes::Timer, m_keepAliveTimer, [this](const auto &) { keepAlive(); });
   }
 
   // superclass does the alarm
@@ -88,19 +83,14 @@ void ClientProxy1_3::addHeartbeatTimer()
 void ClientProxy1_3::removeHeartbeatTimer()
 {
   // remove the timer that sends keep alives periodically
-  if (m_keepAliveTimer != NULL) {
-    m_events->removeHandler(Event::kTimer, m_keepAliveTimer);
+  if (m_keepAliveTimer != nullptr) {
+    m_events->removeHandler(EventTypes::Timer, m_keepAliveTimer);
     m_events->deleteTimer(m_keepAliveTimer);
-    m_keepAliveTimer = NULL;
+    m_keepAliveTimer = nullptr;
   }
 
   // superclass does the alarm
   ClientProxy1_2::removeHeartbeatTimer();
-}
-
-void ClientProxy1_3::handleKeepAlive(const Event &, void *)
-{
-  keepAlive();
 }
 
 void ClientProxy1_3::keepAlive()

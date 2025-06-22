@@ -8,25 +8,21 @@
 
 #include "arch/win32/XArchWindows.h"
 #include "base/Log.h"
-#include "deskflow/XDeskflow.h"
 
 #include <Wtsapi32.h>
+#include <stdexcept>
 
 MSWindowsSession::MSWindowsSession() : m_activeSessionId(-1)
 {
 }
 
-MSWindowsSession::~MSWindowsSession()
-{
-}
-
-bool MSWindowsSession::isProcessInSession(const char *name, PHANDLE process = NULL)
+bool MSWindowsSession::isProcessInSession(const char *name, PHANDLE process = nullptr)
 {
   // first we need to take a snapshot of the running processes
   HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
   if (snapshot == INVALID_HANDLE_VALUE) {
     LOG((CLOG_ERR "could not get process snapshot"));
-    throw XArch(new XArchEvalWindows());
+    throw std::runtime_error(windowsErrorToString(GetLastError()));
   }
 
   PROCESSENTRY32 entry;
@@ -37,7 +33,7 @@ bool MSWindowsSession::isProcessInSession(const char *name, PHANDLE process = NU
   BOOL gotEntry = Process32First(snapshot, &entry);
   if (!gotEntry) {
     LOG((CLOG_ERR "could not get first process entry"));
-    throw XArch(new XArchEvalWindows());
+    throw std::runtime_error(windowsErrorToString(GetLastError()));
   }
 
   // used to record process names for debug info
@@ -91,7 +87,7 @@ bool MSWindowsSession::isProcessInSession(const char *name, PHANDLE process = NU
   CloseHandle(snapshot);
 
   if (pid) {
-    if (process != NULL) {
+    if (process != nullptr) {
       // now get the process, which we'll use to get the process token.
       LOG((CLOG_DEBUG "found %s in session %i", name, m_activeSessionId));
       *process = OpenProcess(MAXIMUM_ALLOWED, FALSE, pid);
@@ -109,7 +105,7 @@ MSWindowsSession::getUserToken(LPSECURITY_ATTRIBUTES security)
   HANDLE sourceToken;
   if (!WTSQueryUserToken(m_activeSessionId, &sourceToken)) {
     LOG((CLOG_ERR "could not get token from session %d", m_activeSessionId));
-    throw XArch(new XArchEvalWindows);
+    throw std::runtime_error(windowsErrorToString(GetLastError()));
   }
 
   HANDLE newToken;
@@ -118,7 +114,7 @@ MSWindowsSession::getUserToken(LPSECURITY_ATTRIBUTES security)
       )) {
 
     LOG((CLOG_ERR "could not duplicate token"));
-    throw XArch(new XArchEvalWindows);
+    throw std::runtime_error(windowsErrorToString(GetLastError()));
   }
 
   LOG((CLOG_DEBUG "duplicated, new token: %i", newToken));
@@ -152,7 +148,7 @@ BOOL MSWindowsSession::nextProcessEntry(HANDLE snapshot, LPPROCESSENTRY32 entry)
     // files' error then it's probably something serious.
     if (err != ERROR_NO_MORE_FILES) {
       LOG((CLOG_ERR "could not get next process entry"));
-      throw XArch(new XArchEvalWindows());
+      throw std::runtime_error(windowsErrorToString(GetLastError()));
     }
   }
 

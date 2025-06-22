@@ -1,5 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -22,7 +23,7 @@ public:
   ClientProxy1_0(const std::string &name, deskflow::IStream *adoptedStream, IEventQueue *events);
   ClientProxy1_0(ClientProxy1_0 const &) = delete;
   ClientProxy1_0(ClientProxy1_0 &&) = delete;
-  ~ClientProxy1_0();
+  ~ClientProxy1_0() override;
 
   ClientProxy1_0 &operator=(ClientProxy1_0 const &) = delete;
   ClientProxy1_0 &operator=(ClientProxy1_0 &&) = delete;
@@ -69,10 +70,10 @@ private:
   void disconnect();
   void removeHandlers();
 
-  void handleData(const Event &, void *);
-  void handleDisconnect(const Event &, void *);
-  void handleWriteError(const Event &, void *);
-  void handleFlatline(const Event &, void *);
+  void handleData();
+  void handleDisconnect();
+  void handleWriteError();
+  void handleFlatline();
 
   bool recvInfo();
   bool recvGrabClipboard();
@@ -81,22 +82,22 @@ protected:
   struct ClientClipboard
   {
   public:
-    ClientClipboard();
+    ClientClipboard() = default;
 
   public:
     Clipboard m_clipboard;
-    uint32_t m_sequenceNumber;
-    bool m_dirty;
+    uint32_t m_sequenceNumber = 0;
+    bool m_dirty = true;
   };
 
   ClientClipboard m_clipboard[kClipboardEnd];
 
 private:
-  typedef bool (ClientProxy1_0::*MessageParser)(const uint8_t *);
+  using MessageParser = bool (ClientProxy1_0::*)(const uint8_t *);
 
   ClientInfo m_info;
   double m_heartbeatAlarm;
-  EventQueueTimer *m_heartbeatTimer;
+  EventQueueTimer *m_heartbeatTimer = nullptr;
   MessageParser m_parser;
   IEventQueue *m_events;
 };

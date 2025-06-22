@@ -6,7 +6,6 @@
  */
 
 #include "arch/win32/ArchLogWindows.h"
-#include "arch/win32/ArchMiscWindows.h"
 
 #include <string.h>
 
@@ -14,28 +13,23 @@
 // ArchLogWindows
 //
 
-ArchLogWindows::ArchLogWindows() : m_eventLog(NULL)
-{
-  // do nothing
-}
-
-ArchLogWindows::~ArchLogWindows()
+ArchLogWindows::ArchLogWindows() : m_eventLog(nullptr)
 {
   // do nothing
 }
 
 void ArchLogWindows::openLog(const char *name)
 {
-  if (m_eventLog == NULL) {
-    m_eventLog = RegisterEventSource(NULL, name);
+  if (m_eventLog == nullptr) {
+    m_eventLog = RegisterEventSource(nullptr, name);
   }
 }
 
 void ArchLogWindows::closeLog()
 {
-  if (m_eventLog != NULL) {
+  if (m_eventLog != nullptr) {
     DeregisterEventSource(m_eventLog);
-    m_eventLog = NULL;
+    m_eventLog = nullptr;
   }
 }
 
@@ -46,7 +40,7 @@ void ArchLogWindows::showLog(bool)
 
 void ArchLogWindows::writeLog(ELevel level, const char *msg)
 {
-  if (m_eventLog != NULL) {
+  if (m_eventLog != nullptr) {
     // convert priority
     WORD type;
     switch (level) {
@@ -72,9 +66,9 @@ void ArchLogWindows::writeLog(ELevel level, const char *msg)
     ReportEvent(
         m_eventLog, type, static_cast<WORD>(level),
         0, // event ID
-        NULL, 0,
+        nullptr, 0,
         (DWORD)strlen(msg) + 1, // raw data size
-        NULL,
+        nullptr,
         const_cast<char *>(msg)
     ); // raw data
   }

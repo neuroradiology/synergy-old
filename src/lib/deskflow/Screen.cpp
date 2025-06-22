@@ -8,7 +8,6 @@
 #include "deskflow/Screen.h"
 #include "base/IEventQueue.h"
 #include "base/Log.h"
-#include "base/TMethodEventJob.h"
 #include "deskflow/IPlatformScreen.h"
 #include "deskflow/ProtocolTypes.h"
 #include "server/ClientProxy.h"
@@ -22,14 +21,10 @@ namespace deskflow {
 Screen::Screen(IPlatformScreen *platformScreen, IEventQueue *events)
     : m_screen(platformScreen),
       m_isPrimary(platformScreen->isPrimary()),
-      m_enabled(false),
       m_entered(m_isPrimary),
-      m_fakeInput(false),
-      m_events(events),
-      m_mock(false),
-      m_enableDragDrop(false)
+      m_events(events)
 {
-  assert(m_screen != NULL);
+  assert(m_screen != nullptr);
 
   // reset options
   resetOptions();
@@ -39,9 +34,6 @@ Screen::Screen(IPlatformScreen *platformScreen, IEventQueue *events)
 
 Screen::~Screen()
 {
-  if (m_mock) {
-    return;
-  }
 
   if (m_enabled) {
     disable();
@@ -179,7 +171,7 @@ void Screen::setClipboard(ClipboardID id, const IClipboard *clipboard)
 
 void Screen::grabClipboard(ClipboardID id)
 {
-  m_screen->setClipboard(id, NULL);
+  m_screen->setClipboard(id, nullptr);
 }
 
 void Screen::screensaver(bool) const
@@ -226,7 +218,7 @@ void Screen::mouseMove(int32_t x, int32_t y)
   m_screen->fakeMouseMove(x, y);
 }
 
-void Screen::mouseRelativeMove(int32_t dx, int32_t dy)
+void Screen::mouseRelativeMove(int32_t dx, int32_t dy) const
 {
   assert(!m_isPrimary);
   m_screen->fakeMouseRelativeMove(dx, dy);
@@ -320,22 +312,10 @@ bool Screen::isOnScreen() const
 
 bool Screen::isLockedToScreen() const
 {
-  // check for pressed mouse buttons
-  // HACK: commented out as it breaks new drag drop feature
-  uint32_t buttonID = 0;
-
-  if (m_screen->isAnyMouseButtonDown(buttonID)) {
-    if (buttonID != kButtonLeft) {
-      LOG((CLOG_DEBUG "locked by mouse buttonID: %d", buttonID));
-    }
-
-    if (m_enableDragDrop) {
-      return (buttonID == kButtonLeft) ? false : true;
-    } else {
-      return true;
-    }
+  if (uint32_t buttonID = 0; m_screen->isAnyMouseButtonDown(buttonID)) {
+    LOG((CLOG_DEBUG "locked by mouse buttonID: %d", buttonID));
+    return true;
   }
-
   // not locked
   return false;
 }
@@ -364,46 +344,6 @@ KeyModifierMask Screen::pollActiveModifiers() const
   return m_screen->pollActiveModifiers();
 }
 
-bool Screen::isDraggingStarted() const
-{
-  return m_screen->isDraggingStarted();
-}
-
-bool Screen::isFakeDraggingStarted() const
-{
-  return m_screen->isFakeDraggingStarted();
-}
-
-void Screen::setDraggingStarted(bool started)
-{
-  m_screen->setDraggingStarted(started);
-}
-
-void Screen::startDraggingFiles(DragFileList &fileList)
-{
-  m_screen->fakeDraggingFiles(fileList);
-}
-
-void Screen::setEnableDragDrop(bool enabled)
-{
-  m_enableDragDrop = enabled;
-}
-
-std::string &Screen::getDraggingFilename() const
-{
-  return m_screen->getDraggingFilename();
-}
-
-void Screen::clearDraggingFilename()
-{
-  m_screen->clearDraggingFilename();
-}
-
-const std::string &Screen::getDropTarget() const
-{
-  return m_screen->getDropTarget();
-}
-
 void *Screen::getEventTarget() const
 {
   return m_screen;
@@ -430,7 +370,7 @@ void Screen::enablePrimary()
   m_screen->openScreensaver(true);
 
   // claim screen changed size
-  m_events->addEvent(Event(m_events->forIScreen().shapeChanged(), getEventTarget()));
+  m_events->addEvent(Event(EventTypes::ScreenShapeChanged, getEventTarget()));
 }
 
 void Screen::enableSecondary()
@@ -453,12 +393,12 @@ void Screen::disableSecondary()
   m_screen->closeScreensaver();
 }
 
-void Screen::enterPrimary()
+void Screen::enterPrimary() const
 {
   // do nothing
 }
 
-void Screen::enterSecondary(KeyModifierMask)
+void Screen::enterSecondary(KeyModifierMask) const
 {
   // do nothing
 }

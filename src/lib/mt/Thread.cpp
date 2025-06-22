@@ -21,21 +21,21 @@
 Thread::Thread(IJob *job)
 {
   m_thread = ARCH->newThread(&Thread::threadFunc, job);
-  if (m_thread == NULL) {
+  if (m_thread == nullptr) {
     // couldn't create thread
     delete job;
     throw XMTThreadUnavailable();
   }
 }
 
-Thread::Thread(const Thread &thread)
+Thread::Thread(const Thread &thread) : m_thread{ARCH->copyThread(thread.m_thread)}
 {
-  m_thread = ARCH->copyThread(thread.m_thread);
+  // do nothing
 }
 
-Thread::Thread(ArchThread adoptedThread)
+Thread::Thread(ArchThread adoptedThread) : m_thread{adoptedThread}
 {
-  m_thread = adoptedThread;
+  // do nothing
 }
 
 Thread::~Thread()
@@ -95,7 +95,7 @@ void *Thread::getResult() const
   if (wait())
     return ARCH->getResultOfThread(m_thread);
   else
-    return NULL;
+    return nullptr;
 }
 
 IArchMultithread::ThreadID Thread::getID() const
@@ -124,10 +124,10 @@ void *Thread::threadFunc(void *vjob)
   }
 
   // get job
-  IJob *job = static_cast<IJob *>(vjob);
+  auto *job = static_cast<IJob *>(vjob);
 
   // run job
-  void *result = NULL;
+  void *result = nullptr;
   try {
     // go
     LOG((CLOG_DEBUG1 "thread 0x%08x entry", id));

@@ -20,20 +20,16 @@
 #include "deskflow/ClientArgs.h"
 #include "platform/XWindowsUtil.h"
 
+#include <X11/X.h>
+#include <X11/Xutil.h>
 #include <algorithm>
 #include <cstddef>
 #include <map>
-#if X_DISPLAY_MISSING
-#error X11 is required to build deskflow
-#else
-#include <X11/X.h>
-#include <X11/Xutil.h>
 #define XK_MISCELLANY
 #define XK_XKB_KEYS
 #include <X11/keysymdef.h>
 #if HAVE_XKB_EXTENSION
 #include <X11/XKBlib.h>
-#endif
 #endif
 
 static const size_t ModifiersFromXDefaultSize = 32;
@@ -59,20 +55,20 @@ XWindowsKeyState::XWindowsKeyState(Display *display, bool useXKB, IEventQueue *e
 XWindowsKeyState::~XWindowsKeyState()
 {
 #if HAVE_XKB_EXTENSION
-  if (m_xkb != NULL) {
+  if (m_xkb != nullptr) {
     XkbFreeKeyboard(m_xkb, 0, True);
   }
 #endif
 }
 
-void XWindowsKeyState::init(Display *display, bool useXKB)
+void XWindowsKeyState::init(const Display *display, bool useXKB)
 {
   XGetKeyboardControl(m_display, &m_keyboardState);
 #if HAVE_XKB_EXTENSION
   if (useXKB) {
     m_xkb = XkbGetMap(m_display, XkbKeyActionsMask | XkbKeyBehaviorsMask | XkbAllClientInfoMask, XkbUseCoreKbd);
   } else {
-    m_xkb = NULL;
+    m_xkb = nullptr;
   }
 #endif
   setActiveGroup(kGroupPoll);
@@ -156,8 +152,12 @@ bool XWindowsKeyState::fakeCtrlAltDel()
 
 KeyModifierMask XWindowsKeyState::pollActiveModifiers() const
 {
-  Window root = DefaultRootWindow(m_display), window;
-  int xRoot, yRoot, xWindow, yWindow;
+  Window root = DefaultRootWindow(m_display);
+  Window window;
+  int xRoot;
+  int yRoot;
+  int xWindow;
+  int yWindow;
   unsigned int state = 0;
   if (XQueryPointer(m_display, root, &root, &window, &xRoot, &yRoot, &xWindow, &yWindow, &state) == False) {
     state = 0;
@@ -173,7 +173,7 @@ int32_t XWindowsKeyState::pollActiveGroup() const
   }
 
 #if HAVE_XKB_EXTENSION
-  if (m_xkb != NULL) {
+  if (m_xkb != nullptr) {
     XkbStateRec state;
     XSync(m_display, False);
     if (XkbGetState(m_display, XkbUseCoreKbd, &state) == Success) {
@@ -208,7 +208,7 @@ void XWindowsKeyState::getKeyMap(deskflow::KeyMap &keyMap)
   m_keyboardState.global_auto_repeat = oldGlobalAutoRepeat;
 
 #if HAVE_XKB_EXTENSION
-  if (m_xkb != NULL) {
+  if (m_xkb != nullptr) {
     if (XkbGetUpdatedMap(m_display, XkbKeyActionsMask | XkbKeyBehaviorsMask | XkbAllClientInfoMask, m_xkb) == Success) {
       updateKeysymMapXKB(keyMap);
       return;
@@ -294,7 +294,7 @@ void XWindowsKeyState::fakeKey(const Keystroke &keystroke)
       }
 #endif
 #if HAVE_XKB_EXTENSION
-      if (m_xkb != NULL) {
+      if (m_xkb != nullptr) {
         if (XkbLockGroup(m_display, XkbUseCoreKbd, keystroke.m_data.m_group.m_group) == False) {
           LOG((CLOG_DEBUG1 "xkb lock group request not sent"));
         }
@@ -311,7 +311,7 @@ void XWindowsKeyState::fakeKey(const Keystroke &keystroke)
       }
 #endif
 #if HAVE_XKB_EXTENSION
-      if (m_xkb != NULL) {
+      if (m_xkb != nullptr) {
         if (XkbLockGroup(
                 m_display, XkbUseCoreKbd, getEffectiveGroup(pollActiveGroup(), keystroke.m_data.m_group.m_group)
             ) == False) {
@@ -351,7 +351,8 @@ void XWindowsKeyState::updateKeysymMap(deskflow::KeyMap &keyMap)
   m_keyCodeFromKey.clear();
 
   // get the number of keycodes
-  int minKeycode, maxKeycode;
+  int minKeycode;
+  int maxKeycode;
   XDisplayKeycodes(m_display, &minKeycode, &maxKeycode);
   int numKeycodes = maxKeycode - minKeycode + 1;
 
@@ -361,7 +362,7 @@ void XWindowsKeyState::updateKeysymMap(deskflow::KeyMap &keyMap)
 
   // it's more convenient to always have maxKeysyms KeySyms per key
   {
-    KeySym *tmpKeysyms = new KeySym[maxKeysyms * numKeycodes];
+    auto *tmpKeysyms = new KeySym[maxKeysyms * numKeycodes];
     for (int i = 0; i < numKeycodes; ++i) {
       for (int j = 0; j < maxKeysyms; ++j) {
         if (j < keysymsPerKeycode) {
@@ -420,7 +421,7 @@ void XWindowsKeyState::updateKeysymMap(deskflow::KeyMap &keyMap)
   deskflow::KeyMap::KeyItem item;
   for (int i = 0; i < numKeycodes; ++i) {
     KeySym *keysyms = allKeysyms + maxKeysyms * i;
-    KeyCode keycode = static_cast<KeyCode>(i + minKeycode);
+    auto keycode = static_cast<KeyCode>(i + minKeycode);
     item.m_button = static_cast<KeyButton>(keycode);
     item.m_client = 0;
 
@@ -437,7 +438,8 @@ void XWindowsKeyState::updateKeysymMap(deskflow::KeyMap &keyMap)
     // provide one keysym for keys sensitive to caps-lock.  if we
     // find that then fill in the missing keysym.
     if (keysyms[0] != NoSymbol && keysyms[1] == NoSymbol && keysyms[2] == NoSymbol && keysyms[3] == NoSymbol) {
-      KeySym lKeysym, uKeysym;
+      KeySym lKeysym;
+      KeySym uKeysym;
       XConvertCase(keysyms[0], &lKeysym, &uKeysym);
       if (lKeysym != uKeysym) {
         keysyms[0] = lKeysym;
@@ -445,7 +447,8 @@ void XWindowsKeyState::updateKeysymMap(deskflow::KeyMap &keyMap)
         item.m_sensitive |= KeyModifierCapsLock;
       }
     } else if (keysyms[0] != NoSymbol && keysyms[1] != NoSymbol) {
-      KeySym lKeysym, uKeysym;
+      KeySym lKeysym;
+      KeySym uKeysym;
       XConvertCase(keysyms[0], &lKeysym, &uKeysym);
       if (lKeysym != uKeysym && lKeysym == keysyms[0] && uKeysym == keysyms[1]) {
         item.m_sensitive |= KeyModifierCapsLock;
@@ -478,7 +481,7 @@ void XWindowsKeyState::updateKeysymMap(deskflow::KeyMap &keyMap)
     for (int j = 0; j < maxKeysyms; ++j) {
       item.m_id = XWindowsUtil::mapKeySymToKeyID(keysyms[j]);
       if (item.m_id == kKeyNone) {
-        if (j != 0 && modifierButtons.count(keycode) > 0) {
+        if (j != 0 && modifierButtons.contains(keycode)) {
           // pretend the modifier works in other shift levels
           // because it probably does.
           if (keysyms[1] == NoSymbol || j != 3) {
@@ -506,7 +509,7 @@ void XWindowsKeyState::updateKeysymMap(deskflow::KeyMap &keyMap)
 
       item.m_generates = 0;
       item.m_lock = false;
-      if (modifierButtons.count(keycode) > 0) {
+      if (modifierButtons.contains(keycode)) {
         // get flags for modifier keys
         deskflow::KeyMap::initModifierKey(item);
 
@@ -527,7 +530,8 @@ void XWindowsKeyState::updateKeysymMap(deskflow::KeyMap &keyMap)
       // add other ways to synthesize the key
       if ((j & 1) != 0) {
         // add capslock version of key is sensitive to capslock
-        KeySym lKeysym, uKeysym;
+        KeySym lKeysym;
+        KeySym uKeysym;
         XConvertCase(keysyms[j], &lKeysym, &uKeysym);
         if (lKeysym != uKeysym && lKeysym == keysyms[j - 1] && uKeysym == keysyms[j]) {
           item.m_required &= ~KeyModifierShift;
@@ -601,7 +605,7 @@ void XWindowsKeyState::updateKeysymMapXKB(deskflow::KeyMap &keyMap)
   // X modifier masks.
   deskflow::KeyMap::KeyItem item;
   for (int i = m_xkb->min_key_code; i <= m_xkb->max_key_code; ++i) {
-    KeyCode keycode = static_cast<KeyCode>(i);
+    auto keycode = static_cast<KeyCode>(i);
     item.m_button = static_cast<KeyButton>(keycode);
     item.m_client = 0;
 
@@ -611,8 +615,7 @@ void XWindowsKeyState::updateKeysymMapXKB(deskflow::KeyMap &keyMap)
     }
 
     // note half-duplex keys
-    const XkbBehavior &b = m_xkb->server->behaviors[keycode];
-    if ((b.type & XkbKB_OpMask) == XkbKB_Lock) {
+    if (const XkbBehavior &b = m_xkb->server->behaviors[keycode]; (b.type & XkbKB_OpMask) == XkbKB_Lock) {
       keyMap.addHalfDuplexButton(item.m_button);
     }
 
@@ -622,7 +625,7 @@ void XWindowsKeyState::updateKeysymMapXKB(deskflow::KeyMap &keyMap)
       int eGroup = getEffectiveGroup(keycode, group);
 
       // get key info
-      XkbKeyTypePtr type = XkbKeyKeyType(m_xkb, keycode, eGroup);
+      const XkbKeyTypePtr type = XkbKeyKeyType(m_xkb, keycode, eGroup);
 
       // set modifiers the item is sensitive to
       item.m_sensitive = type->mods.mask;
@@ -637,7 +640,7 @@ void XWindowsKeyState::updateKeysymMapXKB(deskflow::KeyMap &keyMap)
 
         // set required modifiers for this item
         item.m_required = mapEntry->mods.mask;
-        if ((item.m_required & LockMask) != 0 && j != -1 && type->preserve != NULL &&
+        if ((item.m_required & LockMask) != 0 && j != -1 && type->preserve != nullptr &&
             (type->preserve[j].mask & LockMask) != 0) {
           // sensitive caps lock and we preserve caps-lock.
           // preserving caps-lock means we Xlib functions would
@@ -657,7 +660,7 @@ void XWindowsKeyState::updateKeysymMapXKB(deskflow::KeyMap &keyMap)
         bool isModifier = false;
         uint32_t modifierMask = m_xkb->map->modmap[keycode];
         if (XkbKeyHasActions(m_xkb, keycode) == True) {
-          XkbAction *action = XkbKeyActionEntry(m_xkb, keycode, level, eGroup);
+          const XkbAction *action = XkbKeyActionEntry(m_xkb, keycode, level, eGroup);
           if (action->type == XkbSA_SetMods || action->type == XkbSA_LockMods) {
             isModifier = true;
 
@@ -697,8 +700,8 @@ void XWindowsKeyState::updateKeysymMapXKB(deskflow::KeyMap &keyMap)
         // record the modifier mask for this key.  don't bother
         // for keys that change the group.
         item.m_generates = 0;
-        uint32_t modifierBit = XWindowsUtil::getModifierBitForKeySym(keysym);
-        if (isModifier && modifierBit != kKeyModifierBitNone) {
+        if (uint32_t modifierBit = XWindowsUtil::getModifierBitForKeySym(keysym);
+            isModifier && modifierBit != kKeyModifierBitNone) {
           item.m_generates = (1u << modifierBit);
           for (int32_t j = 0; j < 8; ++j) {
             // skip modifiers this key doesn't generate
@@ -727,7 +730,8 @@ void XWindowsKeyState::updateKeysymMapXKB(deskflow::KeyMap &keyMap)
         if (type->num_levels == 1) {
           // if there are upper- and lowercase versions of the
           // keysym then add both.
-          KeySym lKeysym, uKeysym;
+          KeySym lKeysym;
+          KeySym uKeysym;
           XConvertCase(keysym, &lKeysym, &uKeysym);
           if (lKeysym != uKeysym) {
             if (j != -1) {
@@ -780,7 +784,7 @@ void XWindowsKeyState::updateKeysymMapXKB(deskflow::KeyMap &keyMap)
 
 void XWindowsKeyState::remapKeyModifiers(KeyID id, int32_t group, deskflow::KeyMap::KeyItem &item, void *vself)
 {
-  XWindowsKeyState *self = static_cast<XWindowsKeyState *>(vself);
+  const auto *self = static_cast<XWindowsKeyState *>(vself);
   item.m_required = self->mapModifiersFromX(XkbBuildCoreState(item.m_required, group));
   item.m_sensitive = self->mapModifiersFromX(XkbBuildCoreState(item.m_sensitive, group));
 }
@@ -790,19 +794,19 @@ bool XWindowsKeyState::hasModifiersXKB() const
 #if HAVE_XKB_EXTENSION
   // iterate over all keycodes
   for (int i = m_xkb->min_key_code; i <= m_xkb->max_key_code; ++i) {
-    KeyCode keycode = static_cast<KeyCode>(i);
+    auto keycode = static_cast<KeyCode>(i);
     if (XkbKeyHasActions(m_xkb, keycode) == True) {
       // iterate over all groups
       int numGroups = XkbKeyNumGroups(m_xkb, keycode);
       for (int group = 0; group < numGroups; ++group) {
         // iterate over all shift levels for the button (including none)
-        XkbKeyTypePtr type = XkbKeyKeyType(m_xkb, keycode, group);
+        const XkbKeyTypePtr type = XkbKeyKeyType(m_xkb, keycode, group);
         for (int j = -1; j < type->map_count; ++j) {
           if (j != -1 && !type->map[j].active) {
             continue;
           }
           int level = ((j == -1) ? 0 : type->map[j].level);
-          XkbAction *action = XkbKeyActionEntry(m_xkb, keycode, level, group);
+          const XkbAction *action = XkbKeyActionEntry(m_xkb, keycode, level, group);
           if (action->type == XkbSA_SetMods || action->type == XkbSA_LockMods) {
             return true;
           }
@@ -819,8 +823,7 @@ int XWindowsKeyState::getEffectiveGroup(KeyCode keycode, int group) const
   (void)keycode;
 #if HAVE_XKB_EXTENSION
   // get effective group for key
-  int numGroups = XkbKeyNumGroups(m_xkb, keycode);
-  if (group >= numGroups) {
+  if (int numGroups = XkbKeyNumGroups(m_xkb, keycode); group >= numGroups) {
     unsigned char groupInfo = XkbKeyGroupInfo(m_xkb, keycode);
     switch (XkbOutOfRangeGroupAction(groupInfo)) {
     case XkbClampIntoRange:
@@ -847,7 +850,7 @@ int XWindowsKeyState::getEffectiveGroup(KeyCode keycode, int group) const
 uint32_t XWindowsKeyState::getGroupFromState(unsigned int state) const
 {
 #if HAVE_XKB_EXTENSION
-  if (m_xkb != NULL) {
+  if (m_xkb != nullptr) {
     return XkbGroupForCoreState(state);
   }
 #endif

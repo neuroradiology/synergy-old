@@ -1,5 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -16,11 +17,7 @@
 #include <set>
 #include <vector>
 
-#if X_DISPLAY_MISSING
-#error X11 is required to build deskflow
-#else
 #include <X11/Xlib.h>
-#endif
 
 class XWindowsClipboard;
 class XWindowsKeyState;
@@ -31,10 +28,10 @@ class XWindowsScreen : public PlatformScreen
 {
 public:
   XWindowsScreen(
-      const char *displayName, bool isPrimary, bool disableXInitThreads, int mouseScrollDelta, IEventQueue *events,
+      const char *displayName, bool isPrimary, int mouseScrollDelta, IEventQueue *events,
       deskflow::ClientScrollDirection m_clientScrollDirection = deskflow::ClientScrollDirection::SERVER
   );
-  virtual ~XWindowsScreen() override;
+  ~XWindowsScreen() override;
 
   //! @name manipulators
   //@{
@@ -42,7 +39,7 @@ public:
   //@}
 
   // IScreen overrides
-  void *getEventTarget() const override;
+  void *getEventTarget() const final;
   bool getClipboard(ClipboardID id, IClipboard *) const override;
   void getShape(int32_t &x, int32_t &y, int32_t &width, int32_t &height) const override;
   void getCursorPos(int32_t &x, int32_t &y) const override;
@@ -83,14 +80,14 @@ public:
 
 protected:
   // IPlatformScreen overrides
-  void handleSystemEvent(const Event &, void *) override;
+  void handleSystemEvent(const Event &event) override;
   void updateButtons() override;
   IKeyState *getKeyState() const override;
 
 private:
   // event sending
-  void sendEvent(Event::Type, void * = NULL);
-  void sendClipboardEvent(Event::Type, ClipboardID);
+  void sendEvent(EventTypes, void * = nullptr);
+  void sendClipboardEvent(EventTypes, ClipboardID);
 
   // create the transparent cursor
   Cursor createBlankCursor() const;
@@ -100,16 +97,15 @@ private:
   ClipboardID getClipboardID(Atom selection) const;
 
   // continue processing a selection request
-  void processClipboardRequest(Window window, Time time, Atom property);
+  void processClipboardRequest(Window window, Time time, Atom property) const;
 
   // terminate a selection request
-  void destroyClipboardRequest(Window window);
+  void destroyClipboardRequest(Window window) const;
 
   // X I/O error handler
   void onError();
   static int ioErrorHandler(Display *);
 
-private:
   class KeyEventFilter
   {
   public:
@@ -128,7 +124,7 @@ private:
   bool grabMouseAndKeyboard();
   void onKeyPress(XKeyEvent &);
   void onKeyRelease(XKeyEvent &, bool isRepeat);
-  bool onHotKey(XKeyEvent &, bool isRepeat);
+  bool onHotKey(const XKeyEvent &, bool isRepeat);
   void onMousePress(const XButtonEvent &);
   void onMouseRelease(const XButtonEvent &);
   void onMouseMove(const XMotionEvent &);
@@ -172,23 +168,27 @@ private:
   bool m_isPrimary;
   int m_mouseScrollDelta;
 
-  Display *m_display;
-  Window m_root;
-  Window m_window;
+  Display *m_display = nullptr;
+  Window m_root = None;
+  Window m_window = None;
 
   // true if mouse has entered the screen
   bool m_isOnScreen;
 
   // screen shape stuff
-  int32_t m_x, m_y;
-  int32_t m_w, m_h;
-  int32_t m_xCenter, m_yCenter;
+  int32_t m_x = 0;
+  int32_t m_y = 0;
+  int32_t m_w = 0;
+  int32_t m_h = 0;
+  int32_t m_xCenter = 0;
+  int32_t m_yCenter = 0;
 
   // last mouse position
-  int32_t m_xCursor, m_yCursor;
+  int32_t m_xCursor = 0;
+  int32_t m_yCursor = 0;
 
   // keyboard stuff
-  XWindowsKeyState *m_keyState;
+  XWindowsKeyState *m_keyState = nullptr;
 
   // hot key stuff
   HotKeyMap m_hotKeys;
@@ -196,22 +196,22 @@ private:
   HotKeyToIDMap m_hotKeyToIDMap;
 
   // input focus stuff
-  Window m_lastFocus;
-  int m_lastFocusRevert;
+  Window m_lastFocus = None;
+  int m_lastFocusRevert = RevertToNone;
 
   // input method stuff
-  XIM m_im;
-  XIC m_ic;
-  KeyCode m_lastKeycode;
+  XIM m_im = nullptr;
+  XIC m_ic = nullptr;
+  KeyCode m_lastKeycode = 0;
   FilteredKeycodes m_filtered;
 
   // clipboards
   XWindowsClipboard *m_clipboard[kClipboardEnd];
-  uint32_t m_sequenceNumber;
+  uint32_t m_sequenceNumber = 0;
 
   // screen saver stuff
-  XWindowsScreenSaver *m_screensaver;
-  bool m_screensaverNotify;
+  XWindowsScreenSaver *m_screensaver = nullptr;
+  bool m_screensaverNotify = false;
 
   // logical to physical button mapping.  m_buttons[i] gives the
   // physical button for logical button i+1.
@@ -224,24 +224,24 @@ private:
   // to fake a mouse motion under xinerama may behave strangely,
   // especially if screen 0 is not at 0,0 or if faking a motion on
   // a screen other than screen 0.
-  bool m_xtestIsXineramaUnaware;
+  bool m_xtestIsXineramaUnaware = true;
   bool m_xinerama;
 
   // stuff to work around lost focus issues on certain systems
   // (ie: a MythTV front-end).
-  bool m_preserveFocus;
+  bool m_preserveFocus = false;
 
   // XKB extension stuff
-  bool m_xkb;
+  bool m_xkb = false;
   int m_xkbEventBase;
 
-  bool m_xi2detected;
+  bool m_xi2detected = false;
 
   // XRandR extension stuff
-  bool m_xrandr;
+  bool m_xrandr = false;
   int m_xrandrEventBase;
 
-  IEventQueue *m_events;
+  IEventQueue *m_events = nullptr;
   deskflow::KeyMap m_keyMap;
 
   // pointer to (singleton) screen.  this is only needed by

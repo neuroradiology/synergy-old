@@ -13,9 +13,9 @@
 // IClipboard
 //
 
-void IClipboard::unmarshall(IClipboard *clipboard, const std::string &data, Time time)
+void IClipboard::unmarshall(IClipboard *clipboard, const std::string_view &data, Time time)
 {
-  assert(clipboard != NULL);
+  assert(clipboard != nullptr);
 
   const char *index = data.data();
 
@@ -30,7 +30,7 @@ void IClipboard::unmarshall(IClipboard *clipboard, const std::string &data, Time
     // read each format
     for (uint32_t i = 0; i < numFormats; ++i) {
       // get the format id
-      IClipboard::EFormat format = static_cast<IClipboard::EFormat>(readUInt32(index));
+      auto format = static_cast<IClipboard::EFormat>(readUInt32(index));
       index += 4;
 
       // get the size of the format data
@@ -60,7 +60,7 @@ std::string IClipboard::marshall(const IClipboard *clipboard)
   // n bytes => clipboard data
   // back to the second 4 bytes if there is another format
 
-  assert(clipboard != NULL);
+  assert(clipboard != nullptr);
 
   std::string data;
 
@@ -100,23 +100,23 @@ std::string IClipboard::marshall(const IClipboard *clipboard)
 
 bool IClipboard::copy(IClipboard *dst, const IClipboard *src)
 {
-  assert(dst != NULL);
-  assert(src != NULL);
+  assert(dst != nullptr);
+  assert(src != nullptr);
 
   return copy(dst, src, src->getTime());
 }
 
 bool IClipboard::copy(IClipboard *dst, const IClipboard *src, Time time)
 {
-  assert(dst != NULL);
-  assert(src != NULL);
+  assert(dst != nullptr);
+  assert(src != nullptr);
 
   bool success = false;
   if (src->open(time)) {
     if (dst->open(time)) {
       if (dst->empty()) {
         for (int32_t format = 0; format != IClipboard::kNumFormats; ++format) {
-          IClipboard::EFormat eFormat = (IClipboard::EFormat)format;
+          auto eFormat = (IClipboard::EFormat)format;
           if (src->has(eFormat)) {
             dst->add(eFormat, src->get(eFormat));
           }
@@ -133,7 +133,7 @@ bool IClipboard::copy(IClipboard *dst, const IClipboard *src, Time time)
 
 uint32_t IClipboard::readUInt32(const char *buf)
 {
-  const unsigned char *ubuf = reinterpret_cast<const unsigned char *>(buf);
+  const auto *ubuf = reinterpret_cast<const unsigned char *>(buf);
   return (static_cast<uint32_t>(ubuf[0]) << 24) | (static_cast<uint32_t>(ubuf[1]) << 16) |
          (static_cast<uint32_t>(ubuf[2]) << 8) | static_cast<uint32_t>(ubuf[3]);
 }

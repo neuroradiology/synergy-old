@@ -1,5 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -15,6 +16,8 @@
 #include "deskflow/App.h"
 #include "net/NetworkAddress.h"
 #include "server/Config.h"
+
+#include <memory>
 
 enum EServerState
 {
@@ -45,8 +48,8 @@ class ServerApp : public App
   using ServerConfig = deskflow::server::Config;
 
 public:
-  ServerApp(IEventQueue *events);
-  virtual ~ServerApp();
+  explicit ServerApp(IEventQueue *events);
+  ~ServerApp() override = default;
 
   //
   // IApp overrides
@@ -78,30 +81,28 @@ public:
   // Regular functions
   //
 
-  void reloadConfig(const Event &, void *);
-  void forceReconnect(const Event &, void *);
-  void resetServer(const Event &, void *);
-  void handleClientConnected(const Event &, void *vlistener);
-  void handleClientsDisconnected(const Event &, void *);
+  void reloadConfig();
+  void forceReconnect();
+  void resetServer();
+  void handleClientConnected(const Event &e, ClientListener *listener);
   void closeServer(Server *server);
   void stopRetryTimer();
-  void updateStatus();
-  void updateStatus(const std::string &msg);
+  void updateStatus() const;
+  void updateStatus(const std::string_view &msg) const;
   void closeClientListener(ClientListener *listen);
   void stopServer();
   void closePrimaryClient(PrimaryClient *primaryClient);
   void closeServerScreen(deskflow::Screen *screen);
   void cleanupServer();
   bool initServer();
-  void retryHandler(const Event &, void *);
+  void retryHandler();
   deskflow::Screen *openServerScreen();
   PrimaryClient *openPrimaryClient(const std::string &name, deskflow::Screen *screen);
-  void handleScreenError(const Event &, void *);
-  void handleSuspend(const Event &, void *);
-  void handleResume(const Event &, void *);
+  void handleScreenError();
+  void handleSuspend();
+  void handleResume();
   ClientListener *openClientListener(const NetworkAddress &address);
   Server *openServer(ServerConfig &config, PrimaryClient *primaryClient);
-  void handleNoClients(const Event &, void *);
   bool startServer();
   Server *getServerPtr()
   {
@@ -124,20 +125,15 @@ public:
   }
 
 private:
-  void handleScreenSwitched(const Event &, void *data);
-  ISocketFactory *getSocketFactory() const;
+  void handleScreenSwitched() const;
+  std::unique_ptr<ISocketFactory> getSocketFactory() const;
   NetworkAddress getAddress(const NetworkAddress &address) const;
 
-  Server *m_server;
-  EServerState m_serverState;
-  deskflow::Screen *m_serverScreen;
-  PrimaryClient *m_primaryClient;
-  ClientListener *m_listener;
-  EventQueueTimer *m_timer;
-  NetworkAddress *m_deskflowAddress;
-#if SYSAPI_WIN32
-  inline static const std::string CONFIG_NAME = std::string(kAppName) + ".sgc";
-#elif SYSAPI_UNIX
-  inline static const std::string CONFIG_NAME = std::string(kAppName) + ".conf";
-#endif
+  Server *m_server = nullptr;
+  EServerState m_serverState = EServerState::kUninitialized;
+  deskflow::Screen *m_serverScreen = nullptr;
+  PrimaryClient *m_primaryClient = nullptr;
+  ClientListener *m_listener = nullptr;
+  EventQueueTimer *m_timer = nullptr;
+  NetworkAddress *m_deskflowAddress = nullptr;
 };

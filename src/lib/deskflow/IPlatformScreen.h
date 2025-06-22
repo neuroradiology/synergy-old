@@ -1,5 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -8,7 +9,6 @@
 #pragma once
 
 #include "deskflow/ClipboardTypes.h"
-#include "deskflow/DragInformation.h"
 #include "deskflow/IKeyState.h"
 #include "deskflow/IPrimaryScreen.h"
 #include "deskflow/IScreen.h"
@@ -29,8 +29,9 @@ public:
   //! @name manipulators
   //@{
 
-  IPlatformScreen(IEventQueue *events) : IKeyState(events)
+  explicit IPlatformScreen(const IEventQueue *events) : IKeyState(events)
   {
+    // do nothing
   }
 
   //! Enable screen
@@ -95,7 +96,7 @@ public:
 
   //! Close screen saver
   /*!
-  // Close the screen saver.  Stop reporting screen saver activation
+  Close the screen saver.  Stop reporting screen saver activation
   and deactivation and, if the screen saver was disabled by
   openScreensaver(), enable the screen saver.
   */
@@ -127,9 +128,6 @@ public:
   */
   virtual void setSequenceNumber(uint32_t) = 0;
 
-  //! Change dragging status
-  virtual void setDraggingStarted(bool started) = 0;
-
   //! Determine the name of the app causing a secure input state
   /*!
   On MacOS check which app causes a secure input state to be enabled. No
@@ -150,52 +148,44 @@ public:
   //@}
 
   // IScreen overrides
-  virtual void *getEventTarget() const = 0;
-  virtual bool getClipboard(ClipboardID id, IClipboard *) const = 0;
-  virtual void getShape(int32_t &x, int32_t &y, int32_t &width, int32_t &height) const = 0;
-  virtual void getCursorPos(int32_t &x, int32_t &y) const = 0;
+  void *getEventTarget() const override = 0;
+  bool getClipboard(ClipboardID id, IClipboard *) const override = 0;
+  void getShape(int32_t &x, int32_t &y, int32_t &width, int32_t &height) const override = 0;
+  void getCursorPos(int32_t &x, int32_t &y) const override = 0;
 
   // IPrimaryScreen overrides
-  virtual void reconfigure(uint32_t activeSides) = 0;
-  virtual void warpCursor(int32_t x, int32_t y) = 0;
-  virtual uint32_t registerHotKey(KeyID key, KeyModifierMask mask) = 0;
-  virtual void unregisterHotKey(uint32_t id) = 0;
-  virtual void fakeInputBegin() = 0;
-  virtual void fakeInputEnd() = 0;
-  virtual int32_t getJumpZoneSize() const = 0;
-  virtual bool isAnyMouseButtonDown(uint32_t &buttonID) const = 0;
-  virtual void getCursorCenter(int32_t &x, int32_t &y) const = 0;
+  void reconfigure(uint32_t activeSides) override = 0;
+  void warpCursor(int32_t x, int32_t y) override = 0;
+  uint32_t registerHotKey(KeyID key, KeyModifierMask mask) override = 0;
+  void unregisterHotKey(uint32_t id) override = 0;
+  void fakeInputBegin() override = 0;
+  void fakeInputEnd() override = 0;
+  int32_t getJumpZoneSize() const override = 0;
+  bool isAnyMouseButtonDown(uint32_t &buttonID) const override = 0;
+  void getCursorCenter(int32_t &x, int32_t &y) const override = 0;
 
   // ISecondaryScreen overrides
-  virtual void fakeMouseButton(ButtonID id, bool press) = 0;
-  virtual void fakeMouseMove(int32_t x, int32_t y) = 0;
-  virtual void fakeMouseRelativeMove(int32_t dx, int32_t dy) const = 0;
-  virtual void fakeMouseWheel(int32_t xDelta, int32_t yDelta) const = 0;
+  void fakeMouseButton(ButtonID id, bool press) override = 0;
+  void fakeMouseMove(int32_t x, int32_t y) override = 0;
+  void fakeMouseRelativeMove(int32_t dx, int32_t dy) const override = 0;
+  void fakeMouseWheel(int32_t xDelta, int32_t yDelta) const override = 0;
 
   // IKeyState overrides
-  virtual void updateKeyMap() = 0;
-  virtual void updateKeyState() = 0;
-  virtual void setHalfDuplexMask(KeyModifierMask) = 0;
-  virtual void fakeKeyDown(KeyID id, KeyModifierMask mask, KeyButton button, const std::string &lang) = 0;
-  virtual bool
-  fakeKeyRepeat(KeyID id, KeyModifierMask mask, int32_t count, KeyButton button, const std::string &lang) = 0;
-  virtual bool fakeKeyUp(KeyButton button) = 0;
-  virtual void fakeAllKeysUp() = 0;
-  virtual bool fakeCtrlAltDel() = 0;
-  virtual bool fakeMediaKey(KeyID id);
-  virtual bool isKeyDown(KeyButton) const = 0;
-  virtual KeyModifierMask getActiveModifiers() const = 0;
-  virtual KeyModifierMask pollActiveModifiers() const = 0;
-  virtual int32_t pollActiveGroup() const = 0;
-  virtual void pollPressedKeys(KeyButtonSet &pressedKeys) const = 0;
-
-  virtual std::string &getDraggingFilename() = 0;
-  virtual void clearDraggingFilename() = 0;
-  virtual bool isDraggingStarted() = 0;
-  virtual bool isFakeDraggingStarted() = 0;
-
-  virtual void fakeDraggingFiles(DragFileList fileList) = 0;
-  virtual const std::string &getDropTarget() const = 0;
+  void updateKeyMap() override = 0;
+  void updateKeyState() override = 0;
+  void setHalfDuplexMask(KeyModifierMask) override = 0;
+  void fakeKeyDown(KeyID id, KeyModifierMask mask, KeyButton button, const std::string &lang) override = 0;
+  bool
+  fakeKeyRepeat(KeyID id, KeyModifierMask mask, int32_t count, KeyButton button, const std::string &lang) override = 0;
+  bool fakeKeyUp(KeyButton button) override = 0;
+  void fakeAllKeysUp() override = 0;
+  bool fakeCtrlAltDel() override = 0;
+  bool fakeMediaKey(KeyID id) override;
+  bool isKeyDown(KeyButton) const override = 0;
+  KeyModifierMask getActiveModifiers() const override = 0;
+  KeyModifierMask pollActiveModifiers() const override = 0;
+  int32_t pollActiveGroup() const override = 0;
+  void pollPressedKeys(KeyButtonSet &pressedKeys) const override = 0;
 
 protected:
   //! Handle system event
@@ -203,10 +193,9 @@ protected:
   A platform screen is expected to install a handler for system
   events in its c'tor like so:
   \code
-  m_events->adoptHandler(Event::kSystem,
+  m_events->addHandler(EventTypes::System,
                         m_events->getSystemTarget(),
-                        new TMethodEventJob<CXXXPlatformScreen>(this,
-                            &CXXXPlatformScreen::handleSystemEvent));
+                        [this] (const auto &e) {handleSystemEvent(e);});
   \endcode
   It should remove the handler in its d'tor.  Override the
   \c handleSystemEvent() method to process system events.
@@ -222,5 +211,5 @@ protected:
   The target of all events should be the value returned by
   \c getEventTarget().
   */
-  virtual void handleSystemEvent(const Event &event, void *) = 0;
+  virtual void handleSystemEvent(const Event &event) = 0;
 };

@@ -10,32 +10,24 @@
 //
 // Event
 //
-
-Event::Event() : m_type(kUnknown), m_target(NULL), m_data(NULL), m_flags(0), m_dataObject(nullptr)
-{
-  // do nothing
-}
-
-Event::Event(Type type, void *target, void *data, Flags flags)
+Event::Event(EventTypes type, void *target, void *data, Flags flags)
     : m_type(type),
       m_target(target),
       m_data(data),
-      m_flags(flags),
-      m_dataObject(nullptr)
+      m_flags(flags)
 {
   // do nothing
 }
 
-Event::Event(Type type, void *target, EventData *dataObject)
+Event::Event(EventTypes type, void *target, EventData *dataObject)
     : m_type(type),
       m_target(target),
-      m_data(nullptr),
-      m_flags(kNone),
       m_dataObject(dataObject)
 {
+  // do nothing
 }
 
-Event::Type Event::getType() const
+EventTypes Event::getType() const
 {
   return m_type;
 }
@@ -63,10 +55,10 @@ Event::Flags Event::getFlags() const
 void Event::deleteData(const Event &event)
 {
   switch (event.getType()) {
-  case kUnknown:
-  case kQuit:
-  case kSystem:
-  case kTimer:
+  case EventTypes::Unknown:
+  case EventTypes::Quit:
+  case EventTypes::System:
+  case EventTypes::Timer:
     break;
 
   default:

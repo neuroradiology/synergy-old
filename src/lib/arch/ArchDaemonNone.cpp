@@ -11,16 +11,6 @@
 // ArchDaemonNone
 //
 
-ArchDaemonNone::ArchDaemonNone()
-{
-  // do nothing
-}
-
-ArchDaemonNone::~ArchDaemonNone()
-{
-  // do nothing
-}
-
 void ArchDaemonNone::installDaemon(const char *, const char *, const char *, const char *, const char *)
 {
   // do nothing
@@ -31,7 +21,7 @@ void ArchDaemonNone::uninstallDaemon(const char *)
   // do nothing
 }
 
-int ArchDaemonNone::daemonize(const char *name, DaemonFunc func)
+int ArchDaemonNone::daemonize(const char *name, DaemonFunc const &func)
 {
   // simply forward the call to func.  obviously, this doesn't
   // do any daemonizing.
@@ -50,10 +40,12 @@ bool ArchDaemonNone::isDaemonInstalled(const char *)
 
 void ArchDaemonNone::installDaemon()
 {
+  // do nothing
 }
 
 void ArchDaemonNone::uninstallDaemon()
 {
+  // do nothing
 }
 
 std::string ArchDaemonNone::commandLine() const

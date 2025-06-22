@@ -8,6 +8,7 @@
 
 #include "UrlConstants.h"
 
+#include <QCoreApplication>
 #include <QFile>
 #include <QRect>
 
@@ -35,30 +36,29 @@ void Settings::setSettingFile(const QString &settingsFile)
 Settings::Settings(QObject *parent) : QObject(parent)
 {
   QString fileToLoad;
+#ifdef Q_OS_WIN
+  m_portableSettingsFile = m_portableSettingsFile.arg(QCoreApplication::applicationDirPath(), kAppName);
   if (QFile(m_portableSettingsFile).exists()) {
     fileToLoad = m_portableSettingsFile;
+    m_settings = new QSettings(fileToLoad, QSettings::IniFormat);
   } else {
-#ifdef Q_OS_WIN
-    fileToLoad = SystemSettingFile;
-#else
-    if (QFile(UserSettingFile).exists())
-      fileToLoad = UserSettingFile;
-    else if (QFile(SystemSettingFile).exists())
-      fileToLoad = SystemSettingFile;
-    else
-      fileToLoad = UserSettingFile;
-#endif
+    m_settings = new QSettings(QSettings::NativeFormat, QSettings::UserScope, kAppName, kAppName);
   }
-
+#else
+  if (!qEnvironmentVariable("XDG_CONFIG_HOME").isEmpty())
+    fileToLoad = QStringLiteral("%1/%2/%2.conf").arg(qEnvironmentVariable("XDG_CONFIG_HOME"), kAppName);
+  else if (QFile(UserSettingFile).exists())
+    fileToLoad = UserSettingFile;
+  else if (QFile(SystemSettingFile).exists())
+    fileToLoad = SystemSettingFile;
+  else
+    fileToLoad = UserSettingFile;
   m_settings = new QSettings(fileToLoad, QSettings::IniFormat);
+#endif
+
   m_settingsProxy = std::make_shared<QSettingsProxy>();
   m_settingsProxy->load(fileToLoad);
   qInfo().noquote() << "settings file:" << m_settings->fileName();
-}
-
-bool Settings::isPortableSettings()
-{
-  return (QFile(instance()->m_portableSettingsFile).exists());
 }
 
 void Settings::cleanSettings()
@@ -109,32 +109,37 @@ QVariant Settings::defaultValue(const QString &key)
   if (key == Server::Binary)
     return kServerBinName;
 
-  if (key == Core::ElevateMode)
-    return Settings::ElevateMode::Always;
+  if (key == Daemon::Elevate)
+    return instance()->isNativeMode();
 
   if (key == Core::UpdateUrl)
     return kUrlUpdateCheck;
 
   if (key == Server::ExternalConfigFile)
-    return QStringLiteral("%1/%2.conf").arg(instance()->settingsPath(), kAppId);
+    return QStringLiteral("%1/%2-server.conf").arg(instance()->settingsPath(), kAppId);
 
   if (key == Core::Port)
     return 24800;
 
-  if (key == Core::ProcessMode)
-    return defaultProcessMode;
-
-  if (key == Daemon::LogFile) {
-    return QStringLiteral("%1/%2").arg(instance()->settingsPath(), kDaemonLogFilename);
+  if (key == Core::ProcessMode) {
+    if (instance()->isNativeMode())
+      return Settings::ProcessMode::Service;
+    else
+      return Settings::ProcessMode::Desktop;
   }
 
-  if (key == Daemon::Elevate)
-    return true;
+  if (key == Daemon::LogFile) {
+#ifdef Q_OS_WIN
+    return QStringLiteral("%1/%2").arg(QCoreApplication::applicationDirPath(), kDaemonLogFilename);
+#else
+    return QStringLiteral("%1/%2").arg(instance()->settingsPath(), kDaemonLogFilename);
+#endif
+  }
 
   return QVariant();
 }
 
-const QString Settings::logLevelText()
+QString Settings::logLevelText()
 {
   return instance()->m_logLevels.at(instance()->value(Log::Level).toInt());
 }
@@ -151,37 +156,51 @@ void Settings::save(bool emitSaving)
   instance()->m_settings->sync();
 }
 
+QStringList Settings::validKeys()
+{
+  return instance()->m_validKeys;
+}
+
 bool Settings::isWritable()
 {
+  if (instance()->isNativeMode())
+    return true;
   return instance()->m_settings->isWritable();
 }
 
-const QString Settings::settingsFile()
+bool Settings::isNativeMode()
+{
+  return instance()->m_settings->format() == QSettings::NativeFormat;
+}
+
+QString Settings::settingsFile()
 {
   return instance()->m_settings->fileName();
 }
 
-const QString Settings::settingsPath()
+QString Settings::settingsPath()
 {
+  if (instance()->isNativeMode())
+    return SystemDir;
   return QFileInfo(instance()->m_settings->fileName()).absolutePath();
 }
 
-const QString Settings::tlsDir()
+QString Settings::tlsDir()
 {
   return QStringLiteral("%1/%2").arg(instance()->settingsPath(), kTlsDirName);
 }
 
-const QString Settings::tlsLocalDb()
+QString Settings::tlsLocalDb()
 {
   return QStringLiteral("%1/%2").arg(instance()->tlsDir(), kTlsFingerprintLocalFilename);
 }
 
-const QString Settings::tlsTrustedServersDb()
+QString Settings::tlsTrustedServersDb()
 {
   return QStringLiteral("%1/%2").arg(instance()->tlsDir(), kTlsFingerprintTrustedServersFilename);
 }
 
-const QString Settings::tlsTrustedClientsDb()
+QString Settings::tlsTrustedClientsDb()
 {
   return QStringLiteral("%1/%2").arg(instance()->tlsDir(), kTlsFingerprintTrustedClientsFilename);
 }

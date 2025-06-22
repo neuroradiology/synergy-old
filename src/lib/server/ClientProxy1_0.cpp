@@ -1,5 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -9,7 +10,6 @@
 
 #include "base/IEventQueue.h"
 #include "base/Log.h"
-#include "base/TMethodEventJob.h"
 #include "deskflow/ProtocolUtil.h"
 #include "deskflow/XDeskflow.h"
 #include "io/IStream.h"
@@ -22,34 +22,24 @@
 
 ClientProxy1_0::ClientProxy1_0(const std::string &name, deskflow::IStream *stream, IEventQueue *events)
     : ClientProxy(name, stream),
-      m_heartbeatTimer(NULL),
       m_parser(&ClientProxy1_0::parseHandshakeMessage),
       m_events(events)
 {
   // install event handlers
-  m_events->adoptHandler(
-      m_events->forIStream().inputReady(), stream->getEventTarget(),
-      new TMethodEventJob<ClientProxy1_0>(this, &ClientProxy1_0::handleData, NULL)
-  );
-  m_events->adoptHandler(
-      m_events->forIStream().outputError(), stream->getEventTarget(),
-      new TMethodEventJob<ClientProxy1_0>(this, &ClientProxy1_0::handleWriteError, NULL)
-  );
-  m_events->adoptHandler(
-      m_events->forIStream().inputShutdown(), stream->getEventTarget(),
-      new TMethodEventJob<ClientProxy1_0>(this, &ClientProxy1_0::handleDisconnect, NULL)
-  );
-  m_events->adoptHandler(
-      m_events->forIStream().inputFormatError(), stream->getEventTarget(),
-      new TMethodEventJob<ClientProxy1_0>(this, &ClientProxy1_0::handleDisconnect, NULL)
-  );
-  m_events->adoptHandler(
-      m_events->forIStream().outputShutdown(), stream->getEventTarget(),
-      new TMethodEventJob<ClientProxy1_0>(this, &ClientProxy1_0::handleWriteError, NULL)
-  );
-  m_events->adoptHandler(
-      Event::kTimer, this, new TMethodEventJob<ClientProxy1_0>(this, &ClientProxy1_0::handleFlatline, NULL)
-  );
+  m_events->addHandler(EventTypes::StreamInputReady, stream->getEventTarget(), [this](const auto &) { handleData(); });
+  m_events->addHandler(EventTypes::StreamOutputError, stream->getEventTarget(), [this](const auto &) {
+    handleWriteError();
+  });
+  m_events->addHandler(EventTypes::StreamInputShutdown, stream->getEventTarget(), [this](const auto &) {
+    handleDisconnect();
+  });
+  m_events->addHandler(EventTypes::StreamInputFormatError, stream->getEventTarget(), [this](const auto &) {
+    handleDisconnect();
+  });
+  m_events->addHandler(EventTypes::StreamOutputShutdown, stream->getEventTarget(), [this](const auto &) {
+    handleWriteError();
+  });
+  m_events->addHandler(EventTypes::Timer, this, [this](const auto &) { handleFlatline(); });
 
   setHeartbeatRate(kHeartRate, kHeartRate * kHeartBeatsUntilDeath);
 
@@ -66,18 +56,18 @@ void ClientProxy1_0::disconnect()
 {
   removeHandlers();
   getStream()->close();
-  m_events->addEvent(Event(m_events->forClientProxy().disconnected(), getEventTarget()));
+  m_events->addEvent(Event(EventTypes::ClientProxyDisconnected, getEventTarget()));
 }
 
 void ClientProxy1_0::removeHandlers()
 {
   // uninstall event handlers
-  m_events->removeHandler(m_events->forIStream().inputReady(), getStream()->getEventTarget());
-  m_events->removeHandler(m_events->forIStream().outputError(), getStream()->getEventTarget());
-  m_events->removeHandler(m_events->forIStream().inputShutdown(), getStream()->getEventTarget());
-  m_events->removeHandler(m_events->forIStream().outputShutdown(), getStream()->getEventTarget());
-  m_events->removeHandler(m_events->forIStream().inputFormatError(), getStream()->getEventTarget());
-  m_events->removeHandler(Event::kTimer, this);
+  m_events->removeHandler(EventTypes::StreamInputReady, getStream()->getEventTarget());
+  m_events->removeHandler(EventTypes::StreamOutputError, getStream()->getEventTarget());
+  m_events->removeHandler(EventTypes::StreamInputShutdown, getStream()->getEventTarget());
+  m_events->removeHandler(EventTypes::StreamOutputShutdown, getStream()->getEventTarget());
+  m_events->removeHandler(EventTypes::StreamInputFormatError, getStream()->getEventTarget());
+  m_events->removeHandler(EventTypes::Timer, this);
 
   // remove timer
   removeHeartbeatTimer();
@@ -92,9 +82,9 @@ void ClientProxy1_0::addHeartbeatTimer()
 
 void ClientProxy1_0::removeHeartbeatTimer()
 {
-  if (m_heartbeatTimer != NULL) {
+  if (m_heartbeatTimer != nullptr) {
     m_events->deleteTimer(m_heartbeatTimer);
-    m_heartbeatTimer = NULL;
+    m_heartbeatTimer = nullptr;
   }
 }
 
@@ -115,7 +105,7 @@ void ClientProxy1_0::setHeartbeatRate(double, double alarm)
   m_heartbeatAlarm = alarm;
 }
 
-void ClientProxy1_0::handleData(const Event &, void *)
+void ClientProxy1_0::handleData()
 {
   // handle messages until there are no more.  first read message code.
   uint8_t code[4];
@@ -165,7 +155,7 @@ bool ClientProxy1_0::parseHandshakeMessage(const uint8_t *code)
     // future messages get parsed by parseMessage
     m_parser = &ClientProxy1_0::parseMessage;
     if (recvInfo()) {
-      m_events->addEvent(Event(m_events->forClientProxy().ready(), getEventTarget()));
+      m_events->addEvent(Event(EventTypes::ClientProxyReady, getEventTarget()));
       addHeartbeatTimer();
       return true;
     }
@@ -177,7 +167,7 @@ bool ClientProxy1_0::parseMessage(const uint8_t *code)
 {
   if (memcmp(code, kMsgDInfo, 4) == 0) {
     if (recvInfo()) {
-      m_events->addEvent(Event(m_events->forIScreen().shapeChanged(), getEventTarget()));
+      m_events->addEvent(Event(EventTypes::ScreenShapeChanged, getEventTarget()));
       return true;
     }
     return false;
@@ -193,19 +183,19 @@ bool ClientProxy1_0::parseMessage(const uint8_t *code)
   return false;
 }
 
-void ClientProxy1_0::handleDisconnect(const Event &, void *)
+void ClientProxy1_0::handleDisconnect()
 {
   LOG((CLOG_NOTE "client \"%s\" has disconnected", getName().c_str()));
   disconnect();
 }
 
-void ClientProxy1_0::handleWriteError(const Event &, void *)
+void ClientProxy1_0::handleWriteError()
 {
   LOG((CLOG_WARN "error writing to client \"%s\"", getName().c_str()));
   disconnect();
 }
 
-void ClientProxy1_0::handleFlatline(const Event &, void *)
+void ClientProxy1_0::handleFlatline()
 {
   // didn't get a heartbeat fast enough.  assume client is dead.
   LOG((CLOG_NOTE "client \"%s\" is dead", getName().c_str()));
@@ -379,7 +369,13 @@ void ClientProxy1_0::setOptions(const OptionsList &options)
 bool ClientProxy1_0::recvInfo()
 {
   // parse the message
-  int16_t x, y, w, h, dummy1, mx, my;
+  int16_t x;
+  int16_t y;
+  int16_t w;
+  int16_t h;
+  int16_t dummy1;
+  int16_t mx;
+  int16_t my;
   if (!ProtocolUtil::readf(getStream(), kMsgDInfo + 4, &x, &y, &w, &h, &dummy1, &mx, &my)) {
     return false;
   }
@@ -430,19 +426,10 @@ bool ClientProxy1_0::recvGrabClipboard()
   }
 
   // notify
-  ClipboardInfo *info = new ClipboardInfo;
+  auto *info = new ClipboardInfo;
   info->m_id = id;
   info->m_sequenceNumber = seqNum;
-  m_events->addEvent(Event(m_events->forClipboard().clipboardGrabbed(), getEventTarget(), info));
+  m_events->addEvent(Event(EventTypes::ClipboardGrabbed, getEventTarget(), info));
 
   return true;
-}
-
-//
-// ClientProxy1_0::ClientClipboard
-//
-
-ClientProxy1_0::ClientClipboard::ClientClipboard() : m_clipboard(), m_sequenceNumber(0), m_dirty(true)
-{
-  // do nothing
 }

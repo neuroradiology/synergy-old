@@ -9,8 +9,8 @@ if(CLI11_FOUND)
   set(cli11_lib CLI11::CLI11)
 else()
   #Be sure to update the version and MD5 together
-  set(CLI11_VERSION 2.4.2)
-  set(CLI11_MD5 d7923d1ca06d03e2299e55cad532d126)
+  set(CLI11_VERSION 2.5.0)
+  set(CLI11_MD5 0d3d6898febe3b82fc47b3d608b1ae95)
   file(
     DOWNLOAD "https://github.com/CLIUtils/CLI11/releases/download/v${CLI11_VERSION}/CLI11.hpp"
     "${CMAKE_BINARY_DIR}/include/CLI/CLI.hpp"
@@ -41,11 +41,6 @@ else()
   message(STATUS "tomlplusplus INC DIR: ${tomlPP_inc_dir}")
 endif()
 
-if (WIN32)
-  find_package(unofficial-wintoast CONFIG REQUIRED)
-  set(wintoast-lib unofficial::wintoast::wintoast)
-endif()
-
 ####################Start Making Library#########################
 set(lib_name app)
 
@@ -74,7 +69,6 @@ add_library(${lib_name} STATIC ${PLATFORM_CODE}
   AppUtil.h
   ArgParser.cpp
   ArgParser.h
-  ArgsBase.cpp
   ArgsBase.h
   Chunk.cpp
   Chunk.h
@@ -92,12 +86,6 @@ add_library(${lib_name} STATIC ${PLATFORM_CODE}
   DaemonApp.cpp
   DaemonApp.h
   DisplayInvalidException.h
-  DragInformation.cpp
-  DragInformation.h
-  DropHelper.cpp
-  DropHelper.h
-  FileChunk.cpp
-  FileChunk.h
   IApp.h
   IAppUtil.h
   IClient.h
@@ -150,8 +138,7 @@ add_library(${lib_name} STATIC ${PLATFORM_CODE}
 target_link_libraries(${lib_name} PUBLIC Qt6::Core Qt6::Network)
 
 if(WIN32)
-    target_compile_definitions(${lib_name} PUBLIC HAVE_WINTOAST)
-    target_link_libraries(${lib_name} PRIVATE ${cli11_lib} ${tomlPP_lib} ${wintoast-lib})
+    target_link_libraries(${lib_name} PRIVATE ${cli11_lib} ${tomlPP_lib})
 endif()
 
 target_include_directories(
@@ -177,13 +164,6 @@ if(UNIX)
   )
 
   if(NOT APPLE)
-    target_link_libraries(${lib_name} PRIVATE pugixml)
-
-    find_package(PkgConfig)
-    if(PKG_CONFIG_FOUND)
-      target_link_libraries(${lib_name} 
-      PRIVATE
-      PkgConfig::lib_glib PkgConfig::lib_notify)
-    endif()
+    target_link_libraries(${lib_name} PRIVATE Qt6::Xml)
   endif()
 endif()

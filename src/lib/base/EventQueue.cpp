@@ -1,5 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -8,7 +9,6 @@
 #include "base/EventQueue.h"
 
 #include "arch/Arch.h"
-#include "base/IEventJob.h"
 #include "base/Log.h"
 #include "base/SimpleEventQueueBuffer.h"
 #include "mt/Lock.h"
@@ -16,73 +16,31 @@
 
 #include <stdexcept>
 
-EVENT_TYPE_ACCESSOR(Client)
-EVENT_TYPE_ACCESSOR(IStream)
-EVENT_TYPE_ACCESSOR(IDataSocket)
-EVENT_TYPE_ACCESSOR(IListenSocket)
-EVENT_TYPE_ACCESSOR(ISocket)
-EVENT_TYPE_ACCESSOR(OSXScreen)
-EVENT_TYPE_ACCESSOR(ClientListener)
-EVENT_TYPE_ACCESSOR(ClientProxy)
-EVENT_TYPE_ACCESSOR(ClientProxyUnknown)
-EVENT_TYPE_ACCESSOR(Server)
-EVENT_TYPE_ACCESSOR(ServerApp)
-EVENT_TYPE_ACCESSOR(IKeyState)
-EVENT_TYPE_ACCESSOR(IPrimaryScreen)
-EVENT_TYPE_ACCESSOR(IScreen)
-EVENT_TYPE_ACCESSOR(Clipboard)
-EVENT_TYPE_ACCESSOR(File)
-EVENT_TYPE_ACCESSOR(Ei)
-
 // interrupt handler.  this just adds a quit event to the queue.
 static void interrupt(Arch::ESignal, void *data)
 {
-  EventQueue *events = static_cast<EventQueue *>(data);
-  events->addEvent(Event(Event::kQuit));
+  auto *events = static_cast<EventQueue *>(data);
+  events->addEvent(Event(EventTypes::Quit));
 }
 
 //
 // EventQueue
 //
 
-EventQueue::EventQueue()
-    : m_systemTarget(0),
-      m_nextType(Event::kLast),
-      m_typesForClient(NULL),
-      m_typesForIStream(NULL),
-      m_typesForIDataSocket(NULL),
-      m_typesForIListenSocket(NULL),
-      m_typesForISocket(NULL),
-      m_typesForOSXScreen(NULL),
-      m_typesForClientListener(NULL),
-      m_typesForClientProxy(NULL),
-      m_typesForClientProxyUnknown(NULL),
-      m_typesForServer(NULL),
-      m_typesForServerApp(NULL),
-      m_typesForIKeyState(NULL),
-      m_typesForIPrimaryScreen(NULL),
-      m_typesForIScreen(NULL),
-      m_typesForClipboard(NULL),
-      m_typesForFile(NULL),
-      m_typesForEi(NULL),
-      m_readyMutex(new Mutex),
-      m_readyCondVar(new CondVar<bool>(m_readyMutex, false))
+EventQueue::EventQueue() : m_readyMutex(new Mutex), m_readyCondVar(new CondVar<bool>(m_readyMutex, false))
 {
-  m_mutex = ARCH->newMutex();
   ARCH->setSignalHandler(Arch::kINTERRUPT, &interrupt, this);
   ARCH->setSignalHandler(Arch::kTERMINATE, &interrupt, this);
-  m_buffer = new SimpleEventQueueBuffer;
+  m_buffer = std::make_unique<SimpleEventQueueBuffer>();
 }
 
 EventQueue::~EventQueue()
 {
-  delete m_buffer;
   delete m_readyCondVar;
   delete m_readyMutex;
 
-  ARCH->setSignalHandler(Arch::kINTERRUPT, NULL, NULL);
-  ARCH->setSignalHandler(Arch::kTERMINATE, NULL, NULL);
-  ARCH->closeMutex(m_mutex);
+  ARCH->setSignalHandler(Arch::kINTERRUPT, nullptr, nullptr);
+  ARCH->setSignalHandler(Arch::kTERMINATE, nullptr, nullptr);
 }
 
 void EventQueue::loop()
@@ -96,60 +54,23 @@ void EventQueue::loop()
   LOG((CLOG_DEBUG "event queue is ready"));
   while (!m_pending.empty()) {
     LOG((CLOG_DEBUG "add pending events to buffer"));
-    Event &event = m_pending.front();
+    const Event &event = m_pending.front();
     addEventToBuffer(event);
     m_pending.pop();
   }
 
   Event event;
   getEvent(event);
-  while (event.getType() != Event::kQuit) {
+  while (event.getType() != EventTypes::Quit) {
     dispatchEvent(event);
     Event::deleteData(event);
     getEvent(event);
   }
 }
 
-Event::Type EventQueue::registerTypeOnce(Event::Type &type, const char *name)
-{
-  ArchMutexLock lock(m_mutex);
-  if (type == Event::kUnknown) {
-    m_typeMap.insert(std::make_pair(m_nextType, name));
-    m_nameMap.insert(std::make_pair(name, m_nextType));
-    LOG((CLOG_DEBUG1 "registered event type %s as %d", name, m_nextType));
-    type = m_nextType++;
-  }
-  return type;
-}
-
-const char *EventQueue::getTypeName(Event::Type type)
-{
-  switch (type) {
-  case Event::kUnknown:
-    return "nil";
-
-  case Event::kQuit:
-    return "quit";
-
-  case Event::kSystem:
-    return "system";
-
-  case Event::kTimer:
-    return "timer";
-
-  default:
-    TypeMap::const_iterator i = m_typeMap.find(type);
-    if (i == m_typeMap.end()) {
-      return "<unknown>";
-    } else {
-      return i->second;
-    }
-  }
-}
-
 void EventQueue::adoptBuffer(IEventQueueBuffer *buffer)
 {
-  ArchMutexLock lock(m_mutex);
+  std::scoped_lock lock{m_mutex};
 
   LOG((CLOG_DEBUG "adopting new buffer"));
 
@@ -160,24 +81,22 @@ void EventQueue::adoptBuffer(IEventQueueBuffer *buffer)
   }
 
   // discard old buffer and old events
-  delete m_buffer;
-  for (EventTable::iterator i = m_events.begin(); i != m_events.end(); ++i) {
+  m_buffer.reset();
+  for (auto i = m_events.begin(); i != m_events.end(); ++i) {
     Event::deleteData(i->second);
   }
   m_events.clear();
   m_oldEventIDs.clear();
 
   // use new buffer
-  m_buffer = buffer;
-  if (m_buffer == NULL) {
-    m_buffer = new SimpleEventQueueBuffer;
+  m_buffer.reset(buffer);
+  if (buffer == nullptr) {
+    m_buffer = std::make_unique<SimpleEventQueueBuffer>();
   }
 }
 
-bool EventQueue::getEvent(Event &event, double timeout)
+bool EventQueue::processEvent(Event &event, double timeout, Stopwatch &timer)
 {
-  Stopwatch timer(true);
-retry:
   // if no events are waiting then handle timers and then wait
   while (m_buffer->isEmpty()) {
     // handle timers first
@@ -194,8 +113,8 @@ retry:
     // get time until next timer expires.  if there is a timer
     // and it'll expire before the client's timeout then use
     // that duration for our timeout instead.
-    double timerTimeout = getNextTimerTimeout();
-    if (timeout < 0.0 || (timerTimeout >= 0.0 && timerTimeout < timeLeft)) {
+    if (double timerTimeout = getNextTimerTimeout();
+        timeout < 0.0 || (timerTimeout >= 0.0 && timerTimeout < timeLeft)) {
       timeLeft = timerTimeout;
     }
 
@@ -212,7 +131,7 @@ retry:
       // don't want to fail if client isn't expecting that
       // so if getEvent() fails with an infinite timeout
       // then just try getting another event.
-      goto retry;
+      processEvent(event, timeout, timer);
     }
     return false;
 
@@ -220,7 +139,7 @@ retry:
     return true;
 
   case IEventQueueBuffer::kUser: {
-    ArchMutexLock lock(m_mutex);
+    std::scoped_lock lock{m_mutex};
     event = removeEvent(dataID);
     return true;
   }
@@ -231,15 +150,21 @@ retry:
   }
 }
 
+bool EventQueue::getEvent(Event &event, double timeout)
+{
+  Stopwatch timer(true);
+  return processEvent(event, timeout, timer);
+}
+
 bool EventQueue::dispatchEvent(const Event &event)
 {
   void *target = event.getTarget();
-  IEventJob *job = getHandler(event.getType(), target);
-  if (job == NULL) {
-    job = getHandler(Event::kUnknown, target);
+  if (const auto *type_handler = getHandler(event.getType(), target); type_handler) {
+    (*type_handler)(event);
+    return true;
   }
-  if (job != NULL) {
-    job->run(event);
+  if (const auto *any_handler = getHandler(EventTypes::Unknown, target); any_handler) {
+    (*any_handler)(event);
     return true;
   }
   return false;
@@ -249,9 +174,9 @@ void EventQueue::addEvent(const Event &event)
 {
   // discard bogus event types
   switch (event.getType()) {
-  case Event::kUnknown:
-  case Event::kSystem:
-  case Event::kTimer:
+  case EventTypes::Unknown:
+  case EventTypes::System:
+  case EventTypes::Timer:
     return;
 
   default:
@@ -270,10 +195,10 @@ void EventQueue::addEvent(const Event &event)
 
 void EventQueue::addEventToBuffer(const Event &event)
 {
-  ArchMutexLock lock(m_mutex);
+  std::scoped_lock lock{m_mutex};
 
   // store the event's data locally
-  uint32_t eventID = saveEvent(event);
+  auto eventID = saveEvent(event);
 
   // add it
   if (!m_buffer->addEvent(eventID)) {
@@ -288,10 +213,10 @@ EventQueueTimer *EventQueue::newTimer(double duration, void *target)
   assert(duration > 0.0);
 
   EventQueueTimer *timer = m_buffer->newTimer(duration, false);
-  if (target == NULL) {
+  if (target == nullptr) {
     target = timer;
   }
-  ArchMutexLock lock(m_mutex);
+  std::scoped_lock lock{m_mutex};
   m_timers.insert(timer);
   // initial duration is requested duration plus whatever's on
   // the clock currently because the latter will be subtracted
@@ -305,10 +230,10 @@ EventQueueTimer *EventQueue::newOneShotTimer(double duration, void *target)
   assert(duration > 0.0);
 
   EventQueueTimer *timer = m_buffer->newTimer(duration, true);
-  if (target == NULL) {
+  if (target == nullptr) {
     target = timer;
   }
-  ArchMutexLock lock(m_mutex);
+  std::scoped_lock lock{m_mutex};
   m_timers.insert(timer);
   // initial duration is requested duration plus whatever's on
   // the clock currently because the latter will be subtracted
@@ -319,65 +244,44 @@ EventQueueTimer *EventQueue::newOneShotTimer(double duration, void *target)
 
 void EventQueue::deleteTimer(EventQueueTimer *timer)
 {
-  ArchMutexLock lock(m_mutex);
-  for (TimerQueue::iterator index = m_timerQueue.begin(); index != m_timerQueue.end(); ++index) {
+  std::scoped_lock lock{m_mutex};
+  for (auto index = m_timerQueue.begin(); index != m_timerQueue.end(); ++index) {
     if (index->getTimer() == timer) {
       m_timerQueue.erase(index);
       break;
     }
   }
-  Timers::iterator index = m_timers.find(timer);
-  if (index != m_timers.end()) {
+  if (Timers::iterator index = m_timers.find(timer); index != m_timers.end()) {
     m_timers.erase(index);
   }
   m_buffer->deleteTimer(timer);
 }
 
-void EventQueue::adoptHandler(Event::Type type, void *target, IEventJob *handler)
+void EventQueue::addHandler(EventTypes type, void *target, const EventHandler &handler)
 {
-  ArchMutexLock lock(m_mutex);
-  IEventJob *&job = m_handlers[target][type];
-  delete job;
-  job = handler;
+  std::scoped_lock lock{m_mutex};
+  m_handlers[target][type] = handler;
 }
 
-void EventQueue::removeHandler(Event::Type type, void *target)
+void EventQueue::removeHandler(EventTypes type, void *target)
 {
-  IEventJob *handler = NULL;
-  {
-    ArchMutexLock lock(m_mutex);
-    HandlerTable::iterator index = m_handlers.find(target);
-    if (index != m_handlers.end()) {
-      TypeHandlerTable &typeHandlers = index->second;
-      TypeHandlerTable::iterator index2 = typeHandlers.find(type);
-      if (index2 != typeHandlers.end()) {
-        handler = index2->second;
-        typeHandlers.erase(index2);
-      }
+  std::scoped_lock lock{m_mutex};
+  HandlerTable::iterator index = m_handlers.find(target);
+  if (index != m_handlers.end()) {
+    TypeHandlerTable &typeHandlers = index->second;
+    TypeHandlerTable::iterator index2 = typeHandlers.find(type);
+    if (index2 != typeHandlers.end()) {
+      typeHandlers.erase(index2);
     }
   }
-  delete handler;
 }
 
 void EventQueue::removeHandlers(void *target)
 {
-  std::vector<IEventJob *> handlers;
-  {
-    ArchMutexLock lock(m_mutex);
-    HandlerTable::iterator index = m_handlers.find(target);
-    if (index != m_handlers.end()) {
-      // copy to handlers array and clear table for target
-      TypeHandlerTable &typeHandlers = index->second;
-      for (TypeHandlerTable::iterator index2 = typeHandlers.begin(); index2 != typeHandlers.end(); ++index2) {
-        handlers.push_back(index2->second);
-      }
-      typeHandlers.clear();
-    }
-  }
-
-  // delete handlers
-  for (std::vector<IEventJob *>::iterator index = handlers.begin(); index != handlers.end(); ++index) {
-    delete *index;
+  std::scoped_lock lock{m_mutex};
+  HandlerTable::iterator index = m_handlers.find(target);
+  if (index != m_handlers.end()) {
+    index->second.clear();
   }
 }
 
@@ -386,18 +290,17 @@ bool EventQueue::isEmpty() const
   return (m_buffer->isEmpty() && getNextTimerTimeout() != 0.0);
 }
 
-IEventJob *EventQueue::getHandler(Event::Type type, void *target) const
+const EventQueue::EventHandler *EventQueue::getHandler(EventTypes type, void *target) const
 {
-  ArchMutexLock lock(m_mutex);
-  HandlerTable::const_iterator index = m_handlers.find(target);
-  if (index != m_handlers.end()) {
+  std::scoped_lock lock{m_mutex};
+  if (HandlerTable::const_iterator index = m_handlers.find(target); index != m_handlers.end()) {
     const TypeHandlerTable &typeHandlers = index->second;
     TypeHandlerTable::const_iterator index2 = typeHandlers.find(type);
     if (index2 != typeHandlers.end()) {
-      return index2->second;
+      return &index2->second;
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 uint32_t EventQueue::saveEvent(const Event &event)
@@ -450,7 +353,7 @@ bool EventQueue::hasTimerExpired(Event &event)
   m_time.reset();
 
   // countdown elapsed time
-  for (TimerQueue::iterator index = m_timerQueue.begin(); index != m_timerQueue.end(); ++index) {
+  for (auto index = m_timerQueue.begin(); index != m_timerQueue.end(); ++index) {
     (*index) -= time;
   }
 
@@ -465,7 +368,7 @@ bool EventQueue::hasTimerExpired(Event &event)
 
   // prepare event and reset the timer's clock
   timer.fillEvent(m_timerEvent);
-  event = Event(Event::kTimer, timer.getTarget(), &m_timerEvent);
+  event = Event(EventTypes::Timer, timer.getTarget(), &m_timerEvent);
   timer.reset();
 
   // reinsert timer into queue if it's not a one-shot
@@ -490,15 +393,6 @@ double EventQueue::getNextTimerTimeout() const
   return m_timerQueue.top();
 }
 
-Event::Type EventQueue::getRegisteredType(const std::string &name) const
-{
-  NameMap::const_iterator found = m_nameMap.find(name);
-  if (found != m_nameMap.end())
-    return found->second;
-
-  return Event::kUnknown;
-}
-
 void *EventQueue::getSystemTarget()
 {
   // any unique arbitrary pointer will do
@@ -507,11 +401,11 @@ void *EventQueue::getSystemTarget()
 
 void EventQueue::waitForReady() const
 {
-  double timeout = ARCH->time() + 10;
+  double timeout = Arch::time() + 10;
   Lock lock(m_readyMutex);
 
   while (!m_readyCondVar->wait()) {
-    if (ARCH->time() > timeout) {
+    if (Arch::time() > timeout) {
       throw std::runtime_error("event queue is not ready within 5 sec");
     }
   }
@@ -529,11 +423,6 @@ EventQueue::Timer::Timer(EventQueueTimer *timer, double timeout, double initialT
       m_time(initialTime)
 {
   assert(m_timeout > 0.0);
-}
-
-EventQueue::Timer::~Timer()
-{
-  // do nothing
 }
 
 void EventQueue::Timer::reset()

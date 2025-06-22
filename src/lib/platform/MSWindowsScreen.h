@@ -1,5 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -8,10 +9,7 @@
 #pragma once
 
 #include "deskflow/ClientArgs.h"
-#include "deskflow/DragInformation.h"
 #include "deskflow/PlatformScreen.h"
-#include "mt/CondVar.h"
-#include "mt/Mutex.h"
 #include "platform/MSWindowsHook.h"
 #include "platform/MSWindowsPowerManager.h"
 
@@ -33,10 +31,10 @@ class MSWindowsScreen : public PlatformScreen
 {
 public:
   MSWindowsScreen(
-      bool isPrimary, bool noHooks, bool stopOnDeskSwitch, IEventQueue *events, bool enableLangSync = false,
+      bool isPrimary, bool noHooks, IEventQueue *events, bool enableLangSync = false,
       deskflow::ClientScrollDirection scrollDirection = deskflow::ClientScrollDirection::SERVER
   );
-  virtual ~MSWindowsScreen();
+  ~MSWindowsScreen() override;
 
   //! @name manipulators
   //@{
@@ -61,10 +59,10 @@ public:
   //@}
 
   // IScreen overrides
-  virtual void *getEventTarget() const;
-  virtual bool getClipboard(ClipboardID id, IClipboard *) const;
-  virtual void getShape(int32_t &x, int32_t &y, int32_t &width, int32_t &height) const;
-  virtual void getCursorPos(int32_t &x, int32_t &y) const;
+  void *getEventTarget() const override;
+  bool getClipboard(ClipboardID id, IClipboard *) const override;
+  void getShape(int32_t &x, int32_t &y, int32_t &width, int32_t &height) const override;
+  void getCursorPos(int32_t &x, int32_t &y) const override;
 
   /**
    * \brief Get the position of the cursor on the current machine
@@ -87,54 +85,51 @@ public:
   virtual void updateDesktopThread();
 
   // IPrimaryScreen overrides
-  virtual void reconfigure(uint32_t activeSides);
-  virtual void warpCursor(int32_t x, int32_t y);
-  virtual uint32_t registerHotKey(KeyID key, KeyModifierMask mask);
-  virtual void unregisterHotKey(uint32_t id);
-  virtual void fakeInputBegin();
-  virtual void fakeInputEnd();
-  virtual int32_t getJumpZoneSize() const;
-  virtual bool isAnyMouseButtonDown(uint32_t &buttonID) const;
-  virtual void getCursorCenter(int32_t &x, int32_t &y) const;
+  void reconfigure(uint32_t activeSides) override;
+  void warpCursor(int32_t x, int32_t y) override;
+  uint32_t registerHotKey(KeyID key, KeyModifierMask mask) override;
+  void unregisterHotKey(uint32_t id) override;
+  void fakeInputBegin() override;
+  void fakeInputEnd() override;
+  int32_t getJumpZoneSize() const override;
+  bool isAnyMouseButtonDown(uint32_t &buttonID) const override;
+  void getCursorCenter(int32_t &x, int32_t &y) const override;
 
   // ISecondaryScreen overrides
-  virtual void fakeMouseButton(ButtonID id, bool press);
-  virtual void fakeMouseMove(int32_t x, int32_t y);
-  virtual void fakeMouseRelativeMove(int32_t dx, int32_t dy) const;
-  virtual void fakeMouseWheel(int32_t xDelta, int32_t yDelta) const;
+  void fakeMouseButton(ButtonID id, bool press) override;
+  void fakeMouseMove(int32_t x, int32_t y) override;
+  void fakeMouseRelativeMove(int32_t dx, int32_t dy) const override;
+  void fakeMouseWheel(int32_t xDelta, int32_t yDelta) const override;
 
   // IKeyState overrides
   virtual void updateKeys();
-  virtual void fakeKeyDown(KeyID id, KeyModifierMask mask, KeyButton button, const std::string &lang);
-  virtual bool fakeKeyRepeat(KeyID id, KeyModifierMask mask, int32_t count, KeyButton button, const std::string &lang);
-  virtual bool fakeKeyUp(KeyButton button);
-  virtual void fakeAllKeysUp();
+  void fakeKeyDown(KeyID id, KeyModifierMask mask, KeyButton button, const std::string &lang) override;
+  bool fakeKeyRepeat(KeyID id, KeyModifierMask mask, int32_t count, KeyButton button, const std::string &lang) override;
+  bool fakeKeyUp(KeyButton button) override;
+  void fakeAllKeysUp() override;
 
   // IPlatformScreen overrides
-  virtual void enable();
-  virtual void disable();
-  virtual void enter();
-  virtual bool canLeave();
-  virtual void leave();
-  virtual bool setClipboard(ClipboardID, const IClipboard *);
-  virtual void checkClipboards();
-  virtual void openScreensaver(bool notify);
-  virtual void closeScreensaver();
-  virtual void screensaver(bool activate);
-  virtual void resetOptions();
-  virtual void setOptions(const OptionsList &options);
-  virtual void setSequenceNumber(uint32_t);
-  virtual bool isPrimary() const;
-  virtual void fakeDraggingFiles(DragFileList fileList);
-  virtual std::string &getDraggingFilename();
-  virtual const std::string &getDropTarget() const;
+  void enable() override;
+  void disable() override;
+  void enter() override;
+  bool canLeave() override;
+  void leave() override;
+  bool setClipboard(ClipboardID, const IClipboard *) override;
+  void checkClipboards() override;
+  void openScreensaver(bool notify) override;
+  void closeScreensaver() override;
+  void screensaver(bool activate) override;
+  void resetOptions() override;
+  void setOptions(const OptionsList &options) override;
+  void setSequenceNumber(uint32_t) override;
+  bool isPrimary() const override;
   std::string getSecureInputApp() const override;
 
 protected:
   // IPlatformScreen overrides
-  virtual void handleSystemEvent(const Event &, void *);
-  virtual void updateButtons();
-  virtual IKeyState *getKeyState() const;
+  void handleSystemEvent(const Event &event) override;
+  void updateButtons() override;
+  IKeyState *getKeyState() const override;
 
   // simulate a local key to the system directly
   void fakeLocalKey(KeyButton button, bool press) const;
@@ -147,15 +142,14 @@ private:
   ATOM createDeskWindowClass(bool isPrimary) const;
   void destroyClass(ATOM windowClass) const;
   HWND createWindow(ATOM windowClass, const char *name) const;
-  HWND createDropWindow(ATOM windowClass, const char *name) const;
   void destroyWindow(HWND) const;
 
   // convenience function to send events
 public: // HACK
-  void sendEvent(Event::Type type, void * = NULL);
+  void sendEvent(EventTypes type, void * = nullptr);
 
 private: // HACK
-  void sendClipboardEvent(Event::Type type, ClipboardID id);
+  void sendClipboardEvent(EventTypes type, ClipboardID id);
 
   // handle message before it gets dispatched.  returns true iff
   // the message should not be dispatched.
@@ -197,7 +191,7 @@ private: // HACK
   void updateScreenShape();
 
   // fix timer callback
-  void handleFixes(const Event &, void *);
+  void handleFixes();
 
   // fix the clipboard viewer chain
   void fixClipboardViewer();
@@ -233,9 +227,6 @@ private: // HACK
   // check if it is a modifier key repeating message
   bool isModifierRepeat(KeyModifierMask oldState, KeyModifierMask state, WPARAM wParam) const;
 
-  // send drag info and data back to server
-  void sendDragThread(void *);
-
 private:
   struct HotKeyItem
   {
@@ -267,51 +258,55 @@ private:
   bool m_isOnScreen;
 
   // our resources
-  ATOM m_class;
+  ATOM m_class = 0;
 
   // screen shape stuff
-  int32_t m_x, m_y;
-  int32_t m_w, m_h;
-  int32_t m_xCenter, m_yCenter;
+  int32_t m_x = 0;
+  int32_t m_y = 0;
+  int32_t m_w = 0;
+  int32_t m_h = 0;
+  int32_t m_xCenter = 0;
+  int32_t m_yCenter = 0;
 
   // true if system appears to have multiple monitors
-  bool m_multimon;
+  bool m_multimon = false;
 
   // last mouse position
-  int32_t m_xCursor, m_yCursor;
+  int32_t m_xCursor = 0;
+  int32_t m_yCursor = 0;
 
   // last clipboard
-  uint32_t m_sequenceNumber;
+  uint32_t m_sequenceNumber = 0;
 
   // used to discard queued messages that are no longer needed
-  uint32_t m_mark;
-  uint32_t m_markReceived;
+  uint32_t m_mark = 0;
+  uint32_t m_markReceived = 0;
 
   // the main loop's thread id
   DWORD m_threadID;
 
   // timer for periodically checking stuff that requires polling
-  EventQueueTimer *m_fixTimer;
+  EventQueueTimer *m_fixTimer = nullptr;
 
   // the keyboard layout to use when off primary screen
-  HKL m_keyLayout;
+  HKL m_keyLayout = nullptr;
 
   // screen saver stuff
-  MSWindowsScreenSaver *m_screensaver;
-  bool m_screensaverNotify;
-  bool m_screensaverActive;
+  MSWindowsScreenSaver *m_screensaver = nullptr;
+  bool m_screensaverNotify = false;
+  bool m_screensaverActive = false;
 
   // clipboard stuff.  our window is used mainly as a clipboard
   // owner and as a link in the clipboard viewer chain.
-  HWND m_window;
-  DWORD m_clipboardSequenceNumber;
-  bool m_ownClipboard;
+  HWND m_window = nullptr;
+  DWORD m_clipboardSequenceNumber = 0;
+  bool m_ownClipboard = false;
 
   // one desk per desktop and a cond var to communicate with it
-  MSWindowsDesks *m_desks;
+  MSWindowsDesks *m_desks = nullptr;
 
   // keyboard stuff
-  MSWindowsKeyState *m_keyState;
+  MSWindowsKeyState *m_keyState = nullptr;
 
   // hot key stuff
   HotKeyMap m_hotKeys;
@@ -333,7 +328,7 @@ private:
   // cursor to be displayed when the user has entered this screen.
   // m_showingMouse is true when we're doing that.
   bool m_hasMouse;
-  bool m_showingMouse;
+  bool m_showingMouse = false;
   bool m_gotOldMouseKeys;
   MOUSEKEYS m_mouseKeys;
   MOUSEKEYS m_oldMouseKeys;
@@ -345,12 +340,6 @@ private:
   IEventQueue *m_events;
 
   std::string m_desktopPath;
-
-  MSWindowsDropTarget *m_dropTarget;
-  HWND m_dropWindow;
-  const int m_dropWindowSize;
-
-  Thread *m_sendDragThread;
 
   PrimaryKeyDownList m_primaryKeyDownList;
   MSWindowsPowerManager m_powerManager;

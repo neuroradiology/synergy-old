@@ -12,6 +12,7 @@
 #include "base/Log.h"
 #include "base/LogOutputters.h"
 #include "base/TMethodJob.h"
+#include "common/Constants.h"
 #include "deskflow/App.h"
 #include "mt/Thread.h"
 #include "platform/MSWindowsHandle.h"
@@ -66,7 +67,7 @@ HANDLE openProcessForKill(const PROCESSENTRY32 &entry)
   HANDLE handle = OpenProcess(PROCESS_ALL_ACCESS, FALSE, entry.th32ProcessID);
   if (handle == nullptr) {
     LOG_ERR("could not open process handle for kill");
-    throw XArch(new XArchEvalWindows);
+    throw std::runtime_error(windowsErrorToString(GetLastError()));
   }
 
   // only shut down if not current process (daemon is now the same unified binary).
@@ -125,7 +126,7 @@ MSWindowsWatchdog::duplicateProcessToken(HANDLE process, LPSECURITY_ATTRIBUTES s
 
   if (!tokenRet) {
     LOG_ERR("could not open token, process handle: %d", process);
-    throw XArch(new XArchEvalWindows());
+    throw std::runtime_error(windowsErrorToString(GetLastError()));
   }
 
   LOG_DEBUG("got token %i, duplicating", sourceToken);
@@ -137,7 +138,7 @@ MSWindowsWatchdog::duplicateProcessToken(HANDLE process, LPSECURITY_ATTRIBUTES s
 
   if (!duplicateRet) {
     LOG_ERR("could not duplicate token %i", sourceToken);
-    throw XArch(new XArchEvalWindows());
+    throw std::runtime_error(windowsErrorToString(GetLastError()));
   }
 
   LOG_DEBUG("duplicated, new token: %i", newToken);
@@ -149,22 +150,18 @@ MSWindowsWatchdog::getUserToken(LPSECURITY_ATTRIBUTES security, bool elevatedTok
 {
   m_session.updateActiveSession();
 
-  // always elevate if we are at the vista/7 login screen. we could also
-  // elevate for the uac dialog (consent.exe) but this would be pointless,
-  // since deskflow would re-launch as non-elevated after the desk switch,
-  // and so would be unusable with the new elevated process taking focus.
-  if (elevatedToken || m_session.isProcessInSession("logonui.exe", nullptr)) {
+  if (elevatedToken) {
 
-    LOG_DEBUG("getting elevated token, %s", (elevatedToken ? "elevation required" : "at login screen"));
+    LOG_DEBUG("getting elevated token");
 
     HANDLE process;
     if (!m_session.isProcessInSession("winlogon.exe", &process)) {
-      throw XArch("cannot get user token without winlogon.exe");
+      throw std::runtime_error("cannot get user token without winlogon.exe");
     }
 
     try {
       return duplicateProcessToken(process, security);
-    } catch (XArch &e) {
+    } catch (std::runtime_error &e) {
       LOG_ERR("failed to duplicate user token from winlogon.exe");
       CloseHandle(process);
       throw e;
@@ -177,6 +174,8 @@ MSWindowsWatchdog::getUserToken(LPSECURITY_ATTRIBUTES security, bool elevatedTok
 
 void MSWindowsWatchdog::mainLoop(void *)
 {
+  using enum ProcessState;
+
   shutdownExistingProcesses();
 
   LOG_DEBUG("starting watchdog main loop");
@@ -184,22 +183,20 @@ void MSWindowsWatchdog::mainLoop(void *)
     LOG_DEBUG3("locking process state mutex in watchdog main loop");
     std::unique_lock lock(m_processStateMutex);
 
-    if (!m_command.empty() && !m_foreground && m_session.hasChanged()) {
+    if (m_processState == Running && !m_command.empty() && !m_foreground && m_session.hasChanged()) {
       LOG_DEBUG("session changed, queueing process start");
-      m_processState = ProcessState::StartPending;
+      m_processState = StartPending;
       m_nextStartTime.reset();
     }
 
     switch (m_processState) {
-      using enum ProcessState;
-
     case Idle:
       LOG_DEBUG3("watchdog process state idle");
       break;
 
     case StartScheduled: {
       LOG_DEBUG3("watchdog process start scheduled");
-      if (m_nextStartTime.has_value() && m_nextStartTime.value() <= ARCH->time()) {
+      if (m_nextStartTime.has_value() && m_nextStartTime.value() <= Arch::time()) {
         LOG_DEBUG("start time reached, queueing process start");
         m_processState = StartPending;
       }
@@ -212,11 +209,9 @@ void MSWindowsWatchdog::mainLoop(void *)
         m_startFailures = 0;
         m_processState = Running;
       } catch (std::exception &e) { // NOSONAR - Catching all exceptions
-        handleStartError(e.what());
-        m_processState = StartPending;
+        m_processState = handleStartError(e.what());
       } catch (...) { // NOSONAR - Catching remaining exceptions
-        handleStartError();
-        m_processState = StartPending;
+        m_processState = handleStartError();
       }
     } break;
 
@@ -246,13 +241,13 @@ void MSWindowsWatchdog::mainLoop(void *)
 
     // Sleep for only 100ms rather than 1 second so that the service can shut down faster.
     LOG_DEBUG3("watchdog main loop sleeping");
-    ARCH->sleep(0.1);
+    Arch::sleep(0.1);
   }
 
   LOG_DEBUG("watchdog main loop finished");
 
   if (m_process != nullptr) {
-    LOG_DEBUG("terminated running process on exit");
+    LOG_DEBUG("terminating running process on exit");
     m_process->shutdown();
     m_process.reset();
   }
@@ -274,7 +269,7 @@ bool MSWindowsWatchdog::isProcessRunning()
 void MSWindowsWatchdog::startProcess()
 {
   if (m_command.empty()) {
-    throw XArch("cannot start process, command is empty");
+    throw std::runtime_error("cannot start process, command is empty");
   }
 
   if (m_process != nullptr) {
@@ -292,16 +287,9 @@ void MSWindowsWatchdog::startProcess()
   } else {
     LOG_DEBUG("starting new process in user session");
 
-    LOG_DEBUG("getting active desktop name");
-    const auto activeDesktopName = runActiveDesktopUtility();
-
-    LOG_DEBUG("active desktop name: %s", activeDesktopName.c_str());
-    // When we're at a UAC prompt, lock screen, or the login screen, Windows switches to the Winlogon desktop.
-    const auto isOnSecureDesktop = activeDesktopName == "Winlogon";
-
     SECURITY_ATTRIBUTES sa;
     ZeroMemory(&sa, sizeof(SECURITY_ATTRIBUTES));
-    HANDLE userToken = getUserToken(&sa, isOnSecureDesktop || m_elevateProcess);
+    HANDLE userToken = getUserToken(&sa, m_elevateProcess);
 
     // set UIAccess to fix Windows 8 GUI interaction
     DWORD uiAccess = 1;
@@ -312,17 +300,20 @@ void MSWindowsWatchdog::startProcess()
 
   if (!createRet) {
     DWORD exitCode = 0;
-    GetExitCodeProcess(m_process->info().hProcess, &exitCode);
-    LOG_ERR("daemon failed to run command, exit code: %d", exitCode);
-    throw XArch(new XArchEvalWindows);
+    if (GetExitCodeProcess(m_process->info().hProcess, &exitCode)) {
+      LOG_ERR("daemon failed to run command, exit code: %d", exitCode);
+    } else {
+      LOG_ERR("daemon failed to run command, unknown exit code");
+      throw std::runtime_error(windowsErrorToString(GetLastError()));
+    }
   } else {
     // Wait for program to fail. This needs to be 1 second, as the process may take some time to fail.
     LOG_DEBUG("watchdog waiting for process start result");
-    ARCH->sleep(1);
+    Arch::sleep(1);
 
     if (!isProcessRunning()) {
       m_process.reset();
-      throw XArch("process immediately stopped");
+      throw std::runtime_error("process immediately stopped");
     }
 
     LOG_DEBUG("started core process from watchdog");
@@ -336,7 +327,7 @@ void MSWindowsWatchdog::startProcess()
 void MSWindowsWatchdog::setProcessConfig(const std::string_view &command, bool elevate)
 {
   LOG_DEBUG1("locking process state mutex for watchdog config change");
-  std::lock_guard lock(m_processStateMutex);
+  std::scoped_lock lock{m_processStateMutex};
 
   LOG_DEBUG("setting watchdog process config");
   m_command = command;
@@ -366,7 +357,7 @@ void MSWindowsWatchdog::outputLoop(void *)
 
     if (!success || bytesRead == 0) {
       // Sleep for only 100ms rather than 1 second so that the service can shut down faster.
-      ARCH->sleep(0.1);
+      Arch::sleep(0.1);
     } else {
       buffer[bytesRead] = '\0';
 
@@ -397,7 +388,7 @@ void MSWindowsWatchdog::shutdownExistingProcesses()
   HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, kAllProcesses);
   if (snapshot == INVALID_HANDLE_VALUE) {
     LOG_ERR("could not get process snapshot");
-    throw XArch(new XArchEvalWindows);
+    throw std::runtime_error(windowsErrorToString(GetLastError()));
   }
 
   PROCESSENTRY32 entry;
@@ -408,7 +399,7 @@ void MSWindowsWatchdog::shutdownExistingProcesses()
   BOOL gotEntry = Process32First(snapshot, &entry);
   if (!gotEntry) {
     LOG_ERR("could not get first process entry");
-    throw XArch(new XArchEvalWindows);
+    throw std::runtime_error(windowsErrorToString(GetLastError()));
   }
 
   // now just iterate until we can find winlogon.exe pid
@@ -429,7 +420,7 @@ void MSWindowsWatchdog::shutdownExistingProcesses()
 
         // only worry about error if it's not the end of the snapshot
         LOG_ERR("could not get next process entry");
-        throw XArch(new XArchEvalWindows);
+        throw std::runtime_error(windowsErrorToString(GetLastError()));
       }
     }
   }
@@ -437,73 +428,28 @@ void MSWindowsWatchdog::shutdownExistingProcesses()
   CloseHandle(snapshot);
 }
 
-std::string MSWindowsWatchdog::runActiveDesktopUtility()
-{
-  char fileNameBuffer[MAX_PATH];
-  GetModuleFileName(NULL, fileNameBuffer, MAX_PATH);
-  std::string fileName(fileNameBuffer);
-  size_t lastSlash = fileName.find_last_of("\\");
-  const auto installDir = fileName.substr(0, lastSlash);
-
-  const auto coreBinPath = installDir + "\\deskflow-server.exe";
-  std::string utilityCommand = "\"" + coreBinPath + "\" --active-desktop";
-
-  LOG_DEBUG("starting active desktop utility: %s", utilityCommand.c_str());
-
-  SECURITY_ATTRIBUTES sa;
-  ZeroMemory(&sa, sizeof(SECURITY_ATTRIBUTES));
-  HANDLE userToken = getUserToken(&sa, true);
-
-  deskflow::platform::MSWindowsProcess process(utilityCommand);
-  process.createPipes();
-
-  if (!process.startAsUser(userToken, &sa)) {
-    LOG_ERR("could not start active desktop process");
-    throw XArch(new XArchEvalWindows());
-  }
-
-  LOG_DEBUG("started active desktop process, pid=%d", process.info().dwProcessId);
-  if (const auto exitCode = process.waitForExit(); exitCode != kExitSuccess) {
-    LOG_ERR("active desktop process, exit code: %d", exitCode);
-    throw XArch("could not get active desktop");
-  }
-
-  LOG_DEBUG("reading active desktop std error");
-  if (const auto error = process.readStdError(); !error.empty()) {
-    LOG_WARN("active desktop process, error: %s", error.c_str());
-  }
-
-  LOG_DEBUG("reading active desktop std output");
-  auto output = process.readStdOutput();
-  if (output.empty()) {
-    LOG_ERR("could not get active desktop, no output");
-    throw XArch("could not get active desktop");
-  }
-
-  output.erase(output.find_last_not_of("\r\n") + 1);
-  return output;
-}
-
-void MSWindowsWatchdog::handleStartError(const std::string_view &message)
+MSWindowsWatchdog::ProcessState MSWindowsWatchdog::handleStartError(const std::string_view &message)
 {
   const auto kStartDelaySeconds = 1;
 
   m_startFailures++;
 
   if (!message.empty()) {
-    LOG_CRIT("failed to launch, error: %s", message.data());
+    LOG_CRIT("daemon failed to start process, error: %s", message.data());
   } else {
-    LOG_CRIT("failed to launch, unknown error");
+    LOG_CRIT("daemon failed to start process, unknown error");
   }
 
   // When there has been more than one consecutive failure, slow down the retry rate.
   if (m_startFailures > 1) {
-    m_nextStartTime = ARCH->time() + kStartDelaySeconds;
+    m_nextStartTime = Arch::time() + kStartDelaySeconds;
     LOG_WARN("start failed %d times, delaying start", m_startFailures);
     LOG_DEBUG("start delay, seconds=%d, time=%f", kStartDelaySeconds, m_nextStartTime.value());
+    return ProcessState::StartScheduled;
   } else {
     LOG_INFO("retrying process start immediately");
     m_nextStartTime.reset();
+    return ProcessState::StartPending;
   }
 }
 
@@ -536,14 +482,14 @@ void MSWindowsWatchdog::initOutputReadPipe()
 
   if (!CreatePipe(&m_outputReadPipe, &m_outputWritePipe, &saAttr, 0)) {
     LOG_ERR("could not create output pipe");
-    throw XArch(new XArchEvalWindows());
+    throw std::runtime_error(windowsErrorToString(GetLastError()));
   }
 
   // Set the pipe to non-blocking mode, which allows us to stop the output reader thread immediately
   // in order to speed up the shutdown process when the Windows service needs to stop.
   if (DWORD mode = PIPE_NOWAIT; !SetNamedPipeHandleState(m_outputReadPipe, &mode, nullptr, nullptr)) {
     LOG_ERR("could not set pipe to non-blocking mode");
-    throw XArch(new XArchEvalWindows());
+    throw std::runtime_error(windowsErrorToString(GetLastError()));
   }
 }
 
@@ -554,14 +500,14 @@ void MSWindowsWatchdog::initSasFunc()
   HINSTANCE sasLib = LoadLibrary("sas.dll");
   if (!sasLib) {
     LOG_ERR("could not load sas.dll");
-    throw XArch(new XArchEvalWindows());
+    throw std::runtime_error(windowsErrorToString(GetLastError()));
   }
 
   LOG_DEBUG("loaded sas.dll, used to simulate ctrl-alt-del");
   m_sendSasFunc = (SendSas)GetProcAddress(sasLib, "SendSAS");
   if (!m_sendSasFunc) {
     LOG_ERR("could not find SendSAS function in sas.dll");
-    throw XArch(new XArchEvalWindows());
+    throw std::runtime_error(windowsErrorToString(GetLastError()));
   }
 
   LOG_DEBUG("found SendSAS function in sas.dll");
@@ -572,22 +518,21 @@ void MSWindowsWatchdog::sasLoop(void *) // NOSONAR - Thread entry point signatur
   LOG_DEBUG3("watchdog creating sas event");
 
   if (m_sendSasFunc == nullptr) {
-    throw XArch("SendSAS function not initialized");
+    throw std::runtime_error("SendSAS function not initialized");
   }
 
   while (m_running) {
     if (m_processState != ProcessState::Running) {
       LOG_DEBUG2("watchdog not running, skipping SendSAS");
-      ARCH->sleep(1);
+      Arch::sleep(1);
       continue;
     }
 
     // Create a an event so that other processes can tell the daemon to call the `SendSAS` function.
     MSWindowsHandle sendSasEvent(CreateEvent(nullptr, FALSE, FALSE, kSendSasEventName));
     if (sendSasEvent.get() == nullptr) {
-      XArchEvalWindows error;
-      LOG_ERR("could not create SAS event, error: %s", error.eval().c_str());
-      ARCH->sleep(1);
+      LOG_ERR("could not create SAS event, error: %s", windowsErrorToString(GetLastError()).c_str());
+      Arch::sleep(1);
       continue;
     }
 

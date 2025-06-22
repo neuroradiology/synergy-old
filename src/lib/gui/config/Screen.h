@@ -41,73 +41,69 @@ class Screen : public ScreenConfig
   }
 
 public:
-  explicit Screen();
-  explicit Screen(const QString &name);
+  explicit Screen(const QString &name = QString());
 
-  const QPixmap &pixmap() const
+  [[nodiscard]] const QPixmap &pixmap() const
   {
     return m_Pixmap;
   }
-  const QString &name() const
+  [[nodiscard]] const QString &name() const
   {
     return m_Name;
   }
-  const QStringList &aliases() const
+  [[nodiscard]] const QStringList &aliases() const
   {
     return m_Aliases;
   }
 
-  bool isNull() const
+  [[nodiscard]] bool isNull() const
   {
     return m_Name.isEmpty();
   }
-  int modifier(int m) const
+  [[nodiscard]] int modifier(int m) const
   {
     return m_Modifiers[m] == static_cast<int>(ScreenConfig::Modifier::DefaultMod) ? m : m_Modifiers[m];
   }
-  const QList<int> &modifiers() const
+  [[nodiscard]] const QList<int> &modifiers() const
   {
     return m_Modifiers;
   }
-  bool switchCorner(int c) const
+  [[nodiscard]] bool switchCorner(int c) const
   {
     return m_SwitchCorners[c];
   }
-  const QList<bool> &switchCorners() const
+  [[nodiscard]] const QList<bool> &switchCorners() const
   {
     return m_SwitchCorners;
   }
-  int switchCornerSize() const
+  [[nodiscard]] int switchCornerSize() const
   {
     return m_SwitchCornerSize;
   }
-  bool fix(Fix f) const
+  [[nodiscard]] bool fix(const Fix f) const
   {
-    return m_Fixes[static_cast<int>(f)];
+    return m_Fixes[static_cast<int8_t>(f)];
   }
-  const QList<bool> &fixes() const
+  [[nodiscard]] const QList<bool> &fixes() const
   {
     return m_Fixes;
   }
 
   void loadSettings(QSettingsProxy &settings);
   void saveSettings(QSettingsProxy &settings) const;
-  QString screensSection() const;
-  QString aliasesSection() const;
+  [[nodiscard]] QString screensSection() const;
+  [[nodiscard]] QString aliasesSection() const;
 
-  bool swapped() const
+  [[nodiscard]] bool swapped() const
   {
     return m_Swapped;
   }
-  QString &name()
-  {
-    return m_Name;
-  }
+
   void setName(const QString &name)
   {
     m_Name = name;
   }
-  bool isServer() const
+  [[nodiscard]] bool isServer() const
   {
     return m_isServer;
   }
@@ -119,15 +115,13 @@ public:
   bool operator==(const Screen &screen) const;
 
 protected:
-  void init();
-
   QStringList &aliases()
   {
     return m_Aliases;
   }
-  void setModifier(int m, int n)
+  void setModifier(const Modifier m, const int n)
   {
-    m_Modifiers[m] = n;
+    m_Modifiers[static_cast<int8_t>(m)] = n;
   }
   QList<int> &modifiers()
   {
@@ -137,39 +131,39 @@ protected:
   {
     m_Aliases.append(alias);
   }
-  void setSwitchCorner(int c, bool on)
+  void setSwitchCorner(const SwitchCorner c, const bool on)
   {
-    m_SwitchCorners[c] = on;
+    m_SwitchCorners[static_cast<int8_t>(c)] = on;
   }
   QList<bool> &switchCorners()
   {
     return m_SwitchCorners;
   }
-  void setSwitchCornerSize(int val)
+  void setSwitchCornerSize(const int val)
   {
     m_SwitchCornerSize = val;
   }
-  void setFix(int f, bool on)
+  void setFix(const Fix f, const bool on)
   {
-    m_Fixes[f] = on;
+    m_Fixes[static_cast<int8_t>(f)] = on;
   }
   QList<bool> &fixes()
   {
     return m_Fixes;
   }
-  void setSwapped(bool on)
+  void setSwapped(const bool on)
   {
     m_Swapped = on;
   }
 
 private:
   QPixmap m_Pixmap = QIcon::fromTheme("video-display").pixmap(QSize(96, 96));
-  QString m_Name;
-  QStringList m_Aliases;
-  QList<int> m_Modifiers;
-  QList<bool> m_SwitchCorners;
-  int m_SwitchCornerSize;
-  QList<bool> m_Fixes;
+  QString m_Name = {};
+  QStringList m_Aliases = {};
+  QList<int> m_Modifiers = {0, 1, 2, 3, 4, 5};
+  QList<bool> m_SwitchCorners = {false, false, false, false};
+  int m_SwitchCornerSize = 0;
+  QList<bool> m_Fixes{false, false, false, false};
   bool m_Swapped = false;
   bool m_isServer = false;
 };

@@ -79,6 +79,7 @@ public:
   void cleanup();
   void applyLogLevel();
   void clearSettings();
+  void retryDaemon();
 
   // getters
   Settings::CoreMode mode() const
@@ -112,15 +113,16 @@ public:
     m_mode = mode;
   }
 
-signals:
+Q_SIGNALS:
   void starting();
   void error(Error error);
   void logLine(const QString &line);
   void connectionStateChanged(ConnectionState state);
   void processStateChanged(ProcessState state);
   void secureSocket(bool enabled);
+  void daemonIpcClientConnectionFailed();
 
-private slots:
+private Q_SLOTS:
   void onProcessFinished(int exitCode, QProcess::ExitStatus);
   void onProcessReadyReadStandardOutput();
   void onProcessReadyReadStandardError();
@@ -145,7 +147,7 @@ private:
   QString correctedInterface() const;
   QString correctedAddress() const;
   QString requestDaemonLogPath();
-  void persistLogDir();
+  void persistLogDir() const;
 
 #ifdef Q_OS_MAC
   void checkOSXNotification(const QString &line);

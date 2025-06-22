@@ -9,7 +9,6 @@
 
 #include "arch/IArchDaemon.h"
 #include "arch/IArchMultithread.h"
-#include "common/Constants.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
@@ -27,7 +26,7 @@ public:
   using RunFunc = std::function<int()>;
 
   ArchDaemonWindows();
-  virtual ~ArchDaemonWindows();
+  ~ArchDaemonWindows() override = default;
 
   //! Run the daemon
   /*!
@@ -68,16 +67,16 @@ public:
   static UINT getDaemonQuitMessage();
 
   // IArchDaemon overrides
-  virtual void installDaemon(
+  void installDaemon(
       const char *name, const char *description, const char *pathname, const char *commandLine, const char *dependencies
-  );
-  virtual void uninstallDaemon(const char *name);
-  virtual void installDaemon();
-  virtual void uninstallDaemon();
-  virtual int daemonize(const char *name, DaemonFunc func);
-  virtual bool canInstallDaemon(const char *name);
-  virtual bool isDaemonInstalled(const char *name);
-  std::string commandLine() const
+  ) override;
+  void uninstallDaemon(const char *name) override;
+  void installDaemon() override;
+  void uninstallDaemon() override;
+  int daemonize(const char *name, DaemonFunc const &func) override;
+  bool canInstallDaemon(const char *name) override;
+  bool isDaemonInstalled(const char *name) override;
+  std::string commandLine() const override
   {
     return m_commandLine;
   }
@@ -136,7 +135,6 @@ private:
   std::string m_commandLine;
 };
 
-#define DEFAULT_DAEMON_NAME _T(kAppName)
 #define DEFAULT_DAEMON_INFO _T("Runs the Core process on secure desktops (UAC prompts, login screen, etc).")
 
 #define LEGACY_SERVER_DAEMON_NAME _T("Deskflow Server")

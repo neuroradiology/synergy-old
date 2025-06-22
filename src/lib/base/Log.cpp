@@ -24,7 +24,7 @@ static const char *g_priority[] = {"FATAL",  "ERROR",  "WARNING", "NOTE",   "INF
                                    "DEBUG1", "DEBUG2", "DEBUG3",  "DEBUG4", "DEBUG5"};
 
 // number of priorities
-static const int g_numPriority = (int)(sizeof(g_priority) / sizeof(g_priority[0]));
+static const int g_numPriority = 11;
 
 // if NDEBUG (not debug) is not specified, i.e. you're building in debug,
 // then set default log level to DEBUG, otherwise the max level is INFO.
@@ -115,16 +115,13 @@ std::vector<char> makeMessage(const char *filename, int lineNumber, const char *
 // Log
 //
 
-Log *Log::s_log = NULL;
+Log *Log::s_log = nullptr;
 
 Log::Log(bool singleton)
 {
   if (singleton) {
-    assert(s_log == NULL);
+    assert(s_log == nullptr);
   }
-
-  // create mutex for multithread safe operation
-  m_mutex = ARCH->newMutex();
 
   // other initalization
   m_maxPriority = g_defaultMaxPriority;
@@ -143,18 +140,17 @@ Log::Log(Log *src)
 Log::~Log()
 {
   // clean up
-  for (OutputterList::iterator index = m_outputters.begin(); index != m_outputters.end(); ++index) {
+  for (auto index = m_outputters.begin(); index != m_outputters.end(); ++index) {
     delete *index;
   }
-  for (OutputterList::iterator index = m_alwaysOutputters.begin(); index != m_alwaysOutputters.end(); ++index) {
+  for (auto index = m_alwaysOutputters.begin(); index != m_alwaysOutputters.end(); ++index) {
     delete *index;
   }
-  ARCH->closeMutex(m_mutex);
 }
 
 Log *Log::getInstance()
 {
-  assert(s_log != NULL);
+  assert(s_log != nullptr);
   return s_log;
 }
 
@@ -210,9 +206,9 @@ void Log::print(const char *file, int line, const char *fmt, ...)
 
 void Log::insert(ILogOutputter *adoptedOutputter, bool alwaysAtHead)
 {
-  assert(adoptedOutputter != NULL);
+  assert(adoptedOutputter != nullptr);
 
-  ArchMutexLock lock(m_mutex);
+  std::scoped_lock lock{m_mutex};
   if (alwaysAtHead) {
     m_alwaysOutputters.push_front(adoptedOutputter);
   } else {
@@ -224,14 +220,14 @@ void Log::insert(ILogOutputter *adoptedOutputter, bool alwaysAtHead)
 
 void Log::remove(ILogOutputter *outputter)
 {
-  ArchMutexLock lock(m_mutex);
+  std::scoped_lock lock{m_mutex};
   m_outputters.remove(outputter);
   m_alwaysOutputters.remove(outputter);
 }
 
 void Log::pop_front(bool alwaysAtHead)
 {
-  ArchMutexLock lock(m_mutex);
+  std::scoped_lock lock{m_mutex};
   OutputterList *list = alwaysAtHead ? &m_alwaysOutputters : &m_outputters;
   if (!list->empty()) {
     delete list->front();
@@ -241,7 +237,7 @@ void Log::pop_front(bool alwaysAtHead)
 
 bool Log::setFilter(const char *maxPriority)
 {
-  if (maxPriority != NULL) {
+  if (maxPriority != nullptr) {
     for (int i = 0; i < g_numPriority; ++i) {
       if (strcmp(maxPriority, g_priority[i]) == 0) {
         setFilter(i);
@@ -255,24 +251,24 @@ bool Log::setFilter(const char *maxPriority)
 
 void Log::setFilter(int maxPriority)
 {
-  ArchMutexLock lock(m_mutex);
+  std::scoped_lock lock{m_mutex};
   m_maxPriority = maxPriority;
 }
 
 int Log::getFilter() const
 {
-  ArchMutexLock lock(m_mutex);
+  std::scoped_lock lock{m_mutex};
   return m_maxPriority;
 }
 
-void Log::output(ELevel priority, char *msg)
+void Log::output(ELevel priority, const char *msg)
 {
   assert(priority >= -1 && priority < g_numPriority);
-  assert(msg != NULL);
+  assert(msg != nullptr);
   if (!msg)
     return;
 
-  ArchMutexLock lock(m_mutex);
+  std::scoped_lock lock{m_mutex};
 
   OutputterList::const_iterator i;
 

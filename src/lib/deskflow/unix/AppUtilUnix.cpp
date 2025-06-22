@@ -6,9 +6,8 @@
  */
 
 #include "deskflow/unix/AppUtilUnix.h"
-#include "deskflow/ArgsBase.h"
-#include <filesystem>
-#include <thread>
+
+#include "base/Log.h"
 
 #if WINAPI_XWINDOWS
 #include "deskflow/unix/X11LayoutsParser.h"
@@ -19,20 +18,12 @@
 #else
 #error Platform not supported.
 #endif
-#include "base/Log.h"
-#include "base/LogOutputters.h"
-#include "common/Constants.h"
 
-#if HAVE_LIBNOTIFY
-#include <libnotify/notify.h>
-#endif
+#include <filesystem>
 
-AppUtilUnix::AppUtilUnix(IEventQueue *events)
+AppUtilUnix::AppUtilUnix(const IEventQueue *events)
 {
-}
-
-AppUtilUnix::~AppUtilUnix()
-{
+  // do nothing
 }
 
 int standardStartupStatic(int argc, char **argv)
@@ -64,7 +55,9 @@ std::vector<std::string> AppUtilUnix::getKeyboardLayoutList()
 #elif WINAPI_CARBON
   CFStringRef keys[] = {kTISPropertyInputSourceCategory};
   CFStringRef values[] = {kTISCategoryKeyboardInputSource};
-  AutoCFDictionary dict(CFDictionaryCreate(NULL, (const void **)keys, (const void **)values, 1, NULL, NULL), CFRelease);
+  AutoCFDictionary dict(
+      CFDictionaryCreate(nullptr, (const void **)keys, (const void **)values, 1, nullptr, nullptr), CFRelease
+  );
   AutoCFArray kbds(TISCreateInputSourceList(dict.get(), false), CFRelease);
 
   for (CFIndex i = 0; i < CFArrayGetCount(kbds.get()); ++i) {
@@ -124,8 +117,8 @@ std::string AppUtilUnix::getCurrentLanguageCode()
       continue;
     }
 
-    auto group = rawLayouts.substr(groupStartI, strI - groupStartI);
-    if (group.find("group", 0, 5) == std::string::npos && group.find("inet", 0, 4) == std::string::npos &&
+    if (auto group = rawLayouts.substr(groupStartI, strI - groupStartI);
+        group.find("group", 0, 5) == std::string::npos && group.find("inet", 0, 4) == std::string::npos &&
         group.find("pc", 0, 2) == std::string::npos) {
       if (nedeedGroupIndex == groupIdx) {
         result = group.substr(0, std::min(group.find('(', 0), group.find(':', 0)));
@@ -158,34 +151,4 @@ std::string AppUtilUnix::getCurrentLanguageCode()
   }
 #endif
   return result;
-}
-
-void AppUtilUnix::showNotification(const std::string &title, const std::string &text) const
-{
-#if HAVE_LIBNOTIFY
-  LOG((CLOG_INFO "showing notification, title=\"%s\", text=\"%s\"", title.c_str(), text.c_str()));
-  if (!notify_init(kAppName)) {
-    LOG((CLOG_WARN "failed to initialize libnotify"));
-    return;
-  }
-
-  auto notification = notify_notification_new(title.c_str(), text.c_str(), nullptr);
-  if (notification == nullptr) {
-    LOG((CLOG_WARN "failed to create notification"));
-    return;
-  }
-  notify_notification_set_timeout(notification, 10000);
-
-  if (!notify_notification_show(notification, nullptr)) {
-    LOG((CLOG_WARN "failed to show notification"));
-  }
-
-  g_object_unref(G_OBJECT(notification));
-  notify_uninit();
-
-#elif WINAPI_CARBON
-  // server and client processes are not allowed to show notifications.
-  // MacOS instead ask main deskflow process to show them instead.
-  LOG((CLOG_INFO "mac notification: %s|%s", title.c_str(), text.c_str()));
-#endif
 }

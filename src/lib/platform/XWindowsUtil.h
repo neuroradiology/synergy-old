@@ -13,24 +13,20 @@
 #include <string>
 #include <vector>
 
-#if X_DISPLAY_MISSING
-#error X11 is required to build deskflow
-#else
 #include <X11/Xlib.h>
-#endif
 
 //! X11 utility functions
 class XWindowsUtil
 {
 public:
-  typedef std::vector<KeySym> KeySyms;
+  using KeySyms = std::vector<KeySym>;
 
   //! Get property
   /*!
   Gets property \c property on \c window.  \b Appends the data to
-  \c *data if \c data is not NULL, saves the property type in \c *type
-  if \c type is not NULL, and saves the property format in \c *format
-  if \c format is not NULL.  If \c deleteProperty is true then the
+  \c *data if \c data is not nullptr, saves the property type in \c *type
+  if \c type is not nullptr, and saves the property format in \c *format
+  if \c format is not nullptr.  If \c deleteProperty is true then the
   property is deleted after being read.
   */
   static bool getWindowProperty(
@@ -120,12 +116,12 @@ public:
   {
   public:
     //! Error handler type
-    typedef void (*ErrorHandler)(Display *, XErrorEvent *, void *userData);
+    using ErrorHandler = void (*)(Display *, XErrorEvent *, void *userData);
 
     /*!
     Ignore X11 errors.
     */
-    ErrorLock(Display *);
+    explicit ErrorLock(Display *);
     ErrorLock(ErrorLock const &) = delete;
     ErrorLock(ErrorLock &&) = delete;
 
@@ -151,7 +147,7 @@ public:
     static void saveHandler(Display *, XErrorEvent *, void *);
 
   private:
-    typedef int (*XErrorHandler)(Display *, XErrorEvent *);
+    using XErrorHandler = int (*)(Display *, XErrorEvent *);
 
     Display *m_display;
     ErrorHandler m_handler;
@@ -174,7 +170,7 @@ private:
   static void initKeyMaps();
 
 private:
-  typedef std::map<KeySym, uint32_t> KeySymMap;
+  using KeySymMap = std::map<KeySym, uint32_t>;
 
   static KeySymMap s_keySymToUCS4;
 };

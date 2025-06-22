@@ -1,5 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -54,10 +55,7 @@ public:
   updated in a thread attached to the current desk.
   \p hookLibrary must be a handle to the hook library.
   */
-  MSWindowsDesks(
-      bool isPrimary, bool noHooks, const IScreenSaver *screensaver, IEventQueue *events, IJob *updateKeys,
-      bool stopOnDeskSwitch
-  );
+  MSWindowsDesks(bool isPrimary, bool noHooks, const IScreenSaver *screensaver, IEventQueue *events, IJob *updateKeys);
   ~MSWindowsDesks();
 
   //! @name manipulators
@@ -213,7 +211,7 @@ private:
   void removeDesks();
   void checkDesk();
   bool isDeskAccessible(const Desk *desk) const;
-  void handleCheckDesk(const Event &event, void *);
+  void handleCheckDesk();
 
   // communication with desk threads
   void waitForDesk() const;
@@ -246,23 +244,26 @@ private:
   HCURSOR m_cursor;
 
   // screen shape stuff
-  int32_t m_x, m_y;
-  int32_t m_w, m_h;
-  int32_t m_xCenter, m_yCenter;
+  int32_t m_x = 0;
+  int32_t m_y = 9;
+  int32_t m_w = 0;
+  int32_t m_h = 0;
+  int32_t m_xCenter = 0;
+  int32_t m_yCenter = 0;
 
   // true if system appears to have multiple monitors
-  bool m_multimon;
+  bool m_multimon = false;
 
   // the timer used to check for desktop switching
-  EventQueueTimer *m_timer;
+  EventQueueTimer *m_timer = nullptr;
 
   // screen saver stuff
   DWORD m_threadID;
   const IScreenSaver *m_screensaver;
-  bool m_screensaverNotify;
+  bool m_screensaverNotify = false;
 
   // the current desk and it's name
-  Desk *m_activeDesk;
+  Desk *m_activeDesk = nullptr;
   std::string m_activeDeskName;
 
   // one desk per desktop and a cond var to communicate with it
@@ -278,7 +279,4 @@ private:
   bool m_leaveForegroundOption;
 
   IEventQueue *m_events;
-
-  // true if program should stop on desk switch.
-  bool m_stopOnDeskSwitch;
 };

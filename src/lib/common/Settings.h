@@ -20,7 +20,7 @@ class Settings : public QObject
 public:
 #if defined(Q_OS_WIN)
   inline const static auto UserDir = QStringLiteral("%1/AppData/Local/%2").arg(QDir::homePath(), kAppName);
-  inline const static auto SystemDir = QStringLiteral("C:/ProgramData/%1").arg(kAppName);
+  inline const static auto SystemDir = QStringLiteral("%1ProgramData/%2").arg(QDir::rootPath(), kAppName);
 #elif defined(Q_OS_MAC)
   inline const static auto UserDir = QStringLiteral("%1/Library/%2").arg(QDir::homePath(), kAppName);
   inline const static auto SystemDir = QStringLiteral("/Library/%1").arg(kAppName);
@@ -41,7 +41,6 @@ public:
   struct Core
   {
     inline static const auto CoreMode = QStringLiteral("core/coreMode");
-    inline static const auto ElevateMode = QStringLiteral("core/elevateMode");
     inline static const auto Interface = QStringLiteral("core/interface");
     inline static const auto LastVersion = QStringLiteral("core/lastVersion");
     inline static const auto Port = QStringLiteral("core/port");
@@ -103,28 +102,6 @@ public:
   };
   Q_ENUM(ProcessMode)
 
-  /**
-   * @brief The elevate mode tristate determines two behaviors on Windows.
-   * The matrix for these two behaviors is as follows:
-   *               |    sods   |   elevate  |
-   *               |-----------|------------|
-   *  kAutomatic   |   true    |   false    |
-   *  kAlways      |   false   |   true     |
-   *  kNever       |   false   |   false    |
-   * The first, --stop-on-desk-switch (sods), is passed through the daemon as a
-   * command line argument to the server/client, and determines if it restarts
-   * when switching Windows desktops (e.g. when Windows UAC dialog pops up).
-   * The second, elevate, is passed as a boolean flag to the daemon over IPC,
-   * and determines whether the server/client should be started with elevated privileges.
-   */
-  enum ElevateMode
-  {
-    Automatic = 0,
-    Always = 1,
-    Never = 2
-  };
-  Q_ENUM(ElevateMode)
-
   enum CoreMode
   {
     None,
@@ -140,19 +117,19 @@ public:
   static void restoreDefaultSettings();
   static QVariant defaultValue(const QString &key);
   static bool isWritable();
-  static const QString settingsFile();
-  static const QString settingsPath();
-  static const QString tlsDir();
-  static const QString tlsLocalDb();
-  static const QString tlsTrustedServersDb();
-  static const QString tlsTrustedClientsDb();
-  static const QString logLevelText();
+  static bool isNativeMode();
+  static QString settingsFile();
+  static QString settingsPath();
+  static QString tlsDir();
+  static QString tlsLocalDb();
+  static QString tlsTrustedServersDb();
+  static QString tlsTrustedClientsDb();
+  static QString logLevelText();
   static QSettingsProxy &proxy();
   static void save(bool emitSaving = true);
+  static QStringList validKeys();
 
-signals:
-  void scopeChanged(bool isSystemScope);
-  void writableChanged(bool canWrite);
+Q_SIGNALS:
   void settingsChanged(const QString key);
   void serverSettingsChanged();
 
@@ -160,12 +137,11 @@ private:
   explicit Settings(QObject *parent = nullptr);
   Settings *operator=(Settings &other) = delete;
   Settings(const Settings &other) = delete;
-  ~Settings() = default;
-  static bool isPortableSettings();
+  ~Settings() override = default;
   void cleanSettings();
 
   QSettings *m_settings = nullptr;
-  QString m_portableSettingsFile = QStringLiteral("settings/%1.conf").arg(kAppName);
+  QString m_portableSettingsFile = QStringLiteral("%1/settings/%2.conf");
   std::shared_ptr<QSettingsProxy> m_settingsProxy;
 
   // clang-format off
@@ -182,7 +158,6 @@ private:
     , Settings::Client::LanguageSync
     , Settings::Client::RemoteHost
     , Settings::Core::CoreMode
-    , Settings::Core::ElevateMode
     , Settings::Core::Interface
     , Settings::Core::LastVersion
     , Settings::Core::Port
@@ -214,10 +189,4 @@ private:
     , Settings::Server::ExternalConfigFile
   };
   // clang-format on
-
-#ifdef Q_OS_WIN
-  inline static const auto defaultProcessMode = Settings::ProcessMode::Service;
-#else
-  inline static const auto defaultProcessMode = Settings::ProcessMode::Desktop;
-#endif
 };

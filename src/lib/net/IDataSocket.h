@@ -22,14 +22,16 @@ public:
   class ConnectionFailedInfo
   {
   public:
-    ConnectionFailedInfo(const char *what) : m_what(what)
+    explicit ConnectionFailedInfo(const char *what) : m_what(what)
     {
+      // do nothing
     }
     std::string m_what;
   };
 
-  IDataSocket(IEventQueue *events)
+  explicit IDataSocket(const IEventQueue *events)
   {
+    // do nothing
   }
 
   //! @name manipulators
@@ -51,17 +53,17 @@ public:
   // in VC++6.  it claims the methods are unused locals and warns
   // that it's removing them.  it's presumably tickled by inheriting
   // methods with identical signatures from both superclasses.
-  virtual void bind(const NetworkAddress &) = 0;
-  virtual void close();
-  virtual void *getEventTarget() const;
+  void bind(const NetworkAddress &) override = 0;
+  void close() override;
+  void *getEventTarget() const override;
 
   // IStream overrides
-  virtual uint32_t read(void *buffer, uint32_t n) = 0;
-  virtual void write(const void *buffer, uint32_t n) = 0;
-  virtual void flush() = 0;
-  virtual void shutdownInput() = 0;
-  virtual void shutdownOutput() = 0;
-  virtual bool isReady() const = 0;
+  uint32_t read(void *buffer, uint32_t n) override = 0;
+  void write(const void *buffer, uint32_t n) override = 0;
+  void flush() override = 0;
+  void shutdownInput() override = 0;
+  void shutdownOutput() override = 0;
+  bool isReady() const override = 0;
+  uint32_t getSize() const override = 0;
   virtual bool isFatal() const = 0;
-  virtual uint32_t getSize() const = 0;
 };

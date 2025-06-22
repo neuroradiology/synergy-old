@@ -11,6 +11,7 @@
 #include "arch/win32/XArchWindows.h"
 #include "base/Log.h"
 #include "base/String.h"
+#include "common/Constants.h"
 
 #include <Psapi.h>
 
@@ -31,7 +32,7 @@ void errorMessageBox(const char *message, const char *title = "Fatal Error");
 std::string getBinaryName()
 {
   std::array<char, MAX_PATH> buffer;
-  if (!GetModuleFileNameA(NULL, buffer.data(), MAX_PATH)) {
+  if (!GetModuleFileNameA(nullptr, buffer.data(), MAX_PATH)) {
     errorMessageBox("Failed to get binary name.");
     abort();
   }
@@ -52,10 +53,10 @@ const std::string s_binaryName = getBinaryName();
 //
 
 DWORD ArchMiscWindows::s_busyState = 0;
-ArchMiscWindows::STES_t ArchMiscWindows::s_stes = NULL;
-HICON ArchMiscWindows::s_largeIcon = NULL;
-HICON ArchMiscWindows::s_smallIcon = NULL;
-HINSTANCE ArchMiscWindows::s_instanceWin32 = NULL;
+ArchMiscWindows::STES_t ArchMiscWindows::s_stes = nullptr;
+HICON ArchMiscWindows::s_largeIcon = nullptr;
+HICON ArchMiscWindows::s_smallIcon = nullptr;
+HINSTANCE ArchMiscWindows::s_instanceWin32 = nullptr;
 
 void ArchMiscWindows::init()
 {
@@ -105,9 +106,9 @@ HKEY ArchMiscWindows::addKey(HKEY key, const TCHAR *const *keyNames)
 
 HKEY ArchMiscWindows::openKey(HKEY key, const TCHAR *keyName, bool create)
 {
-  // ignore if parent is NULL
-  if (key == NULL) {
-    return NULL;
+  // ignore if parent is nullptr
+  if (key == nullptr) {
+    return nullptr;
   }
 
   // open next key
@@ -115,11 +116,11 @@ HKEY ArchMiscWindows::openKey(HKEY key, const TCHAR *keyName, bool create)
   LSTATUS result = RegOpenKeyEx(key, keyName, 0, KEY_WRITE | KEY_QUERY_VALUE, &newKey);
   if (result != ERROR_SUCCESS && create) {
     DWORD disp;
-    result = RegCreateKeyEx(key, keyName, 0, NULL, 0, KEY_WRITE | KEY_QUERY_VALUE, NULL, &newKey, &disp);
+    result = RegCreateKeyEx(key, keyName, 0, nullptr, 0, KEY_WRITE | KEY_QUERY_VALUE, nullptr, &newKey, &disp);
   }
   if (result != ERROR_SUCCESS) {
     RegCloseKey(key);
-    return NULL;
+    return nullptr;
   }
 
   // switch to new key
@@ -129,7 +130,7 @@ HKEY ArchMiscWindows::openKey(HKEY key, const TCHAR *keyName, bool create)
 
 HKEY ArchMiscWindows::openKey(HKEY key, const TCHAR *const *keyNames, bool create)
 {
-  for (size_t i = 0; key != NULL && keyNames[i] != NULL; ++i) {
+  for (size_t i = 0; key != nullptr && keyNames[i] != nullptr; ++i) {
     // open next key
     key = openKey(key, keyNames[i], create);
   }
@@ -138,17 +139,17 @@ HKEY ArchMiscWindows::openKey(HKEY key, const TCHAR *const *keyNames, bool creat
 
 void ArchMiscWindows::closeKey(HKEY key)
 {
-  assert(key != NULL);
-  if (key == NULL)
+  assert(key != nullptr);
+  if (key == nullptr)
     return;
   RegCloseKey(key);
 }
 
 void ArchMiscWindows::deleteKey(HKEY key, const TCHAR *name)
 {
-  assert(key != NULL);
-  assert(name != NULL);
-  if (key == NULL || name == NULL)
+  assert(key != nullptr);
+  assert(name != nullptr);
+  if (key == nullptr || name == nullptr)
     return;
   RegDeleteKey(key, name);
 }
@@ -156,7 +157,7 @@ void ArchMiscWindows::deleteKey(HKEY key, const TCHAR *name)
 ArchMiscWindows::EValueType ArchMiscWindows::typeOfValue(HKEY key, const TCHAR *name)
 {
   DWORD type;
-  LONG result = RegQueryValueEx(key, name, 0, &type, NULL, NULL);
+  LONG result = RegQueryValueEx(key, name, 0, &type, nullptr, nullptr);
   if (result != ERROR_SUCCESS) {
     return kNO_VALUE;
   }
@@ -177,8 +178,8 @@ ArchMiscWindows::EValueType ArchMiscWindows::typeOfValue(HKEY key, const TCHAR *
 
 void ArchMiscWindows::setValue(HKEY key, const TCHAR *name, const std::string &value)
 {
-  assert(key != NULL);
-  if (key == NULL) {
+  assert(key != nullptr);
+  if (key == nullptr) {
     // TODO: throw exception
     return;
   }
@@ -187,8 +188,8 @@ void ArchMiscWindows::setValue(HKEY key, const TCHAR *name, const std::string &v
 
 void ArchMiscWindows::setValue(HKEY key, const TCHAR *name, DWORD value)
 {
-  assert(key != NULL);
-  if (key == NULL) {
+  assert(key != nullptr);
+  if (key == nullptr) {
     // TODO: throw exception
     return;
   }
@@ -200,7 +201,7 @@ std::string ArchMiscWindows::readBinaryOrString(HKEY key, const TCHAR *name, DWO
   // get the size of the string
   DWORD actualType;
   DWORD size = 0;
-  LONG result = RegQueryValueEx(key, name, 0, &actualType, NULL, &size);
+  LONG result = RegQueryValueEx(key, name, 0, &actualType, nullptr, &size);
   if (result != ERROR_SUCCESS || actualType != type) {
     return std::string();
   }
@@ -263,12 +264,12 @@ void ArchMiscWindows::removeBusyState(DWORD busyModes)
 void ArchMiscWindows::setThreadExecutionState(DWORD busyModes)
 {
   // look up function dynamically so we work on older systems
-  if (s_stes == NULL) {
+  if (s_stes == nullptr) {
     HINSTANCE kernel = LoadLibrary("kernel32.dll");
-    if (kernel != NULL) {
+    if (kernel != nullptr) {
       s_stes = reinterpret_cast<STES_t>(GetProcAddress(kernel, "SetThreadExecutionState"));
     }
-    if (s_stes == NULL) {
+    if (s_stes == nullptr) {
       s_stes = &ArchMiscWindows::dummySetThreadExecutionState;
     }
   }
@@ -301,12 +302,12 @@ void ArchMiscWindows::wakeupDisplay()
   // We can't use ::setThreadExecutionState here because it sets
   // ES_CONTINUOUS, which we don't want.
 
-  if (s_stes == NULL) {
+  if (s_stes == nullptr) {
     HINSTANCE kernel = LoadLibrary("kernel32.dll");
-    if (kernel != NULL) {
+    if (kernel != nullptr) {
       s_stes = reinterpret_cast<STES_t>(GetProcAddress(kernel, "SetThreadExecutionState"));
     }
-    if (s_stes == NULL) {
+    if (s_stes == nullptr) {
       s_stes = &ArchMiscWindows::dummySetThreadExecutionState;
     }
   }
@@ -394,13 +395,13 @@ BOOL WINAPI ArchMiscWindows::getProcessEntry(PROCESSENTRY32 &entry, DWORD proces
 HINSTANCE
 ArchMiscWindows::instanceWin32()
 {
-  assert(s_instanceWin32 != NULL);
+  assert(s_instanceWin32 != nullptr);
   return s_instanceWin32;
 }
 
 void ArchMiscWindows::setInstanceWin32(HINSTANCE instance)
 {
-  assert(instance != NULL);
+  assert(instance != nullptr);
   s_instanceWin32 = instance;
 }
 
@@ -409,7 +410,7 @@ std::string ArchMiscWindows::getActiveDesktopName()
   HDESK desk = OpenInputDesktop(0, TRUE, GENERIC_READ);
   if (desk == nullptr) {
     LOG((CLOG_ERR "could not open input desktop"));
-    throw XArch(new XArchEvalWindows());
+    throw std::runtime_error(windowsErrorToString(GetLastError()));
   }
 
   DWORD size;
@@ -530,7 +531,7 @@ bool ArchMiscWindows::isProcessElevated()
 
   HANDLE hToken = nullptr;
   if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken)) {
-    throw XArch(new XArchEvalWindows());
+    throw std::runtime_error(windowsErrorToString(GetLastError()));
   }
 
   TOKEN_ELEVATION elevation;
@@ -538,7 +539,7 @@ bool ArchMiscWindows::isProcessElevated()
   try {
     DWORD dwSize = sizeof(TOKEN_ELEVATION);
     if (!GetTokenInformation(hToken, TokenElevation, &elevation, sizeof(elevation), &dwSize)) {
-      throw XArch(new XArchEvalWindows());
+      throw std::runtime_error(windowsErrorToString(GetLastError()));
     }
   } catch (...) {
     CloseHandle(hToken);

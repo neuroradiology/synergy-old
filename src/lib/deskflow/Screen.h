@@ -8,11 +8,12 @@
 #pragma once
 
 #include "deskflow/ClipboardTypes.h"
-#include "deskflow/DragInformation.h"
 #include "deskflow/IScreen.h"
 #include "deskflow/KeyTypes.h"
 #include "deskflow/MouseTypes.h"
 #include "deskflow/OptionTypes.h"
+
+#include <string>
 
 class IClipboard;
 class IPlatformScreen;
@@ -31,16 +32,10 @@ public:
   Screen(IPlatformScreen *platformScreen, IEventQueue *events);
   Screen(Screen const &) = delete;
   Screen(Screen &&) = delete;
-  virtual ~Screen();
+  ~Screen() override;
 
   Screen &operator&(Screen const &) = delete;
   Screen &operator&(Screen &&) = delete;
-
-#ifdef TEST_ENV
-  Screen() : m_mock(true)
-  {
-  }
-#endif
 
   //! @name manipulators
   //@{
@@ -51,14 +46,14 @@ public:
   For a secondary screen it also means disabling the screen saver if
   synchronizing it and preparing to synthesize events.
   */
-  virtual void enable();
+  void enable();
 
   //! Deactivate screen
   /*!
   Undoes the operations in activate() and events are no longer
   reported.  It also releases keys that are logically pressed.
   */
-  virtual void disable();
+  void disable();
 
   //! Enter screen
   /*!
@@ -158,7 +153,7 @@ public:
   Synthesize mouse events to generate mouse motion by the relative
   amount \c xRel,yRel.
   */
-  void mouseRelativeMove(int32_t xRel, int32_t yRel);
+  void mouseRelativeMove(int32_t xRel, int32_t yRel) const;
 
   //! Notify of mouse wheel motion
   /*!
@@ -173,14 +168,14 @@ public:
   /*!
   Resets all options to their default values.
   */
-  virtual void resetOptions();
+  void resetOptions();
 
   //! Notify of options changes
   /*!
   Set options to given values.  Ignores unknown options and doesn't
   modify options that aren't given in \c options.
   */
-  virtual void setOptions(const OptionsList &options);
+  void setOptions(const OptionsList &options);
 
   //! Set clipboard sequence number
   /*!
@@ -215,14 +210,6 @@ public:
   Undoes whatever \c fakeInputBegin() did.
   */
   void fakeInputEnd();
-
-  //! Change dragging status
-  void setDraggingStarted(bool started);
-
-  //! Fake a files dragging operation
-  void startDraggingFiles(DragFileList &fileList);
-
-  void setEnableDragDrop(bool enabled);
 
   //! Determine the name of the app causing a secure input state
   /*!
@@ -279,28 +266,13 @@ public:
   */
   KeyModifierMask pollActiveModifiers() const;
 
-  //! Test if file is dragged on primary screen
-  bool isDraggingStarted() const;
-
-  //! Test if file is dragged on secondary screen
-  bool isFakeDraggingStarted() const;
-
-  //! Get the filename of the file being dragged
-  std::string &getDraggingFilename() const;
-
-  //! Clear the filename of the file that was dragged
-  void clearDraggingFilename();
-
-  //! Get the drop target directory
-  const std::string &getDropTarget() const;
-
   //@}
 
   // IScreen overrides
-  virtual void *getEventTarget() const;
-  virtual bool getClipboard(ClipboardID id, IClipboard *) const;
-  virtual void getShape(int32_t &x, int32_t &y, int32_t &width, int32_t &height) const;
-  virtual void getCursorPos(int32_t &x, int32_t &y) const;
+  void *getEventTarget() const override;
+  bool getClipboard(ClipboardID id, IClipboard *) const override;
+  void getShape(int32_t &x, int32_t &y, int32_t &width, int32_t &height) const override;
+  void getCursorPos(int32_t &x, int32_t &y) const override;
 
   IPlatformScreen *getPlatformScreen()
   {
@@ -313,35 +285,32 @@ protected:
   void disablePrimary();
   void disableSecondary();
 
-  void enterPrimary();
-  void enterSecondary(KeyModifierMask toggleMask);
+  void enterPrimary() const;
+  void enterSecondary(KeyModifierMask toggleMask) const;
   void leavePrimary();
   void leaveSecondary();
 
 private:
   // our platform dependent screen
-  IPlatformScreen *m_screen;
+  IPlatformScreen *m_screen = nullptr;
 
   // true if screen is being used as a primary screen, false otherwise
-  bool m_isPrimary;
+  bool m_isPrimary = false;
 
   // true if screen is enabled
-  bool m_enabled;
+  bool m_enabled = false;
 
   // true if the cursor is on this screen
-  bool m_entered;
+  bool m_entered = false;
 
   // note toggle keys that toggles on up/down (false) or on
   // transition (true)
   KeyModifierMask m_halfDuplex;
 
   // true if we're faking input on a primary screen
-  bool m_fakeInput;
+  bool m_fakeInput = false;
 
-  IEventQueue *m_events;
-
-  bool m_mock;
-  bool m_enableDragDrop;
+  IEventQueue *m_events = nullptr;
 };
 
 } // namespace deskflow

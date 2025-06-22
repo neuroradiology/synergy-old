@@ -11,13 +11,9 @@
 
 AppUtil *AppUtil::s_instance = nullptr;
 
-AppUtil::AppUtil() : m_app(nullptr)
+AppUtil::AppUtil()
 {
   s_instance = this;
-}
-
-AppUtil::~AppUtil()
-{
 }
 
 void AppUtil::adoptApp(IApp *app)

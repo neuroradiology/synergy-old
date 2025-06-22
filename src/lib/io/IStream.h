@@ -23,9 +23,7 @@ Defines the interface for all streams.
 class IStream : public IInterface
 {
 public:
-  IStream()
-  {
-  }
+  IStream() = default;
 
   //! @name manipulators
   //@{
@@ -44,7 +42,7 @@ public:
   /*!
   Read up to \p n bytes into \p buffer, returning the number read
   (zero if no data is available or input is shutdown).  \p buffer
-  may be NULL in which case the data is discarded.
+  may be nullptr in which case the data is discarded.
   */
   virtual uint32_t read(void *buffer, uint32_t n) = 0;
 

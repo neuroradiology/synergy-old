@@ -14,11 +14,7 @@
 #include <map>
 #include <vector>
 
-#if X_DISPLAY_MISSING
-#error X11 is required to build deskflow
-#else
 #include <X11/Xlib.h>
-#endif
 
 class IXWindowsClipboardConverter;
 
@@ -33,7 +29,7 @@ public:
   XWindowsClipboard(Display *, Window window, ClipboardID id);
   XWindowsClipboard(XWindowsClipboard const &) = delete;
   XWindowsClipboard(XWindowsClipboard &&) = delete;
-  virtual ~XWindowsClipboard();
+  ~XWindowsClipboard() override;
 
   XWindowsClipboard &operator=(XWindowsClipboard const &) = delete;
   XWindowsClipboard &operator=(XWindowsClipboard &&) = delete;
@@ -80,21 +76,21 @@ public:
   Atom getSelection() const;
 
   // IClipboard overrides
-  virtual bool empty();
-  virtual void add(EFormat, const std::string &data);
-  virtual bool open(Time) const;
-  virtual void close() const;
-  virtual Time getTime() const;
-  virtual bool has(EFormat) const;
-  virtual std::string get(EFormat) const;
+  bool empty() override;
+  void add(EFormat, const std::string &data) override;
+  bool open(Time) const override;
+  void close() const override;
+  Time getTime() const override;
+  bool has(EFormat) const override;
+  std::string get(EFormat) const override;
 
 private:
   // remove all converters from our list
   void clearConverters();
 
-  // get the converter for a clipboard format.  returns NULL if no
+  // get the converter for a clipboard format.  returns nullptr if no
   // suitable converter.  iff onlyIfNotAdded is true then also
-  // return NULL if a suitable converter was found but we already
+  // return nullptr if a suitable converter was found but we already
   // have data of the converter's clipboard format.
   IXWindowsClipboardConverter *getConverter(Atom target, bool onlyIfNotAdded = false) const;
 
@@ -138,7 +134,7 @@ protected:
     bool readClipboard(Display *display, Atom selection, Atom target, Atom *actualTarget, std::string *data);
 
   private:
-    bool processEvent(Display *display, XEvent *event);
+    bool processEvent(Display *display, const XEvent *event);
 
   private:
     Window m_requestor;
@@ -235,10 +231,10 @@ protected:
     Atom m_property;
 
     // true iff we've sent the notification for this reply
-    bool m_replied;
+    bool m_replied = false;
 
     // true iff the reply has sent its last message
-    bool m_done;
+    bool m_done = false;
 
     // the data to send and its type and format
     std::string m_data;
@@ -246,7 +242,7 @@ protected:
     int m_format;
 
     // index of next byte in m_data to send
-    uint32_t m_ptr;
+    uint32_t m_ptr = 0;
   };
   using ReplyList = std::list<Reply *>;
   using ReplyMap = std::map<Window, ReplyList>;
@@ -287,11 +283,11 @@ private:
   Window m_window;
   ClipboardID m_id;
   Atom m_selection;
-  mutable bool m_open;
-  mutable Time m_time;
-  bool m_owner;
-  mutable Time m_timeOwned;
-  Time m_timeLost;
+  mutable bool m_open = false;
+  mutable Time m_time = 0;
+  bool m_owner = false;
+  mutable Time m_timeOwned = 0;
+  Time m_timeLost = 0;
 
   // true iff open and clipboard owned by a motif app
   mutable bool m_motif;

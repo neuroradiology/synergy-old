@@ -140,6 +140,9 @@ CoreProcess::CoreProcess(const IServerConfig &serverConfig, std::shared_ptr<Deps
       m_daemonIpcClient{new ipc::DaemonIpcClient(this)}
 {
   connect(m_daemonIpcClient, &ipc::DaemonIpcClient::connected, this, &CoreProcess::daemonIpcClientConnected);
+  connect(
+      m_daemonIpcClient, &ipc::DaemonIpcClient::connectionFailed, this, &CoreProcess::daemonIpcClientConnectionFailed
+  );
 
   connect(&m_pDeps->process(), &QProcessProxy::finished, this, &CoreProcess::onProcessFinished);
 
@@ -224,7 +227,7 @@ void CoreProcess::applyLogLevel()
   if (processMode == ProcessMode::Service) {
     qDebug() << "setting daemon log level:" << Settings::logLevelText();
     if (!m_daemonIpcClient->sendLogLevel(Settings::logLevelText())) {
-      qCritical() << "failed to set daemon ipc log level";
+      qWarning() << "failed to set daemon ipc log level";
     }
   }
 }
@@ -254,9 +257,7 @@ void CoreProcess::startForegroundProcess(const QString &app, const QStringList &
 
 void CoreProcess::startProcessFromDaemon(const QString &app, const QStringList &args)
 {
-  using enum ProcessState;
-
-  if (m_processState != Starting) {
+  if (m_processState != ProcessState::Starting) {
     qFatal("core process must be in starting state");
   }
 
@@ -264,13 +265,12 @@ void CoreProcess::startProcessFromDaemon(const QString &app, const QStringList &
 
   qInfo("running command: %s", qPrintable(commandQuoted));
 
-  auto elevateMode = Settings::value(Settings::Core::ElevateMode).value<Settings::ElevateMode>();
-  if (!m_daemonIpcClient->sendStartProcess(commandQuoted, elevateMode)) {
-    qCritical("cannot start process, ipc command failed");
+  if (!m_daemonIpcClient->sendStartProcess(commandQuoted, Settings::value(Settings::Daemon::Elevate).toBool())) {
+    qWarning("cannot start process, ipc command failed");
     return;
   }
 
-  setProcessState(Started);
+  setProcessState(ProcessState::Started);
 }
 
 void CoreProcess::stopForegroundProcess() const
@@ -300,7 +300,7 @@ void CoreProcess::stopProcessFromDaemon()
   }
 
   if (!m_daemonIpcClient->sendStopProcess()) {
-    qCritical("cannot stop process, ipc command failed");
+    qWarning("cannot stop process, ipc command failed");
     return;
   }
 
@@ -459,24 +459,6 @@ bool CoreProcess::addGenericArgs(QStringList &args, const ProcessMode processMod
 
   args << "--name" << Settings::value(Settings::Core::ScreenName).toString();
 
-  if (processMode != ProcessMode::Desktop) {
-#if defined(Q_OS_WIN)
-    // tell the client/server to shut down when a ms windows desk
-    // is switched; this is because we may need to elevate or not
-    // based on which desk the user is in (login always needs
-    // elevation, where as default desk does not).
-    // Note that this is only enabled when deskflow is set to elevate
-    // 'as needed' (e.g. on a UAC dialog popup) in order to prevent
-    // unnecessary restarts when deskflow was started elevated or
-    // when it is not allowed to elevate. In these cases restarting
-    // the server is fruitless.
-    auto elevateMode = Settings::value(Settings::Core::ElevateMode).value<Settings::ElevateMode>();
-    if (elevateMode == Settings::ElevateMode::Automatic) {
-      args << "--stop-on-desk-switch";
-    }
-#endif
-  }
-
 #ifndef Q_OS_LINUX
 
   if (m_serverConfig.enableDragAndDrop()) {
@@ -532,8 +514,7 @@ bool CoreProcess::addServerArgs(QStringList &args, QString &app)
   // since it's not clear why (it is only needed for the server), this has now
   // been moved to server args.
   if (Settings::value(Settings::Security::TlsEnabled).toBool()) {
-    TlsUtility tlsUtility(this);
-    if (!tlsUtility.persistCertificate()) {
+    if (TlsUtility tlsUtility(this); !tlsUtility.persistCertificate()) {
       qCritical("failed to persist tls certificate");
       return false;
     }
@@ -719,7 +700,7 @@ QString CoreProcess::requestDaemonLogPath()
   return logPath;
 }
 
-void CoreProcess::persistLogDir()
+void CoreProcess::persistLogDir() const
 {
   QDir(QFileInfo(Settings::value(Settings::Log::File).toString()).absolutePath()).mkpath(".");
 }
@@ -738,6 +719,13 @@ void CoreProcess::clearSettings()
 
   qInfo("clearing core settings through daemon");
   m_daemonIpcClient->sendClearSettings();
+}
+
+void CoreProcess::retryDaemon()
+{
+  if (m_daemonIpcClient->connectToServer()) {
+    qInfo("successfully reconnected to daemon");
+  }
 }
 
 } // namespace deskflow::gui

@@ -9,11 +9,11 @@
 
 #include "base/FinalAction.h"
 #include "common/Settings.h"
-#include "net/FingerprintData.h"
+#include "io/Filesystem.h"
+#include "net/Fingerprint.h"
 #include "net/FingerprintDatabase.h"
 #include "net/SecureUtils.h"
 
-#include <QCoreApplication>
 #include <QDir>
 #include <QProcess>
 
@@ -24,9 +24,10 @@
 
 TlsCertificate::TlsCertificate(QObject *parent) : QObject(parent)
 {
+  // do nothing
 }
 
-bool TlsCertificate::generateCertificate(const QString &path, int keyLength)
+bool TlsCertificate::generateCertificate(const QString &path, int keyLength) const
 {
   qDebug("generating tls certificate: %s", qUtf8Printable(path));
 
@@ -47,35 +48,21 @@ bool TlsCertificate::generateCertificate(const QString &path, int keyLength)
   return generateFingerprint(path);
 }
 
-bool TlsCertificate::generateFingerprint(const QString &certificateFilename)
+bool TlsCertificate::generateFingerprint(const QString &certificateFilename) const
 {
   qDebug("generating tls fingerprint");
   const std::string certPath = certificateFilename.toStdString();
-  try {
-    deskflow::FingerprintDatabase db;
-    db.addTrusted(deskflow::pemFileCertFingerprint(certPath, deskflow::FingerprintType::SHA1));
-    db.addTrusted(deskflow::pemFileCertFingerprint(certPath, deskflow::FingerprintType::SHA256));
-    db.write(QStringLiteral("%1/%2").arg(Settings::tlsLocalDb()).toStdString());
-
-    qDebug("tls fingerprint generated");
-    return true;
-  } catch (const std::exception &e) {
-    qCritical() << "failed to find tls fingerprint: " << e.what();
-    return false;
-  }
+  FingerprintDatabase db;
+  db.addTrusted(deskflow::pemFileCertFingerprint(certPath, Fingerprint::Type::SHA256));
+  return db.write(Settings::tlsLocalDb());
 }
 
-int TlsCertificate::getCertKeyLength(const QString &path)
+int TlsCertificate::getCertKeyLength(const QString &path) const
 {
   return deskflow::getCertLength(path.toStdString());
 }
 
-QString TlsCertificate::getCertificatePath() const
-{
-  return QStringLiteral("%1/%2").arg(Settings::tlsDir(), kTlsCertificateFilename);
-}
-
-bool TlsCertificate::isCertificateValid(const QString &path)
+bool TlsCertificate::isCertificateValid(const QString &path) const
 {
   OpenSSL_add_all_algorithms();
   ERR_load_crypto_strings();
@@ -101,14 +88,12 @@ bool TlsCertificate::isCertificateValid(const QString &path)
   }
   auto pubkeyFree = deskflow::finally([pubkey]() { EVP_PKEY_free(pubkey); });
 
-  auto type = EVP_PKEY_type(EVP_PKEY_id(pubkey));
-  if (type != EVP_PKEY_RSA && type != EVP_PKEY_DSA) {
+  if (auto type = EVP_PKEY_type(EVP_PKEY_id(pubkey)); type != EVP_PKEY_RSA && type != EVP_PKEY_DSA) {
     qWarning() << tr("public key in default certificate key file is not RSA or DSA");
     return false;
   }
 
-  auto bits = EVP_PKEY_bits(pubkey);
-  if (bits < 2048) {
+  if (EVP_PKEY_bits(pubkey) < 2048) {
     // We could have small keys in old barrier installations
     qWarning() << tr("public key in default certificate key file is too small");
     return false;

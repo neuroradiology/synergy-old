@@ -50,7 +50,7 @@ public:
   //@}
 
 protected:
-  virtual std::string getWhat() const throw();
+  std::string getWhat() const throw() override;
 
 private:
   int m_major;
@@ -65,10 +65,8 @@ a client that is already connected.
 class XDuplicateClient : public XDeskflow
 {
 public:
-  XDuplicateClient(const std::string &name);
-  virtual ~XDuplicateClient() throw()
-  {
-  }
+  explicit XDuplicateClient(const std::string &name);
+  ~XDuplicateClient() throw() override = default;
 
   //! @name accessors
   //@{
@@ -79,7 +77,7 @@ public:
   //@}
 
 protected:
-  virtual std::string getWhat() const throw();
+  std::string getWhat() const throw() override;
 
 private:
   std::string m_name;
@@ -93,10 +91,8 @@ unknown to the server.
 class XUnknownClient : public XDeskflow
 {
 public:
-  XUnknownClient(const std::string &name);
-  virtual ~XUnknownClient() throw()
-  {
-  }
+  explicit XUnknownClient(const std::string &name);
+  ~XUnknownClient() throw() override = default;
 
   //! @name accessors
   //@{
@@ -107,7 +103,7 @@ public:
   //@}
 
 protected:
-  virtual std::string getWhat() const throw();
+  std::string getWhat() const throw() override;
 
 private:
   std::string m_name;
@@ -122,16 +118,14 @@ exit(int).
 class XExitApp : public XDeskflow
 {
 public:
-  XExitApp(int code);
-  virtual ~XExitApp() throw()
-  {
-  }
+  explicit XExitApp(int code);
+  ~XExitApp() throw() override = default;
 
   //! Get the exit code
   int getCode() const throw();
 
 protected:
-  virtual std::string getWhat() const throw();
+  std::string getWhat() const throw() override;
 
 private:
   int m_code;

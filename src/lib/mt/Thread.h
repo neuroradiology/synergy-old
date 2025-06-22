@@ -37,7 +37,7 @@ public:
   Create and start a new thread executing the \c adoptedJob.  The
   new thread takes ownership of \c adoptedJob and will delete it.
   */
-  Thread(IJob *adoptedJob);
+  explicit Thread(IJob *adoptedJob);
 
   //! Duplicate a thread handle
   /*!
@@ -160,7 +160,7 @@ public:
   //! Get the exit result
   /*!
   Returns the exit result.  This does an implicit wait().  It returns
-  NULL immediately if called by a thread on itself or on a thread that
+  nullptr immediately if called by a thread on itself or on a thread that
   was cancelled.
 
   (cancellation point)
@@ -190,10 +190,10 @@ public:
   //@}
 
 private:
-  Thread(ArchThread);
+  explicit Thread(ArchThread);
 
   static void *threadFunc(void *);
 
 private:
-  ArchThread m_thread;
+  ArchThread m_thread = nullptr;
 };

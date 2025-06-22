@@ -193,10 +193,6 @@ OSXKeyState::OSXKeyState(
   init();
 }
 
-OSXKeyState::~OSXKeyState()
-{
-}
-
 void OSXKeyState::init()
 {
   m_deadKeyState = 0;
@@ -269,7 +265,7 @@ KeyButton OSXKeyState::mapKeyFromEvent(KeyIDs &ids, KeyModifierMask *maskOut, CG
   ids.clear();
 
   // map modifier key
-  if (maskOut != NULL) {
+  if (maskOut != nullptr) {
     KeyModifierMask activeMask = getActiveModifiers();
     activeMask &= ~KeyModifierAltGr;
     *maskOut = activeMask;
@@ -331,7 +327,7 @@ KeyButton OSXKeyState::mapKeyFromEvent(KeyIDs &ids, KeyModifierMask *maskOut, CG
   // translate via uchr resource
   CFDataRef ref = (CFDataRef)TISGetInputSourceProperty(currentKeyboardLayout.get(), kTISPropertyUnicodeKeyLayoutData);
   const UCKeyboardLayout *layout = (const UCKeyboardLayout *)CFDataGetBytePtr(ref);
-  const bool layoutValid = (layout != NULL);
+  const bool layoutValid = (layout != nullptr);
 
   if (layoutValid) {
     // translate key
@@ -485,7 +481,7 @@ void OSXKeyState::getKeyMap(deskflow::KeyMap &keyMap)
     TISInputSourceRef keyboardLayout = (TISInputSourceRef)CFArrayGetValueAtIndex(m_groups.get(), g);
     CFDataRef resourceRef = (CFDataRef)TISGetInputSourceProperty(keyboardLayout, kTISPropertyUnicodeKeyLayoutData);
 
-    layoutValid = resourceRef != NULL;
+    layoutValid = resourceRef != nullptr;
     if (layoutValid)
       resource = CFDataGetBytePtr(resourceRef);
 
@@ -852,7 +848,9 @@ bool OSXKeyState::getGroups(AutoCFArray &groups) const
   // get number of layouts
   CFStringRef keys[] = {kTISPropertyInputSourceCategory};
   CFStringRef values[] = {kTISCategoryKeyboardInputSource};
-  AutoCFDictionary dict(CFDictionaryCreate(NULL, (const void **)keys, (const void **)values, 1, NULL, NULL), CFRelease);
+  AutoCFDictionary dict(
+      CFDictionaryCreate(nullptr, (const void **)keys, (const void **)values, 1, nullptr, nullptr), CFRelease
+  );
   AutoCFArray kbds(TISCreateInputSourceList(dict.get(), false), CFRelease);
 
   if (CFArrayGetCount(kbds.get()) > 0) {
@@ -891,7 +889,7 @@ void OSXKeyState::setGroup(int32_t group)
   // event queue and without a delay the subsequent key press
   // event could be applied before the keyboard layout would
   // actually be changed.
-  ARCH->sleep(.01);
+  Arch::sleep(.01);
 }
 
 void OSXKeyState::adjustAltGrModifier(const KeyIDs &ids, KeyModifierMask *mask, bool isCommand) const

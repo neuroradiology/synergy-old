@@ -11,6 +11,8 @@
 #include "arch/IArchMultithread.h"
 #include "common/Common.h"
 
+#include <mutex>
+
 #define CLOG (Log::getInstance())
 #define BYE "\nTry `%s --help' for more information."
 
@@ -27,8 +29,8 @@ LOGC() provide convenient access.
 class Log
 {
 public:
-  Log(bool singleton = true);
-  Log(Log *src);
+  explicit Log(bool singleton = true);
+  explicit Log(Log *src);
   Log(Log const &) = delete;
   Log(Log &&) = delete;
   ~Log();
@@ -79,7 +81,7 @@ public:
   Set the filter.  Messages below this priority are discarded.
   The default priority is 4 (INFO) (unless built without NDEBUG
   in which case it's 5 (DEBUG)).   setFilter(const char*) returns
-  true if the priority \c name was recognized;  if \c name is NULL
+  true if the priority \c name was recognized;  if \c name is nullptr
   then it simply returns true.
   */
   bool setFilter(const char *name);
@@ -94,7 +96,7 @@ public:
   //! Print a log message
   /*!
   Print a log message using the printf-like \c format and arguments
-  preceded by the filename and line number.  If \c file is NULL then
+  preceded by the filename and line number.  If \c file is nullptr then
   neither the file nor the line are printed.
   */
   void print(const char *file, int line, const char *format, ...);
@@ -121,14 +123,14 @@ public:
   //@}
 
 private:
-  void output(ELevel priority, char *msg);
+  void output(ELevel priority, const char *msg);
 
 private:
   using OutputterList = std::list<ILogOutputter *>;
 
   static Log *s_log;
 
-  ArchMutex m_mutex;
+  mutable std::mutex m_mutex;
   OutputterList m_outputters;
   OutputterList m_alwaysOutputters;
   int m_maxPriority;
@@ -182,7 +184,7 @@ otherwise it expands to a call that doesn't.
 #define LOGC(_a1, _a2)                                                                                                 \
   if (_a1)                                                                                                             \
   CLOG->print _a2
-#define CLOG_TRACE NULL, 0,
+#define CLOG_TRACE nullptr, 0,
 #else
 #define LOG(_a1) CLOG->print _a1
 #define LOGC(_a1, _a2)                                                                                                 \

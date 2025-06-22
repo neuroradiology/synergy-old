@@ -1,5 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -23,8 +24,8 @@ class ISocketFactory;
 class ClientApp : public App
 {
 public:
-  ClientApp(IEventQueue *events);
-  virtual ~ClientApp();
+  explicit ClientApp(IEventQueue *events);
+  ~ClientApp() override = default;
 
   //
   // IApp overrides
@@ -36,6 +37,7 @@ public:
   const char *daemonInfo() const override;
   void loadConfig() override
   {
+    // do nothing
   }
   bool loadConfig(const std::string &pathname) override
   {
@@ -61,19 +63,17 @@ public:
   // Regular functions
   //
 
-  void updateStatus();
-  void updateStatus(const std::string &msg);
-  void resetRestartTimeout();
-  double nextRestartTimeout();
-  void handleScreenError(const Event &, void *);
+  void updateStatus() const;
+  void updateStatus(const std::string &msg) const;
+  void handleScreenError();
   deskflow::Screen *openClientScreen();
   void closeClientScreen(deskflow::Screen *screen);
-  void handleClientRestart(const Event &, void *vtimer);
+  void handleClientRestart(const Event &, EventQueueTimer *vtimer);
   void scheduleClientRestart(double retryTime);
-  void handleClientConnected(const Event &, void *);
-  void handleClientFailed(const Event &e, void *);
-  void handleClientRefused(const Event &e, void *);
-  void handleClientDisconnected(const Event &, void *);
+  void handleClientConnected() const;
+  void handleClientFailed(const Event &e);
+  void handleClientRefused(const Event &e);
+  void handleClientDisconnected();
   Client *openClient(const std::string &name, const NetworkAddress &address, deskflow::Screen *screen);
   void closeClient(Client *client);
   bool startClient();
@@ -100,8 +100,8 @@ public:
 private:
   ISocketFactory *getSocketFactory() const;
 
-  Client *m_client;
-  deskflow::Screen *m_clientScreen;
-  NetworkAddress *m_serverAddress;
+  Client *m_client = nullptr;
+  deskflow::Screen *m_clientScreen = nullptr;
+  NetworkAddress *m_serverAddress = nullptr;
   size_t m_lastServerAddressIndex = 0;
 };

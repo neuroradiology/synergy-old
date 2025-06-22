@@ -9,7 +9,8 @@
 
 #include "io/StreamBuffer.h"
 #include "io/StreamFilter.h"
-#include "mt/Mutex.h"
+
+#include <mutex>
 
 class IEventQueue;
 
@@ -21,19 +22,19 @@ class PacketStreamFilter : public StreamFilter
 {
 public:
   PacketStreamFilter(IEventQueue *events, deskflow::IStream *stream, bool adoptStream = true);
-  ~PacketStreamFilter();
+  ~PacketStreamFilter() override = default;
 
   // IStream overrides
-  virtual void close();
-  virtual uint32_t read(void *buffer, uint32_t n);
-  virtual void write(const void *buffer, uint32_t n);
-  virtual void shutdownInput();
-  virtual bool isReady() const;
-  virtual uint32_t getSize() const;
+  void close() override;
+  uint32_t read(void *buffer, uint32_t n) override;
+  void write(const void *buffer, uint32_t n) override;
+  void shutdownInput() override;
+  bool isReady() const override;
+  uint32_t getSize() const override;
 
 protected:
   // StreamFilter overrides
-  virtual void filterEvent(const Event &);
+  void filterEvent(const Event &) override;
 
 private:
   bool isReadyNoLock() const;
@@ -41,9 +42,9 @@ private:
   bool readMore();
 
 private:
-  Mutex m_mutex;
-  uint32_t m_size;
+  mutable std::mutex m_mutex;
+  uint32_t m_size = 0;
   StreamBuffer m_buffer;
-  bool m_inputShutdown;
-  IEventQueue *m_events;
+  bool m_inputShutdown = false;
+  IEventQueue *m_events = nullptr;
 };

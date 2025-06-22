@@ -7,12 +7,12 @@
 #pragma once
 
 #include "common/Common.h"
-#include <base/EventTypes.h>
+#include <base/Event.h>
 
 class Chunk : public EventData
 {
 public:
-  Chunk(size_t size);
+  explicit Chunk(size_t size);
   Chunk(Chunk const &) = delete;
   Chunk(Chunk &&) = delete;
   ~Chunk() override;
@@ -21,6 +21,6 @@ public:
   Chunk &operator=(Chunk &&) = delete;
 
 public:
-  size_t m_dataSize;
-  char *m_chunk;
+  size_t m_dataSize = 0;
+  char *m_chunk = nullptr;
 };

@@ -23,11 +23,11 @@ class CondVarBase
 {
 public:
   /*!
-  \c mutex must not be NULL.  All condition variables have an
+  \c mutex must not be nullptr.  All condition variables have an
   associated mutex.  The mutex needn't be unique to one condition
   variable.
   */
-  CondVarBase(Mutex *mutex);
+  explicit CondVarBase(Mutex *mutex);
   ~CondVarBase();
 
   //! @name manipulators
@@ -171,10 +171,7 @@ template <class T> inline CondVar<T>::CondVar(const CondVar &cv) : CondVarBase(c
   // do nothing
 }
 
-template <class T> inline CondVar<T>::~CondVar()
-{
-  // do nothing
-}
+template <class T> inline CondVar<T>::~CondVar() = default;
 
 template <class T> inline CondVar<T> &CondVar<T>::operator=(const CondVar<T> &cv)
 {

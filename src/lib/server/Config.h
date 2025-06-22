@@ -61,10 +61,10 @@ public:
     CellEdge(EDirection side, float position);
     CellEdge(EDirection side, const Interval &);
     CellEdge(const std::string &name, EDirection side, const Interval &);
-    ~CellEdge();
+    ~CellEdge() = default;
 
     Interval getInterval() const;
-    void setName(const std::string &newName);
+    void setName(const std::string_view &newName);
     std::string getName() const;
     EDirection getSide() const;
     bool overlaps(const CellEdge &) const;
@@ -84,7 +84,7 @@ public:
     bool operator!=(const CellEdge &) const;
 
   private:
-    void init(const std::string &name, EDirection side, const Interval &);
+    void init(const std::string_view &name, EDirection side, const Interval &);
 
   private:
     std::string m_name;
@@ -146,11 +146,10 @@ public:
   class const_iterator : std::iterator_traits<Config>
   {
   public:
-    explicit const_iterator() : m_i()
-    {
-    }
+    explicit const_iterator() = default;
     explicit const_iterator(const internal_const_iterator &i) : m_i(i)
     {
+      // do nothing
     }
     const_iterator(const const_iterator &src) = default;
     ~const_iterator() = default;
@@ -160,11 +159,11 @@ public:
       m_i = i.m_i;
       return *this;
     }
-    std::string operator*()
+    std::string operator*() const
     {
       return m_i->first;
     }
-    const std::string *operator->()
+    const std::string *operator->() const
     {
       return &(m_i->first);
     }
@@ -199,14 +198,8 @@ public:
     internal_const_iterator m_i;
   };
 
-  Config(IEventQueue *events);
-  virtual ~Config();
-
-#ifdef TEST_ENV
-  Config() : m_inputFilter(NULL)
-  {
-  }
-#endif
+  explicit Config(IEventQueue *events);
+  virtual ~Config() = default;
 
   //! @name manipulators
   //@{
@@ -386,7 +379,7 @@ public:
   direction (set through connect()) at position \c position.  Returns
   the empty string if there is no neighbor in that direction, otherwise
   saves the position on the neighbor in \c positionOut if it's not
-  \c NULL.
+  \c nullptr.
   */
   std::string getNeighbor(const std::string &, EDirection, float position, float *positionOut) const;
 
@@ -414,7 +407,7 @@ public:
 
   //! Get the screen options
   /*!
-  Returns all the added options for the named screen.  Returns NULL
+  Returns all the added options for the named screen.  Returns nullptr
   if the screen is unknown and an empty collection if there are no
   options.
   */
@@ -462,19 +455,6 @@ public:
   Returns an interval as a parseable string.
   */
   static std::string formatInterval(const Interval &);
-
-  //! Get client address as a string
-  /*!
-   * Return client address a string.
-   */
-  std::string getClientAddress() const;
-
-  //! Return true if server started in client mode
-  /*!
-   * In client mode the server initiates connection to client
-   */
-  bool isClientMode() const;
-
   //@}
 
 private:
@@ -485,13 +465,13 @@ private:
   void readSectionAliases(ConfigReadContext &);
 
   InputFilter::Condition *
-  parseCondition(ConfigReadContext &, const std::string &condition, const std::vector<std::string> &args);
+  parseCondition(const ConfigReadContext &, const std::string &condition, const std::vector<std::string> &args);
   void parseAction(
       ConfigReadContext &, const std::string &action, const std::vector<std::string> &args, InputFilter::Rule &,
       bool activate
   );
 
-  void parseScreens(ConfigReadContext &, const std::string &, std::set<std::string> &screens) const;
+  void parseScreens(const ConfigReadContext &, const std::string_view &, std::set<std::string> &screens) const;
   static const char *getOptionName(OptionID);
   static std::string getOptionValue(OptionID, OptionValue);
 
@@ -501,9 +481,8 @@ private:
   NetworkAddress m_deskflowAddress;
   ScreenOptions m_globalOptions;
   InputFilter m_inputFilter;
-  bool m_hasLockToScreenAction;
+  bool m_hasLockToScreenAction = false;
   IEventQueue *m_events;
-  std::string m_ClientAddress;
 };
 
 //! Configuration read context
@@ -516,7 +495,7 @@ public:
   using ArgList = std::vector<std::string>;
 
   ConfigReadContext(std::istream &, int32_t firstLine = 1);
-  ~ConfigReadContext();
+  ~ConfigReadContext() = default;
 
   bool readLine(std::string &);
   uint32_t getLineNumber() const;
@@ -563,11 +542,11 @@ class XConfigRead : public XBase
 public:
   XConfigRead(const ConfigReadContext &context, const std::string &);
   XConfigRead(const ConfigReadContext &context, const char *errorFmt, const std::string &arg);
-  virtual ~XConfigRead() throw();
+  ~XConfigRead() throw() override = default;
 
 protected:
   // XBase overrides
-  virtual std::string getWhat() const throw();
+  std::string getWhat() const throw() override;
 
 private:
   std::string m_error;

@@ -32,6 +32,7 @@ public:
       : m_pParent(parent),
         m_deps(deps)
   {
+    // do nothing
   }
 
   void handleLogLine(const QString &line);
@@ -40,7 +41,7 @@ public:
     m_showMessage = true;
   }
 
-signals:
+Q_SIGNALS:
   void messageShowing();
 
 private:

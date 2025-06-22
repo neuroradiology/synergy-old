@@ -1,5 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -8,34 +9,17 @@
 #pragma once
 
 #include "base/Event.h"
+#include "base/EventTypes.h"
 #include "common/IInterface.h"
+
+#include <functional>
 #include <string>
 
-class IEventJob;
 class IEventQueueBuffer;
 
 // Opaque type for timer info.  This is defined by subclasses of
 // IEventQueueBuffer.
 class EventQueueTimer;
-
-// Event type registration classes.
-class ClientEvents;
-class IStreamEvents;
-class IDataSocketEvents;
-class IListenSocketEvents;
-class ISocketEvents;
-class OSXScreenEvents;
-class ClientListenerEvents;
-class ClientProxyEvents;
-class ClientProxyUnknownEvents;
-class ServerEvents;
-class ServerAppEvents;
-class IKeyStateEvents;
-class IPrimaryScreenEvents;
-class IScreenEvents;
-class ClipboardEvents;
-class FileEvents;
-class EiEvents;
 
 //! Event queue interface
 /*!
@@ -47,6 +31,7 @@ timers which generate events periodically.
 class IEventQueue : public IInterface
 {
 public:
+  using EventHandler = std::function<void(const Event &)>;
   class TimerEvent
   {
   public:
@@ -82,6 +67,9 @@ public:
   /*!
   Looks up the dispatcher for the event's target and invokes it.
   Returns true iff a dispatcher exists for the target.
+
+  The caller must ensure that the target of the event is not removed by removeHandler() or
+  removeHandlers().
   */
   virtual bool dispatchEvent(const Event &event) = 0;
 
@@ -98,7 +86,7 @@ public:
   is returned the data points to a \c TimerEvent.  The client must pass
   the returned timer to \c deleteTimer() (whether or not the timer has
   expired) to release the timer.  The returned timer event uses the
-  given \p target.  If \p target is NULL it uses the returned timer as
+  given \p target.  If \p target is nullptr it uses the returned timer as
   the target.
 
   Events for a single timer don't accumulate in the queue, even if the
@@ -117,7 +105,7 @@ public:
   The c_count member of the \c TimerEvent is always 1.  The client
   must pass the returned timer to \c deleteTimer() (whether or not the
   timer has expired) to release the timer.  The returned timer event
-  uses the given \p target.  If \p target is NULL it uses the returned
+  uses the given \p target.  If \p target is nullptr it uses the returned
   timer as the target.
   */
   virtual EventQueueTimer *newOneShotTimer(double duration, void *target) = 0;
@@ -137,28 +125,20 @@ public:
   of type \p type.  If no such handler exists it will use the handler
   for \p target and type \p kUnknown if it exists.
   */
-  virtual void adoptHandler(Event::Type type, void *target, IEventJob *handler) = 0;
+  virtual void addHandler(EventTypes type, void *target, const EventHandler &handler) = 0;
 
   //! Unregister an event handler for an event type
   /*!
   Unregisters an event handler for the \p type, \p target pair and
   deletes it.
   */
-  virtual void removeHandler(Event::Type type, void *target) = 0;
+  virtual void removeHandler(EventTypes type, void *target) = 0;
 
   //! Unregister all event handlers for an event target
   /*!
   Unregisters all event handlers for the \p target and deletes them.
   */
   virtual void removeHandlers(void *target) = 0;
-
-  //! Creates a new event type
-  /*!
-  If \p type contains \c kUnknown then it is set to a unique event
-  type id otherwise it is left alone.  The final value of \p type
-  is returned.
-  */
-  virtual Event::Type registerTypeOnce(Event::Type &type, const char *name) = 0;
 
   //! Wait for event queue to become ready
   /*!
@@ -178,53 +158,11 @@ public:
   */
   virtual bool isEmpty() const = 0;
 
-  //! Get an event handler
-  /*!
-  Finds and returns the event handler for the \p type, \p target pair
-  if it exists, otherwise it returns NULL.
-  */
-  virtual IEventJob *getHandler(Event::Type type, void *target) const = 0;
-
-  //! Get name for event
-  /*!
-  Returns the name for the event \p type.  This is primarily for
-  debugging.
-  */
-  virtual const char *getTypeName(Event::Type type) = 0;
-
-  //! Get an event type by name
-  /*!
-  Returns the registered type for an event for a given name.
-  */
-  virtual Event::Type getRegisteredType(const std::string &name) const = 0;
-
   //! Get the system event type target
   /*!
-  Returns the target to use for dispatching \c Event::kSystem events.
+  Returns the target to use for dispatching \c EventTypes::System events.
   */
   virtual void *getSystemTarget() = 0;
 
   //@}
-
-  //
-  // Event type providers.
-  //
-
-  virtual ClientEvents &forClient() = 0;
-  virtual IStreamEvents &forIStream() = 0;
-  virtual IDataSocketEvents &forIDataSocket() = 0;
-  virtual IListenSocketEvents &forIListenSocket() = 0;
-  virtual ISocketEvents &forISocket() = 0;
-  virtual OSXScreenEvents &forOSXScreen() = 0;
-  virtual ClientListenerEvents &forClientListener() = 0;
-  virtual ClientProxyEvents &forClientProxy() = 0;
-  virtual ClientProxyUnknownEvents &forClientProxyUnknown() = 0;
-  virtual ServerEvents &forServer() = 0;
-  virtual ServerAppEvents &forServerApp() = 0;
-  virtual IKeyStateEvents &forIKeyState() = 0;
-  virtual IPrimaryScreenEvents &forIPrimaryScreen() = 0;
-  virtual IScreenEvents &forIScreen() = 0;
-  virtual ClipboardEvents &forClipboard() = 0;
-  virtual FileEvents &forFile() = 0;
-  virtual EiEvents &forEi() = 0;
 };

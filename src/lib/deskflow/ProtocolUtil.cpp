@@ -58,7 +58,7 @@ template <typename T> void writeVectorInt(const std::vector<T> *VectorData, std:
 
 void writeString(const std::string *StringData, std::vector<uint8_t> &Buffer)
 {
-  const uint32_t len = (StringData != NULL) ? (uint32_t)StringData->size() : 0;
+  const uint32_t len = (StringData != nullptr) ? (uint32_t)StringData->size() : 0;
   writeInt(len, sizeof(len), Buffer);
   if (len != 0) {
     std::copy(StringData->begin(), StringData->end(), std::back_inserter(Buffer));
@@ -69,13 +69,13 @@ void writeString(const std::string *StringData, std::vector<uint8_t> &Buffer)
 
 void ProtocolUtil::writef(deskflow::IStream *stream, const char *fmt, ...)
 {
-  assert(stream != NULL);
-  assert(fmt != NULL);
+  assert(stream != nullptr);
+  assert(fmt != nullptr);
   LOG((CLOG_DEBUG2 "writef(%s)", fmt));
 
   va_list args;
   va_start(args, fmt);
-  uint32_t size = getLength(fmt, args);
+  auto size = getLength(fmt, args);
   va_end(args);
   va_start(args, fmt);
   vwritef(stream, fmt, size, args);
@@ -106,8 +106,8 @@ bool ProtocolUtil::readf(deskflow::IStream *stream, const char *fmt, ...)
 
 void ProtocolUtil::vwritef(deskflow::IStream *stream, const char *fmt, uint32_t size, va_list args)
 {
-  assert(stream != NULL);
-  assert(fmt != NULL);
+  assert(stream != nullptr);
+  assert(fmt != nullptr);
 
   // done if nothing to write
   if (size == 0) {
@@ -130,15 +130,15 @@ void ProtocolUtil::vwritef(deskflow::IStream *stream, const char *fmt, uint32_t 
 
 void ProtocolUtil::vreadf(deskflow::IStream *stream, const char *fmt, va_list args)
 {
-  assert(stream != NULL);
-  assert(fmt != NULL);
+  assert(stream != nullptr);
+  assert(fmt != nullptr);
 
   // begin scanning
   while (*fmt) {
     if (*fmt == '%') {
       // format specifier.  determine argument size.
       ++fmt;
-      uint32_t len = eatLength(&fmt);
+      auto len = eatLength(&fmt);
       switch (*fmt) {
       case 'i': {
         void *destination = va_arg(args, void *);
@@ -234,7 +234,7 @@ uint32_t ProtocolUtil::getLength(const char *fmt, va_list args)
     if (*fmt == '%') {
       // format specifier.  determine argument size.
       ++fmt;
-      uint32_t len = eatLength(&fmt);
+      auto len = eatLength(&fmt);
       switch (*fmt) {
       case 'i':
         assert(len == 1 || len == 2 || len == 4);
@@ -295,7 +295,7 @@ void ProtocolUtil::writef(std::vector<uint8_t> &buffer, const char *fmt, va_list
     if (*fmt == '%') {
       // format specifier.  determine argument size.
       ++fmt;
-      uint32_t len = eatLength(&fmt);
+      auto len = eatLength(&fmt);
       switch (*fmt) {
       case 'i': {
         const uint32_t v = va_arg(args, uint32_t);
@@ -415,10 +415,10 @@ uint32_t ProtocolUtil::eatLength(const char **pfmt)
 
 void ProtocolUtil::read(deskflow::IStream *stream, void *vbuffer, uint32_t count)
 {
-  assert(stream != NULL);
-  assert(vbuffer != NULL);
+  assert(stream != nullptr);
+  assert(vbuffer != nullptr);
 
-  uint8_t *buffer = static_cast<uint8_t *>(vbuffer);
+  auto *buffer = static_cast<uint8_t *>(vbuffer);
   while (count > 0) {
     // read more
     uint32_t n = stream->read(buffer, count);
@@ -453,7 +453,7 @@ uint16_t ProtocolUtil::read2BytesInt(deskflow::IStream *stream)
   std::array<uint8_t, BufferSize> buffer = {};
   read(stream, buffer.data(), BufferSize);
 
-  uint16_t Result = static_cast<uint16_t>((static_cast<uint16_t>(buffer[0]) << 8) | static_cast<uint16_t>(buffer[1]));
+  auto Result = static_cast<uint16_t>((static_cast<uint16_t>(buffer[0]) << 8) | static_cast<uint16_t>(buffer[1]));
   LOG((CLOG_DEBUG2 "readf: read 2 byte integer: %d (0x%x)", Result, Result));
 
   return Result;
@@ -475,31 +475,31 @@ uint32_t ProtocolUtil::read4BytesInt(deskflow::IStream *stream)
 
 void ProtocolUtil::readVector1ByteInt(deskflow::IStream *stream, std::vector<uint8_t> &destination)
 {
-  uint32_t size = readVectorSize(stream);
-  for (uint32_t i = 0; i < size; ++i) {
+  auto size = readVectorSize(stream);
+  for (auto i = 0; i < size; ++i) {
     destination.push_back(read1ByteInt(stream));
   }
 }
 
 void ProtocolUtil::readVector2BytesInt(deskflow::IStream *stream, std::vector<uint16_t> &destination)
 {
-  uint32_t size = readVectorSize(stream);
-  for (uint32_t i = 0; i < size; ++i) {
+  auto size = readVectorSize(stream);
+  for (auto i = 0; i < size; ++i) {
     destination.push_back(read2BytesInt(stream));
   }
 }
 
 void ProtocolUtil::readVector4BytesInt(deskflow::IStream *stream, std::vector<uint32_t> &destination)
 {
-  uint32_t size = readVectorSize(stream);
-  for (uint32_t i = 0; i < size; ++i) {
+  auto size = readVectorSize(stream);
+  for (auto i = 0; i < size; ++i) {
     destination.push_back(read4BytesInt(stream));
   }
 }
 
 uint32_t ProtocolUtil::readVectorSize(deskflow::IStream *stream)
 {
-  uint32_t size = read4BytesInt(stream);
+  auto size = read4BytesInt(stream);
 
   if (size > PROTOCOL_MAX_LIST_LENGTH) {
     LOG((CLOG_ERR "readVectorSize: vector length exceeds maximum allowed size: %u", size));

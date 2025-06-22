@@ -16,13 +16,10 @@ class ClientProxy1_6 : public ClientProxy1_5
 {
 public:
   ClientProxy1_6(const std::string &name, deskflow::IStream *adoptedStream, Server *server, IEventQueue *events);
-  ~ClientProxy1_6();
+  ~ClientProxy1_6() override = default;
 
-  virtual void setClipboard(ClipboardID id, const IClipboard *clipboard);
-  virtual bool recvClipboard();
-
-private:
-  void handleClipboardSendingEvent(const Event &, void *);
+  void setClipboard(ClipboardID id, const IClipboard *clipboard) override;
+  bool recvClipboard() override;
 
 private:
   IEventQueue *m_events;

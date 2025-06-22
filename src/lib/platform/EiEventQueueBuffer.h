@@ -23,12 +23,13 @@ namespace deskflow {
 class EiEventQueueBuffer : public IEventQueueBuffer
 {
 public:
-  EiEventQueueBuffer(EiScreen *screen, ei *ei, IEventQueue *events);
-  ~EiEventQueueBuffer();
+  EiEventQueueBuffer(const EiScreen *screen, ei *ei, IEventQueue *events);
+  ~EiEventQueueBuffer() override;
 
   // IEventQueueBuffer overrides
   void init() override
   {
+    // do nothing
   }
   void waitForEvent(double timeout_in_ms) override;
   Type getEvent(Event &event, uint32_t &dataID) override;
@@ -38,12 +39,13 @@ public:
   void deleteTimer(EventQueueTimer *) const override;
 
 private:
-  ei *ei_;
-  IEventQueue *events_;
-  std::queue<std::pair<bool, uint32_t>> queue_;
-  int pipe_w_, pipe_r_;
+  ei *m_ei;
+  IEventQueue *m_events;
+  std::queue<std::pair<bool, uint32_t>> m_queue;
+  int m_pipeWrite;
+  int m_pipeRead;
 
-  mutable std::mutex mutex_;
+  mutable std::mutex m_mutex;
 };
 
 } // namespace deskflow

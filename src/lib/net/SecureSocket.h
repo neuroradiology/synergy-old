@@ -11,11 +11,14 @@
 #include "net/SecurityLevel.h"
 #include "net/TCPSocket.h"
 #include "net/XSocket.h"
+
+#include <memory>
 #include <mutex>
 
 class IEventQueue;
 class SocketMultiplexer;
 class ISocketMultiplexerJob;
+class QString;
 
 struct Ssl;
 
@@ -36,7 +39,7 @@ public:
   );
   SecureSocket(SecureSocket const &) = delete;
   SecureSocket(SecureSocket &&) = delete;
-  ~SecureSocket();
+  ~SecureSocket() override;
 
   SecureSocket &operator=(SecureSocket const &) = delete;
   SecureSocket &operator=(SecureSocket &&) = delete;
@@ -45,7 +48,7 @@ public:
   void close() override;
 
   // IDataSocket overrides
-  virtual void connect(const NetworkAddress &) override;
+  void connect(const NetworkAddress &) override;
 
   ISocketMultiplexerJob *newJob() override;
   bool isFatal() const override
@@ -56,7 +59,7 @@ public:
   {
     m_fatal = b;
   }
-  bool isSecureReady();
+  bool isSecureReady() const;
   void secureConnect();
   void secureAccept();
   int secureRead(void *buffer, int size, int &read);
@@ -64,7 +67,7 @@ public:
   EJobResult doRead() override;
   EJobResult doWrite() override;
   void initSsl(bool server);
-  bool loadCertificates(std::string &CertFile);
+  bool loadCertificates(const std::string &CertFile);
 
 private:
   // SSL
@@ -76,13 +79,13 @@ private:
   bool showCertificate() const;
   void checkResult(int n, int &retry);
   void disconnect();
-  bool verifyCertFingerprint(const deskflow::fs::path &fingerprintDbPath);
+  bool verifyCertFingerprint(const QString &FingerprintDatabasePath) const;
 
   ISocketMultiplexerJob *serviceConnect(ISocketMultiplexerJob *, bool, bool, bool);
 
   ISocketMultiplexerJob *serviceAccept(ISocketMultiplexerJob *, bool, bool, bool);
 
-  void handleTCPConnected(const Event &event, void *);
+  void handleTCPConnected(const Event &event);
 
 private:
   // all accesses to m_ssl must be protected by this mutex. The only function that is called
@@ -90,8 +93,8 @@ private:
   // by it.
   std::mutex ssl_mutex_;
 
-  Ssl *m_ssl;
-  bool m_secureReady;
-  bool m_fatal;
+  std::unique_ptr<Ssl> m_ssl;
+  bool m_secureReady = false;
+  bool m_fatal = false;
   SecurityLevel m_securityLevel = SecurityLevel::Encrypted;
 };

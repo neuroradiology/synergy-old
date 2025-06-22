@@ -6,7 +6,6 @@
 
 #pragma once
 
-#include "base/Stopwatch.h"
 #include "server/ClientProxy1_4.h"
 
 #include <vector>
@@ -21,16 +20,16 @@ public:
   ClientProxy1_5(const std::string &name, deskflow::IStream *adoptedStream, Server *server, IEventQueue *events);
   ClientProxy1_5(ClientProxy1_5 const &) = delete;
   ClientProxy1_5(ClientProxy1_5 &&) = delete;
-  ~ClientProxy1_5();
+  ~ClientProxy1_5() override = default;
 
   ClientProxy1_5 &operator=(ClientProxy1_5 const &) = delete;
   ClientProxy1_5 &operator=(ClientProxy1_5 &&) = delete;
 
-  virtual void sendDragInfo(uint32_t fileCount, const char *info, size_t size);
-  virtual void fileChunkSending(uint8_t mark, char *data, size_t dataSize);
-  virtual bool parseMessage(const uint8_t *code);
-  void fileChunkReceived();
-  void dragInfoReceived();
+  void sendDragInfo(uint32_t fileCount, const char *info, size_t size) override;
+  void fileChunkSending(uint8_t mark, char *data, size_t dataSize) override;
+  bool parseMessage(const uint8_t *code) override;
+  void fileChunkReceived() const;
+  void dragInfoReceived() const;
 
 private:
   IEventQueue *m_events;

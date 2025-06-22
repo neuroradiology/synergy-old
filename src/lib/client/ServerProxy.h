@@ -1,5 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -8,7 +9,6 @@
 #pragma once
 
 #include "base/Event.h"
-#include "base/Stopwatch.h"
 #include "deskflow/ClipboardTypes.h"
 #include "deskflow/KeyTypes.h"
 #include "deskflow/languages/LanguageManager.h"
@@ -51,19 +51,6 @@ public:
 
   //@}
 
-  // sending file chunk to server
-  void fileChunkSending(uint8_t mark, char *data, size_t dataSize);
-
-  // sending dragging information to server
-  void sendDragInfo(uint32_t fileCount, const char *info, size_t size);
-
-#ifdef TEST_ENV
-  void handleDataForTest()
-  {
-    handleData(Event(), NULL);
-  }
-#endif
-
 protected:
   enum EResult
   {
@@ -88,8 +75,8 @@ private:
   KeyModifierMask translateModifierMask(KeyModifierMask) const;
 
   // event handlers
-  void handleData(const Event &, void *);
-  void handleKeepAliveAlarm(const Event &, void *);
+  void handleData();
+  void handleKeepAliveAlarm();
 
   // message handlers
   void enter();
@@ -109,36 +96,35 @@ private:
   void setOptions();
   void queryInfo();
   void infoAcknowledgment();
-  void fileChunkReceived();
-  void dragInfoReceived();
-  void handleClipboardSendingEvent(const Event &, void *);
   void secureInputNotification();
   void setServerLanguages();
   void setActiveServerLanguage(const std::string &language);
   void checkMissedLanguages() const;
 
 private:
-  typedef EResult (ServerProxy::*MessageParser)(const uint8_t *);
+  using MessageParser = EResult (ServerProxy::*)(const uint8_t *);
 
-  Client *m_client;
-  deskflow::IStream *m_stream;
+  Client *m_client = nullptr;
+  deskflow::IStream *m_stream = nullptr;
 
-  uint32_t m_seqNum;
+  uint32_t m_seqNum = 0;
 
-  bool m_compressMouse;
-  bool m_compressMouseRelative;
-  int32_t m_xMouse, m_yMouse;
-  int32_t m_dxMouse, m_dyMouse;
+  bool m_compressMouse = false;
+  bool m_compressMouseRelative = false;
+  int32_t m_xMouse = 0;
+  int32_t m_yMouse = 0;
+  int32_t m_dxMouse = 0;
+  int32_t m_dyMouse = 0;
 
-  bool m_ignoreMouse;
+  bool m_ignoreMouse = false;
 
   KeyModifierID m_modifierTranslationTable[kKeyModifierIDLast];
 
-  double m_keepAliveAlarm;
-  EventQueueTimer *m_keepAliveAlarmTimer;
+  double m_keepAliveAlarm = 0.0;
+  EventQueueTimer *m_keepAliveAlarmTimer = nullptr;
 
   MessageParser m_parser;
-  IEventQueue *m_events;
+  IEventQueue *m_events = nullptr;
   std::string m_serverLanguage = "";
   bool m_isUserNotifiedAboutLanguageSyncError = false;
   deskflow::languages::LanguageManager m_languageManager;

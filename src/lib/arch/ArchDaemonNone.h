@@ -21,18 +21,18 @@ function and returns its result.
 class ArchDaemonNone : public IArchDaemon
 {
 public:
-  ArchDaemonNone();
-  virtual ~ArchDaemonNone();
+  ArchDaemonNone() = default;
+  ~ArchDaemonNone() override = default;
 
   // IArchDaemon overrides
-  virtual void installDaemon(
+  void installDaemon(
       const char *name, const char *description, const char *pathname, const char *commandLine, const char *dependencies
-  );
-  virtual void uninstallDaemon(const char *name);
-  virtual int daemonize(const char *name, DaemonFunc func);
-  virtual bool canInstallDaemon(const char *name);
-  virtual bool isDaemonInstalled(const char *name);
-  virtual void installDaemon();
-  virtual void uninstallDaemon();
-  virtual std::string commandLine() const;
+  ) override;
+  void uninstallDaemon(const char *name) override;
+  int daemonize(const char *name, DaemonFunc const &func) override;
+  bool canInstallDaemon(const char *name) override;
+  bool isDaemonInstalled(const char *name) override;
+  void installDaemon() override;
+  void uninstallDaemon() override;
+  std::string commandLine() const override;
 };

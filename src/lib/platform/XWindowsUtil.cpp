@@ -1507,7 +1507,7 @@ bool XWindowsUtil::getWindowProperty(
     Display *display, Window window, Atom property, std::string *data, Atom *type, int32_t *format, bool deleteProperty
 )
 {
-  assert(display != NULL);
+  assert(display != nullptr);
 
   Atom actualType;
   int actualDatumSize;
@@ -1537,8 +1537,8 @@ bool XWindowsUtil::getWindowProperty(
     // compute bytes read and advance offset
     unsigned long numBytes;
     switch (actualDatumSize) {
-    case 8:
     default:
+    case 8:
       numBytes = numItems;
       offset += numItems / 4;
       break;
@@ -1555,7 +1555,7 @@ bool XWindowsUtil::getWindowProperty(
     }
 
     // append data
-    if (data != NULL) {
+    if (data != nullptr) {
       data->append((char *)rawData, numBytes);
     } else {
       // data is not required so don't try to get any more
@@ -1572,15 +1572,17 @@ bool XWindowsUtil::getWindowProperty(
   }
 
   // save property info
-  if (type != NULL) {
+  if (type != nullptr) {
     *type = actualType;
   }
-  if (format != NULL) {
+  if (format != nullptr) {
     *format = static_cast<int32_t>(actualDatumSize);
   }
 
   if (okay) {
-    LOG((CLOG_DEBUG2 "read property %d on window 0x%08x: bytes=%d", property, window, (data == NULL) ? 0 : data->size())
+    LOG(
+        (CLOG_DEBUG2 "read property %d on window 0x%08x: bytes=%d", property, window,
+         (data == nullptr) ? 0 : data->size())
     );
     return true;
   } else {
@@ -1594,8 +1596,8 @@ bool XWindowsUtil::setWindowProperty(
 )
 {
   const uint32_t length = 4 * XMaxRequestSize(display);
-  const unsigned char *data = static_cast<const unsigned char *>(vdata);
-  uint32_t datumSize = static_cast<uint32_t>(format / 8);
+  const auto *data = static_cast<const unsigned char *>(vdata);
+  auto datumSize = static_cast<uint32_t>(format / 8);
   // format 32 on 64bit systems is 8 bytes not 4.
   if (format == 32) {
     datumSize = sizeof(Atom);
@@ -1682,10 +1684,8 @@ KeyID XWindowsUtil::mapKeySymToKeyID(KeySym k)
     case XK_ISO_Level3_Shift:
       return kKeyAltGr;
 
-#ifdef XK_ISO_Level5_Shift
     case XK_ISO_Level5_Shift:
       return XK_ISO_Level5_Shift; // FIXME: there is no "usual" key for this...
-#endif
 
     case XK_ISO_Next_Group:
       return kKeyNextGroup;
@@ -1746,8 +1746,7 @@ KeyID XWindowsUtil::mapKeySymToKeyID(KeySym k)
 
   default: {
     // lookup character in table
-    KeySymMap::const_iterator index = s_keySymToUCS4.find(k);
-    if (index != s_keySymToUCS4.end()) {
+    if (KeySymMap::const_iterator index = s_keySymToUCS4.find(k); index != s_keySymToUCS4.end()) {
       return static_cast<KeyID>(index->second);
     }
 
@@ -1786,10 +1785,8 @@ uint32_t XWindowsUtil::getModifierBitForKeySym(KeySym keysym)
   case XK_ISO_Level3_Shift:
     return kKeyModifierBitAltGr;
 
-#ifdef XK_ISO_Level5_Shift
   case XK_ISO_Level5_Shift:
     return kKeyModifierBitLevel5Lock;
-#endif
 
   case XK_Caps_Lock:
     return kKeyModifierBitCapsLock;
@@ -1825,7 +1822,7 @@ std::string XWindowsUtil::atomToString(Display *display, Atom atom)
 
 std::string XWindowsUtil::atomsToString(Display *display, const Atom *atom, uint32_t num)
 {
-  char **names = new char *[num];
+  auto **names = new char *[num];
   bool error = false;
   XWindowsUtil::ErrorLock lock(display, &error);
   XGetAtomNames(display, const_cast<Atom *>(atom), (int)num, names);
@@ -1878,7 +1875,7 @@ void XWindowsUtil::appendTimeData(std::string &data, Time time)
 
 Bool XWindowsUtil::propertyNotifyPredicate(Display *, XEvent *xevent, XPointer arg)
 {
-  PropertyNotifyPredicateInfo *filter = reinterpret_cast<PropertyNotifyPredicateInfo *>(arg);
+  const auto *filter = reinterpret_cast<PropertyNotifyPredicateInfo *>(arg);
   return (xevent->type == PropertyNotify && xevent->xproperty.window == filter->m_window &&
           xevent->xproperty.atom == filter->m_property && xevent->xproperty.state == PropertyNewValue)
              ? True
@@ -1898,11 +1895,11 @@ void XWindowsUtil::initKeyMaps()
 // XWindowsUtil::ErrorLock
 //
 
-XWindowsUtil::ErrorLock *XWindowsUtil::ErrorLock::s_top = NULL;
+XWindowsUtil::ErrorLock *XWindowsUtil::ErrorLock::s_top = nullptr;
 
 XWindowsUtil::ErrorLock::ErrorLock(Display *display) : m_display(display)
 {
-  install(&XWindowsUtil::ErrorLock::ignoreHandler, NULL);
+  install(&XWindowsUtil::ErrorLock::ignoreHandler, nullptr);
 }
 
 XWindowsUtil::ErrorLock::ErrorLock(Display *display, bool *flag) : m_display(display)
@@ -1918,7 +1915,7 @@ XWindowsUtil::ErrorLock::ErrorLock(Display *display, ErrorHandler handler, void 
 XWindowsUtil::ErrorLock::~ErrorLock()
 {
   // make sure everything finishes before uninstalling handler
-  if (m_display != NULL) {
+  if (m_display != nullptr) {
     XSync(m_display, False);
   }
 
@@ -1930,7 +1927,7 @@ XWindowsUtil::ErrorLock::~ErrorLock()
 void XWindowsUtil::ErrorLock::install(ErrorHandler handler, void *data)
 {
   // make sure everything finishes before installing handler
-  if (m_display != NULL) {
+  if (m_display != nullptr) {
     XSync(m_display, False);
   }
 
@@ -1944,7 +1941,7 @@ void XWindowsUtil::ErrorLock::install(ErrorHandler handler, void *data)
 
 int XWindowsUtil::ErrorLock::internalHandler(Display *display, XErrorEvent *event)
 {
-  if (s_top != NULL && s_top->m_handler != NULL) {
+  if (s_top != nullptr && s_top->m_handler != nullptr) {
     s_top->m_handler(display, event, s_top->m_userData);
   }
   return 0;

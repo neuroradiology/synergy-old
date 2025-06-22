@@ -32,13 +32,20 @@
       <RegistrySearch
         Id="FindVCRedist"
         Root="HKLM"
-        Key="SOFTWARE\Microsoft\VisualStudio\@REQUIRED_MSVC_RUNTIME_MAJOR@.0\VC\Runtimes\x64"
+        Key="SOFTWARE\Microsoft\VisualStudio\@REQUIRED_MSVC_RUNTIME_MAJOR@.0\VC\Runtimes\@BUILD_ARCHITECTURE@"
         Name="Installed"
         Type="raw" />
     </Property>
 
     <Binary Id="CustomDLL" SourceFile="@CMAKE_CURRENT_BINARY_DIR@/wix-custom.dll" />
 
+    <UI>
+       <Publish Dialog="ExitDialog"
+           Control="Finish"
+           Event="DoAction"
+           Value="RunDeskflow"
+           Condition= "NOT Installed" />
+    </UI>
     <CustomAction
       Id="CheckVCRedist"
       BinaryRef="CustomDLL"
@@ -51,8 +58,10 @@
 
     <CustomAction
       Id="RunDeskflow"
-      ExeCommand="Deskflow"
-      FileRef="CM_FP_deskflow.exe"
+      ExeCommand="[INSTALL_ROOT]deskflow.exe"
+      Directory="INSTALL_ROOT"
+      Execute="immediate"
+      Impersonate="yes"
       Return="asyncNoWait" />
 
     <InstallExecuteSequence>
@@ -64,10 +73,6 @@
         Action="ShowVCRedistError"
         Before="InstallInitialize"
         Condition="NOT Installed AND (NOT VC_REDIST_INSTALLED OR NOT VC_REDIST_VERSION_OK)" />
-      <Custom
-        Action="RunDeskflow"
-        OnExit="success"
-        Condition="NOT Installed" />
     </InstallExecuteSequence>
   </CPackWiXFragment>
 </CPackWiXPatch>

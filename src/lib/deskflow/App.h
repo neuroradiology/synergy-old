@@ -11,6 +11,7 @@
 #include "base/Log.h"
 #include "common/Common.h"
 #include "deskflow/IApp.h"
+#include "net/SocketMultiplexer.h"
 
 #if SYSAPI_WIN32
 #include "deskflow/win32/AppUtilWindows.h"
@@ -18,6 +19,7 @@
 #include "deskflow/unix/AppUtilUnix.h"
 #endif
 
+#include <memory>
 #include <stdexcept>
 
 namespace deskflow {
@@ -37,13 +39,14 @@ public:
   public:
     XNoEiSupport() : std::runtime_error("libei is not supported")
     {
+      // do nothing
     }
   };
 
   App(IEventQueue *events, deskflow::ArgsBase *args);
   App(App const &) = delete;
   App(App &&) = delete;
-  virtual ~App();
+  ~App() override;
 
   App &operator=(App const &) = delete;
   App &operator=(App &&) = delete;
@@ -56,15 +59,15 @@ public:
   virtual std::string configSection() const = 0;
 
   virtual void version();
-  virtual void setByeFunc(void (*bye)(int))
+  void setByeFunc(void (*bye)(int)) override
   {
     m_bye = bye;
   }
-  virtual void bye(int error)
+  void bye(int error) override
   {
     m_bye(error);
   }
-  virtual IEventQueue *getEvents() const
+  IEventQueue *getEvents() const override
   {
     return m_events;
   }
@@ -73,15 +76,15 @@ public:
   {
     return m_appUtil;
   }
-  deskflow::ArgsBase &argsBase() const
+  deskflow::ArgsBase &argsBase() const override
   {
     return *m_args;
   }
   int run(int argc, char **argv);
   int daemonMainLoop(int, const char **);
   void setupFileLogging();
-  void loggingFilterWarning();
-  void initApp(int argc, const char **argv);
+  void loggingFilterWarning() const;
+  void initApp(int argc, const char **argv) override;
   void initApp(int argc, char **argv)
   {
     initApp(argc, (const char **)argv);
@@ -90,14 +93,14 @@ public:
   {
     m_events = &events;
   }
-  void setSocketMultiplexer(SocketMultiplexer *sm)
+  void setSocketMultiplexer(std::unique_ptr<SocketMultiplexer> &&sm)
   {
-    m_socketMultiplexer = sm;
+    m_socketMultiplexer = std::move(sm);
   }
 
   SocketMultiplexer *getSocketMultiplexer() const
   {
-    return m_socketMultiplexer;
+    return m_socketMultiplexer.get();
   }
 
   static App &instance()
@@ -111,48 +114,15 @@ public:
 protected:
   void runEventsLoop(void *);
 
-  bool m_suspended;
-  IEventQueue *m_events;
+  bool m_suspended = false;
+  IEventQueue *m_events = nullptr;
 
 private:
   deskflow::ArgsBase *m_args;
   static App *s_instance;
-  FileLogOutputter *m_fileLog;
+  FileLogOutputter *m_fileLog = nullptr;
   ARCH_APP_UTIL m_appUtil;
-  SocketMultiplexer *m_socketMultiplexer;
-};
-
-class MinimalApp : public App
-{
-public:
-  MinimalApp();
-  virtual ~MinimalApp();
-
-  // IApp overrides
-  virtual int standardStartup(int argc, char **argv) override;
-  virtual int runInner(int argc, char **argv, StartupFunc startup) override;
-  virtual void startNode() override;
-  virtual int mainLoop() override;
-  virtual int foregroundStartup(int argc, char **argv) override;
-  virtual deskflow::Screen *createScreen() override;
-  virtual void loadConfig() override;
-  virtual bool loadConfig(const std::string &pathname) override;
-  virtual const char *daemonInfo() const override;
-  virtual const char *daemonName() const override;
-  virtual void parseArgs(int argc, const char *const *argv) override;
-
-  //
-  // App overrides
-  //
-  std::string configSection() const override
-  {
-    return "";
-  }
-
-private:
-  Arch m_arch;
-  Log m_log;
-  EventQueue m_events;
+  std::unique_ptr<SocketMultiplexer> m_socketMultiplexer;
 };
 
 #if WINAPI_MSWINDOWS
@@ -173,9 +143,10 @@ private:
   "  -1, --no-restart         do not try to restart on failure.\n"                                                     \
   "*     --restart            restart the server automatically if it fails.\n"                                         \
   "  -l  --log <file>         write log messages to file.\n"                                                           \
-  "      --enable-drag-drop   enable file drag & drop.\n"                                                              \
   "      --enable-crypto      enable TLS encryption.\n"                                                                \
   "      --tls-cert           specify the path to the TLS certificate file.\n"
+
+#define DRAG_AND_DROP "      --enable-drag-drop   enable file drag & drop.\n"
 
 #define HELP_COMMON_INFO_2                                                                                             \
   "  -h, --help               display this help and exit.\n"                                                           \

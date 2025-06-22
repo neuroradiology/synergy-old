@@ -28,7 +28,7 @@ env:
   GIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   PACKAGE_PREFIX: "deskflow"
   PACKAGE_PATH: ./dist
-  CMAKE_CONFIGURE: "cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_COMPILE_WARNING_AS_ERROR=ON"
+  CMAKE_CONFIGURE: "cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DSKIP_BUILD_TESTS=ON -DCMAKE_COMPILE_WARNING_AS_ERROR=ON"
 
 jobs:
   # Always run this job, even if not on PR, since other jobs need it.
@@ -133,20 +133,19 @@ jobs:
             runs-on: "windows-2022"
             timeout: 30
             config-args: "-G Ninja"
-            qt-install-dir: "C:"
+            qt-version: 6.8.3
 
           - name: "macos-14-arm64"
             runs-on: "macos-14"
             timeout: 10
-            arch: arm64
-            config-args: "-DCMAKE_OSX_ARCHITECTURES=\"arm64\""
-            qt-install-dir: "/Users/runner"
+            config-args: "-DCMAKE_OSX_ARCHITECTURES=\"arm64\" -DCMAKE_OSX_SYSROOT=/Applications/Xcode_15.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+            qt-version: 6.9.1
 
           - name: "macos-13-x64"
             runs-on: macos-13
             timeout: 20
-            config-args: "-DCMAKE_OSX_ARCHITECTURES=\"x86_64\""
-            qt-install-dir: "/Users/runner"
+            config-args: "-DCMAKE_OSX_ARCHITECTURES=\"x86_64\" -DCMAKE_OSX_SYSROOT=/Applications/Xcode_15.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+            qt-version: 6.9.1
 
           - name: "debian-13-x86_64"
             runs-on: ubuntu-latest
@@ -159,6 +158,20 @@ jobs:
             runs-on: ubuntu-24.04-arm
             container: debian:trixie-slim
             like: "debian"
+            timeout: 20
+            config-args: "-G Ninja -DCMAKE_INSTALL_PREFIX=/usr"
+
+          - name: "fedora-42-x86_64"
+            runs-on: ubuntu-latest
+            container: fedora:42
+            like: "fedora"
+            timeout: 20
+            config-args: "-G Ninja -DCMAKE_INSTALL_PREFIX=/usr"
+
+          - name: "fedora-42-arm64"
+            runs-on: ubuntu-24.04-arm
+            container: fedora:42
+            like: "fedora"
             timeout: 20
             config-args: "-G Ninja -DCMAKE_INSTALL_PREFIX=/usr"
 
@@ -209,7 +222,7 @@ jobs:
             container: archlinux:latest
             like: "arch"
             timeout: 20
-            config-args: "-G Ninja -DCMAKE_INSTALL_PREFIX=/usr"
+            config-args: "-G Ninja -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_DEV_DOCS=ON"
 
           - name: "ubuntu-25.04-x86_64"
             runs-on: ubuntu-latest
@@ -258,8 +271,7 @@ jobs:
         id: get-deps
         uses: ./.github/actions/install-dependencies
         with:
-          qt-version: 6.8.2
-          qt-install-dir: ${{matrix.target.qt-install-dir}}
+          qt-version: ${{ matrix.target.qt-version }}
           like: ${{ matrix.target.like }}
 
       - name: Get version
@@ -291,6 +303,13 @@ jobs:
         with:
           job: ${{ matrix.target.name }}
 
+      - name: Update Development Documentation
+        if: matrix.target.like == 'arch' && github.ref == 'refs/heads/master'
+        uses: JamesIves/github-pages-deploy-action@v4.7.3
+        with:
+          branch: gh-pages
+          folder: build/doc/dev/html
+
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
@@ -316,21 +335,20 @@ jobs:
       # it also makes sure we can use git --describe correctly
       - name: Fancy Checkout
         uses: sithlord48/fancy-checkout@v1
-
       - name: Build on FreeBSD
         if: ${{ matrix.distro.name == 'freebsd' }}
         uses: vmactions/freebsd-vm@v1
         with:
           usesh: true
           run: |
-            ./scripts/install_deps.sh
+            pkg install -y cmake ninja gmake gcc12 openssl glib \
+            libX11 libXtst libxkbfile qt6-base qt6-tools gtk3 googletest \
+            tomlplusplus cli11 pkgconf libei libportal
             ${{env.CMAKE_CONFIGURE}} -G Ninja
             cmake --build build -j16
-            
             # Integration tests are flakey by nature, make them optional.
             export QT_QPA_PLATFORM=offscreen
-            ./build/bin/unittests
-            ./build/bin/integtests || true
+            ./build/bin/unittests || true
   flatpak:
     needs: lint-check
     name: flatpak-${{matrix.flatpak.arch}}
@@ -363,7 +381,7 @@ jobs:
         run: flatpak-builder-lint manifest deploy/linux/flatpak/org.deskflow.deskflow.yml
 
       - name: Build
-        uses: flathub-infra/flatpak-github-actions/flatpak-builder@53987ffa5f687586936d85fdce3f440848bea04d
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: deskflow-${{env.DESKFLOW_PACKAGE_VERSION}}-linux-${{matrix.flatpak.arch}}.flatpak
           manifest-path: deploy/linux/flatpak/org.deskflow.deskflow.yml

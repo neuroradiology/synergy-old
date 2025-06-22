@@ -21,14 +21,14 @@ this to prevent already inserted outputters from writing.
 class StopLogOutputter : public ILogOutputter
 {
 public:
-  StopLogOutputter();
-  virtual ~StopLogOutputter();
+  StopLogOutputter() = default;
+  ~StopLogOutputter() override = default;
 
   // ILogOutputter overrides
-  virtual void open(const char *title);
-  virtual void close();
-  virtual void show(bool showIfEmpty);
-  virtual bool write(ELevel level, const char *message);
+  void open(const char *title) override;
+  void close() override;
+  void show(bool showIfEmpty) override;
+  bool write(ELevel level, const char *message) override;
 };
 
 //! Write log to console
@@ -39,15 +39,15 @@ message is ignored.
 class ConsoleLogOutputter : public ILogOutputter
 {
 public:
-  ConsoleLogOutputter();
-  virtual ~ConsoleLogOutputter();
+  ConsoleLogOutputter() = default;
+  ~ConsoleLogOutputter() override = default;
 
   // ILogOutputter overrides
-  virtual void open(const char *title);
-  virtual void close();
-  virtual void show(bool showIfEmpty);
-  virtual bool write(ELevel level, const char *message);
-  virtual void flush();
+  void open(const char *title) override;
+  void close() override;
+  void show(bool showIfEmpty) override;
+  bool write(ELevel level, const char *message) override;
+  void flush() const;
 };
 
 //! Write log to file
@@ -59,14 +59,14 @@ message is ignored.
 class FileLogOutputter : public ILogOutputter
 {
 public:
-  FileLogOutputter(const char *logFile);
-  virtual ~FileLogOutputter();
+  explicit FileLogOutputter(const char *logFile);
+  ~FileLogOutputter() override = default;
 
   // ILogOutputter overrides
-  virtual void open(const char *title);
-  virtual void close();
-  virtual void show(bool showIfEmpty);
-  virtual bool write(ELevel level, const char *message);
+  void open(const char *title) override;
+  void close() override;
+  void show(bool showIfEmpty) override;
+  bool write(ELevel level, const char *message) override;
 
   void setLogFilename(const char *title);
 
@@ -81,14 +81,14 @@ This outputter writes output to the system log.
 class SystemLogOutputter : public ILogOutputter
 {
 public:
-  SystemLogOutputter();
-  virtual ~SystemLogOutputter();
+  SystemLogOutputter() = default;
+  ~SystemLogOutputter() override = default;
 
   // ILogOutputter overrides
-  virtual void open(const char *title);
-  virtual void close();
-  virtual void show(bool showIfEmpty);
-  virtual bool write(ELevel level, const char *message);
+  void open(const char *title) override;
+  void close() override;
+  void show(bool showIfEmpty) override;
+  bool write(ELevel level, const char *message) override;
 };
 
 //! Write log to system log only
@@ -111,6 +111,6 @@ public:
   SystemLogger &operator=(SystemLogger &&) = delete;
 
 private:
-  ILogOutputter *m_syslog;
-  ILogOutputter *m_stop;
+  ILogOutputter *m_syslog = nullptr;
+  ILogOutputter *m_stop = nullptr;
 };

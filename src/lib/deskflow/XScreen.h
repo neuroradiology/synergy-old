@@ -36,8 +36,8 @@ public:
   \c timeUntilRetry is the suggested time the caller should wait until
   trying to open the screen again.
   */
-  XScreenUnavailable(double timeUntilRetry);
-  virtual ~XScreenUnavailable() throw();
+  explicit XScreenUnavailable(double timeUntilRetry);
+  ~XScreenUnavailable() throw() override = default;
 
   //! @name manipulators
   //@{
@@ -51,7 +51,7 @@ public:
   //@}
 
 protected:
-  virtual std::string getWhat() const throw();
+  std::string getWhat() const throw() override;
 
 private:
   double m_timeUntilRetry;

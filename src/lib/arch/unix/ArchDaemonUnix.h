@@ -16,9 +16,9 @@
 class ArchDaemonUnix : public ArchDaemonNone
 {
 public:
-  ArchDaemonUnix();
-  virtual ~ArchDaemonUnix();
+  ArchDaemonUnix() = default;
+  ~ArchDaemonUnix() override = default;
 
   // IArchDaemon overrides
-  virtual int daemonize(const char *name, DaemonFunc func);
+  int daemonize(const char *name, DaemonFunc const &func) override;
 };

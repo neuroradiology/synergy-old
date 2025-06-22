@@ -1,5 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -7,7 +8,6 @@
 
 #include "io/StreamFilter.h"
 #include "base/IEventQueue.h"
-#include "base/TMethodEventJob.h"
 
 //
 // StreamFilter
@@ -20,15 +20,12 @@ StreamFilter::StreamFilter(IEventQueue *events, deskflow::IStream *stream, bool 
 {
   // replace handlers for m_stream
   m_events->removeHandlers(m_stream->getEventTarget());
-  m_events->adoptHandler(
-      Event::kUnknown, m_stream->getEventTarget(),
-      new TMethodEventJob<StreamFilter>(this, &StreamFilter::handleUpstreamEvent)
-  );
+  m_events->addHandler(EventTypes::Unknown, m_stream->getEventTarget(), [this](const auto &e) { filterEvent(e); });
 }
 
 StreamFilter::~StreamFilter()
 {
-  m_events->removeHandler(Event::kUnknown, m_stream->getEventTarget());
+  m_events->removeHandler(EventTypes::Unknown, m_stream->getEventTarget());
   if (m_adopted) {
     delete m_stream;
   }
@@ -87,9 +84,4 @@ deskflow::IStream *StreamFilter::getStream() const
 void StreamFilter::filterEvent(const Event &event)
 {
   m_events->dispatchEvent(Event(event.getType(), getEventTarget(), event.getData()));
-}
-
-void StreamFilter::handleUpstreamEvent(const Event &event, void *)
-{
-  filterEvent(event);
 }

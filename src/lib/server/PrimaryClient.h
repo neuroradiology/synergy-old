@@ -27,13 +27,7 @@ public:
   \c name is the name of the server and \p screen is primary screen.
   */
   PrimaryClient(const std::string &name, deskflow::Screen *screen);
-  ~PrimaryClient();
-
-#ifdef TEST_ENV
-  PrimaryClient() : BaseClientProxy("")
-  {
-  }
-#endif
+  ~PrimaryClient() override = default;
 
   //! @name manipulators
   //@{
@@ -148,6 +142,6 @@ public:
 
 private:
   deskflow::Screen *m_screen;
-  bool m_clipboardDirty[kClipboardEnd];
-  int32_t m_fakeInputCount;
+  bool m_clipboardDirty[kClipboardEnd] = {false, false};
+  int32_t m_fakeInputCount = 0;
 };

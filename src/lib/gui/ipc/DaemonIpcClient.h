@@ -8,8 +8,6 @@
 
 #include <QObject>
 
-#include "common/Settings.h"
-
 class QLocalSocket;
 
 namespace deskflow::gui::ipc {
@@ -18,24 +16,35 @@ class DaemonIpcClient : public QObject
 {
   Q_OBJECT
 
+  // Represents underlying socket state and whether the server responded to the hello message.
+  enum class State
+  {
+    Unconnected,
+    Connecting,
+    Connected,
+    Disconnecting,
+  };
+
 public:
   explicit DaemonIpcClient(QObject *parent = nullptr);
   bool connectToServer();
+  void disconnectFromServer();
   bool sendLogLevel(const QString &logLevel);
-  bool sendStartProcess(const QString &command, Settings::ElevateMode elevateMode);
+  bool sendStartProcess(const QString &command, bool elevate);
   bool sendStopProcess();
   bool sendClearSettings();
   QString requestLogPath();
 
   bool isConnected() const
   {
-    return m_connected;
+    return m_state == State::Connected;
   }
 
-signals:
+Q_SIGNALS:
   void connected();
+  void connectionFailed();
 
-private slots:
+private Q_SLOTS:
   void handleDisconnected();
   void handleErrorOccurred();
 
@@ -45,7 +54,7 @@ private:
 
 private:
   QLocalSocket *m_socket;
-  bool m_connected{false};
+  State m_state{State::Unconnected};
 };
 
 } // namespace deskflow::gui::ipc

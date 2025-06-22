@@ -9,15 +9,11 @@
 
 #include "base/Event.h"
 #include "base/IEventQueue.h"
-#include "mt/Lock.h"
 #include "mt/Thread.h"
 
 #include <fcntl.h>
-#if HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-
 #include <poll.h>
+#include <unistd.h>
 
 //
 // EventQueueTimer
@@ -34,10 +30,9 @@ class EventQueueTimer
 XWindowsEventQueueBuffer::XWindowsEventQueueBuffer(Display *display, Window window, IEventQueue *events)
     : m_events(events),
       m_display(display),
-      m_window(window),
-      m_waiting(false)
+      m_window(window)
 {
-  assert(m_display != NULL);
+  assert(m_display != nullptr);
   assert(m_window != None);
 
   m_userEvent = XInternAtom(m_display, "DESKFLOW_USER_EVENT", False);
@@ -55,7 +50,7 @@ XWindowsEventQueueBuffer::~XWindowsEventQueueBuffer()
 
 int XWindowsEventQueueBuffer::getPendingCountLocked()
 {
-  Lock lock(&m_mutex);
+  std::scoped_lock lock{m_mutex};
   return XPending(m_display);
 }
 
@@ -66,15 +61,14 @@ void XWindowsEventQueueBuffer::waitForEvent(double dtimeout)
   // clear out the pipe in preparation for waiting.
 
   char buf[16];
-  ssize_t read_response = read(m_pipefd[0], buf, 15);
 
   // with linux automake, warnings are treated as errors by default
-  if (read_response < 0) {
+  if (ssize_t read_response = read(m_pipefd[0], buf, 15); read_response < 0) {
     // todo: handle read response
   }
 
   {
-    Lock lock(&m_mutex);
+    std::scoped_lock lock{m_mutex};
     // we're now waiting for events
     m_waiting = true;
 
@@ -128,7 +122,7 @@ void XWindowsEventQueueBuffer::waitForEvent(double dtimeout)
 
   {
     // we're no longer waiting for events
-    Lock lock(&m_mutex);
+    std::scoped_lock lock{m_mutex};
     m_waiting = false;
   }
 
@@ -137,7 +131,7 @@ void XWindowsEventQueueBuffer::waitForEvent(double dtimeout)
 
 IEventQueueBuffer::Type XWindowsEventQueueBuffer::getEvent(Event &event, uint32_t &dataID)
 {
-  Lock lock(&m_mutex);
+  std::scoped_lock lock{m_mutex};
 
   // push out pending events
   flush();
@@ -150,7 +144,7 @@ IEventQueueBuffer::Type XWindowsEventQueueBuffer::getEvent(Event &event, uint32_
     dataID = static_cast<uint32_t>(m_event.xclient.data.l[0]);
     return kUser;
   } else {
-    event = Event(Event::kSystem, m_events->getSystemTarget(), &m_event);
+    event = Event(EventTypes::System, m_events->getSystemTarget(), &m_event);
     return kSystem;
   }
 }
@@ -166,7 +160,7 @@ bool XWindowsEventQueueBuffer::addEvent(uint32_t dataID)
   xevent.xclient.data.l[0] = static_cast<long>(dataID);
 
   // save the message
-  Lock lock(&m_mutex);
+  std::scoped_lock lock{m_mutex};
   m_postedEvents.push_back(xevent);
 
   // if we're currently waiting for an event then send saved events to
@@ -192,7 +186,7 @@ bool XWindowsEventQueueBuffer::addEvent(uint32_t dataID)
 
 bool XWindowsEventQueueBuffer::isEmpty() const
 {
-  Lock lock(&m_mutex);
+  std::scoped_lock lock{m_mutex};
   return (XPending(m_display) == 0);
 }
 
@@ -211,8 +205,8 @@ void XWindowsEventQueueBuffer::flush()
   // note -- m_mutex must be locked on entry
 
   // flush the posted event list to the X server
-  for (size_t i = 0; i < m_postedEvents.size(); ++i) {
-    XSendEvent(m_display, m_window, False, 0, &m_postedEvents[i]);
+  for (auto &event : m_postedEvents) {
+    XSendEvent(m_display, m_window, False, 0, &event);
   }
   XFlush(m_display);
   m_postedEvents.clear();

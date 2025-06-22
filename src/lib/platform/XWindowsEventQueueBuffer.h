@@ -8,15 +8,11 @@
 #pragma once
 
 #include "base/IEventQueueBuffer.h"
-#include "mt/Mutex.h"
 
+#include <mutex>
 #include <vector>
 
-#if X_DISPLAY_MISSING
-#error X11 is required to build deskflow
-#else
 #include <X11/Xlib.h>
-#endif
 
 class IEventQueue;
 
@@ -27,21 +23,21 @@ public:
   XWindowsEventQueueBuffer(Display *, Window, IEventQueue *events);
   XWindowsEventQueueBuffer(XWindowsEventQueueBuffer const &) = delete;
   XWindowsEventQueueBuffer(XWindowsEventQueueBuffer &&) = delete;
-  virtual ~XWindowsEventQueueBuffer();
+  ~XWindowsEventQueueBuffer() override;
 
   XWindowsEventQueueBuffer &operator=(XWindowsEventQueueBuffer const &) = delete;
   XWindowsEventQueueBuffer &operator=(XWindowsEventQueueBuffer &&) = delete;
 
   // IEventQueueBuffer overrides
-  virtual void init()
+  void init() override
   {
   }
-  virtual void waitForEvent(double timeout);
-  virtual Type getEvent(Event &event, uint32_t &dataID);
-  virtual bool addEvent(uint32_t dataID);
-  virtual bool isEmpty() const;
-  virtual EventQueueTimer *newTimer(double duration, bool oneShot) const;
-  virtual void deleteTimer(EventQueueTimer *) const;
+  void waitForEvent(double timeout) override;
+  Type getEvent(Event &event, uint32_t &dataID) override;
+  bool addEvent(uint32_t dataID) override;
+  bool isEmpty() const override;
+  EventQueueTimer *newTimer(double duration, bool oneShot) const override;
+  void deleteTimer(EventQueueTimer *) const override;
 
 private:
   void flush();
@@ -51,13 +47,13 @@ private:
 private:
   using EventList = std::vector<XEvent>;
 
-  Mutex m_mutex;
+  mutable std::mutex m_mutex;
   Display *m_display;
   Window m_window;
   Atom m_userEvent;
   XEvent m_event;
   EventList m_postedEvents;
-  bool m_waiting;
+  bool m_waiting = false;
   int m_pipefd[2];
   IEventQueue *m_events;
 };

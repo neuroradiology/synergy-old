@@ -17,16 +17,7 @@
 
 PrimaryClient::PrimaryClient(const std::string &name, deskflow::Screen *screen)
     : BaseClientProxy(name),
-      m_screen(screen),
-      m_fakeInputCount(0)
-{
-  // all clipboards are clean
-  for (uint32_t i = 0; i < kClipboardEnd; ++i) {
-    m_clipboardDirty[i] = false;
-  }
-}
-
-PrimaryClient::~PrimaryClient()
+      m_screen(screen)
 {
   // do nothing
 }
@@ -224,19 +215,7 @@ std::string PrimaryClient::getSecureInputApp() const
 
 void PrimaryClient::secureInputNotification(const std::string &app) const
 {
-  if (app != "unknown") {
-    AppUtil::instance().showNotification(
-        "The client keyboards may stop working.", "'Secure input' enabled by " + app +
-                                                      ". "
-                                                      "Close " +
-                                                      app + " to continue using keyboards on the clients."
-    );
-  } else {
-    AppUtil::instance().showNotification(
-        "The client keyboards may stop working.", "'Secure input' enabled by an application. "
-                                                  "Close the application to continue using keyboards on the clients."
-    );
-  }
+  LOG((CLOG_INFO "application \"%s\" is blocking the keyboard", app.c_str()));
 }
 
 void PrimaryClient::resetOptions()

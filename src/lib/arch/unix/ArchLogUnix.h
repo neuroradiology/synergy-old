@@ -15,12 +15,12 @@
 class ArchLogUnix : public IArchLog
 {
 public:
-  ArchLogUnix();
-  virtual ~ArchLogUnix();
+  ArchLogUnix() = default;
+  ~ArchLogUnix() override = default;
 
   // IArchLog overrides
-  virtual void openLog(const char *name);
-  virtual void closeLog();
-  virtual void showLog(bool);
-  virtual void writeLog(ELevel, const char *);
+  void openLog(const char *name) override;
+  void closeLog() override;
+  void showLog(bool) override;
+  void writeLog(ELevel, const char *) override;
 };

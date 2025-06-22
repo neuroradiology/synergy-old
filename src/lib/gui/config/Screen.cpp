@@ -13,37 +13,9 @@ using enum ScreenConfig::Modifier;
 using enum ScreenConfig::SwitchCorner;
 using enum ScreenConfig::Fix;
 
-Screen::Screen()
-{
-  init();
-}
-
 Screen::Screen(const QString &name)
 {
-  init();
   setName(name);
-}
-
-void Screen::init()
-{
-  name().clear();
-  aliases().clear();
-  modifiers().clear();
-  switchCorners().clear();
-  fixes().clear();
-  setSwitchCornerSize(0);
-
-  // m_Modifiers, m_SwitchCorners and m_Fixes are QLists we use like fixed-size
-  // arrays, thus we need to make sure to fill them with the required number of
-  // elements.
-  for (int i = 0; i < static_cast<int>(NumModifiers); i++)
-    modifiers() << i;
-
-  for (int i = 0; i < static_cast<int>(NumSwitchCorners); i++)
-    switchCorners() << false;
-
-  for (int i = 0; i < static_cast<int>(NumFixes); i++)
-    fixes() << false;
 }
 
 void Screen::loadSettings(QSettingsProxy &settings)
@@ -78,7 +50,7 @@ void Screen::saveSettings(QSettingsProxy &settings) const
 
 QString Screen::screensSection() const
 {
-  const QString lineTemplate = QStringLiteral("\t\t%1 = %2\n");
+  const auto lineTemplate = QStringLiteral("\t\t%1 = %2\n");
 
   QString out = QStringLiteral("\t%1:\n").arg(name());
   for (int i = 0; i < modifiers().size(); i++) {

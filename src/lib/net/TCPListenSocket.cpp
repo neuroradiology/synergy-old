@@ -12,8 +12,6 @@
 #include "base/IEventQueue.h"
 #include "base/Log.h"
 #include "io/XIO.h"
-#include "mt/Lock.h"
-#include "mt/Mutex.h"
 #include "net/NetworkAddress.h"
 #include "net/SocketMultiplexer.h"
 #include "net/TCPSocket.h"
@@ -30,7 +28,6 @@ TCPListenSocket::TCPListenSocket(
     : m_events(events),
       m_socketMultiplexer(socketMultiplexer)
 {
-  m_mutex = new Mutex;
   try {
     m_socket = ARCH->newSocket(family, IArchNetwork::kSTREAM);
   } catch (XArchNetwork &e) {
@@ -41,7 +38,7 @@ TCPListenSocket::TCPListenSocket(
 TCPListenSocket::~TCPListenSocket()
 {
   try {
-    if (m_socket != NULL) {
+    if (m_socket != nullptr) {
       m_socketMultiplexer->removeSocket(this);
       ARCH->closeSocket(m_socket);
     }
@@ -49,13 +46,12 @@ TCPListenSocket::~TCPListenSocket()
     // ignore
     LOG((CLOG_WARN "error while closing TCP socket"));
   }
-  delete m_mutex;
 }
 
 void TCPListenSocket::bind(const NetworkAddress &addr)
 {
   try {
-    Lock lock(m_mutex);
+    std::scoped_lock lock{m_mutex};
     ARCH->setReuseAddrOnSocket(m_socket, true);
     ARCH->bindSocket(m_socket, addr.getAddress());
     ARCH->listenOnSocket(m_socket);
@@ -73,14 +69,14 @@ void TCPListenSocket::bind(const NetworkAddress &addr)
 
 void TCPListenSocket::close()
 {
-  Lock lock(m_mutex);
-  if (m_socket == NULL) {
+  std::scoped_lock lock{m_mutex};
+  if (m_socket == nullptr) {
     throw XIOClosed();
   }
   try {
     m_socketMultiplexer->removeSocket(this);
     ARCH->closeSocket(m_socket);
-    m_socket = NULL;
+    m_socket = nullptr;
   } catch (XArchNetwork &e) {
     throw XSocketIOClose(e.what());
   }
@@ -91,24 +87,20 @@ void *TCPListenSocket::getEventTarget() const
   return const_cast<void *>(static_cast<const void *>(this));
 }
 
-IDataSocket *TCPListenSocket::accept()
+std::unique_ptr<IDataSocket> TCPListenSocket::accept()
 {
-  IDataSocket *socket = NULL;
+  std::unique_ptr<IDataSocket> socket;
   try {
-    socket = new TCPSocket(m_events, m_socketMultiplexer, ARCH->acceptSocket(m_socket, NULL));
-    if (socket != NULL) {
-      setListeningJob();
-    }
+    socket = std::make_unique<TCPSocket>(m_events, m_socketMultiplexer, ARCH->acceptSocket(m_socket, nullptr));
+    setListeningJob();
     return socket;
   } catch (XArchNetwork &) {
-    if (socket != NULL) {
-      delete socket;
+    if (socket) {
       setListeningJob();
     }
-    return NULL;
+    return nullptr;
   } catch (std::exception &ex) {
-    if (socket != NULL) {
-      delete socket;
+    if (socket) {
       setListeningJob();
     }
     throw ex;
@@ -127,12 +119,12 @@ ISocketMultiplexerJob *TCPListenSocket::serviceListening(ISocketMultiplexerJob *
 {
   if (error) {
     close();
-    return NULL;
+    return nullptr;
   }
   if (read) {
-    m_events->addEvent(Event(m_events->forIListenSocket().connecting(), this));
+    m_events->addEvent(Event(EventTypes::ListenSocketConnecting, this));
     // stop polling on this socket until the client accepts
-    return NULL;
+    return nullptr;
   }
   return job;
 }

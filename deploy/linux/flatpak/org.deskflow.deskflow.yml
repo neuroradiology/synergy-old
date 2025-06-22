@@ -1,6 +1,6 @@
 app-id: org.deskflow.deskflow
 runtime: org.kde.Platform
-runtime-version: "6.8"
+runtime-version: "6.9"
 sdk: org.kde.Sdk
 command: deskflow
 finish-args:
@@ -23,17 +23,6 @@ cleanup:
   - /share/gir-1.0
   - /lib/girepository-1.0
 modules:
-  - name: python3-attrs
-    buildsystem: simple
-    build-commands:
-      - pip3 install --verbose --exists-action=i --no-index --find-links="file://${PWD}"
-          --prefix=${FLATPAK_DEST} --no-build-isolation attrs
-    sources:
-      - type: file
-        url: https://files.pythonhosted.org/packages/e0/44/827b2a91a5816512fcaf3cc4ebc465ccd5d598c45cefa6703fcf4a79018f/attrs-23.2.0-py3-none-any.whl
-        sha256: 99b87a485a5820b23b879f04c2305b44b951b502fd64be915879d77a7e8fc6f1
-    cleanup:
-      - '*'
   - name: python3-Jinja2
     buildsystem: simple
     build-commands:
@@ -57,8 +46,8 @@ modules:
     sources:
         - type: git
           url: https://gitlab.freedesktop.org/libinput/libei
-          tag: 1.4.0
-          commit: 5d6d8e6590df210b75559a889baa9459c68d9366
+          tag: 1.4.1
+          commit: 9e0413cbc7d3ae6656266890425f152589ddf74d
   - name: libportal
     buildsystem: meson
     config-opts:
@@ -72,13 +61,8 @@ modules:
         url: https://github.com/flatpak/libportal.git
         tag: 0.9.1
         commit: 8f5dc8d192f6e31dafe69e35219e3b707bde71ce
-  - name: puixml
-    buildsystem: cmake-ninja
-    sources:
-      - type: git
-        url: https://github.com/zeux/pugixml
-        tag: v1.14
-        commit: db78afc2b7d8f043b4bc6b185635d949ea2ed2a8
+      - type: patch
+        path: libportal-qt69.patch
   - name: cli11
     buildsystem: cmake-ninja
     config-opts:
@@ -86,8 +70,8 @@ modules:
     sources:
       - type: git
         url: https://github.com/CLIUtils/CLI11
-        tag: v2.4.2
-        commit: 6c7b07a878ad834957b98d0f9ce1dbe0cb204fc9
+        tag: v2.5.0
+        commit: 4160d259d961cd393fd8d67590a8c7d210207348
   - name: tomlplusplus
     buildsystem: cmake-ninja
     sources:

@@ -20,11 +20,11 @@ public:
   //! Use getWhat() as the result of what()
   XBase();
   //! Use \c msg as the result of what()
-  XBase(const std::string &msg);
-  virtual ~XBase() throw();
+  explicit XBase(const std::string &msg);
+  ~XBase() throw() override = default;
 
   //! Reason for exception
-  virtual const char *what() const throw();
+  const char *what() const throw() override;
 
 protected:
   //! Get a human readable string describing the exception

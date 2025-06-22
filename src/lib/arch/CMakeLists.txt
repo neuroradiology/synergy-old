@@ -6,8 +6,6 @@
 # Platform Specific Code
 if(WIN32)
   set(PLATFORM_CODE
-    win32/ArchConsoleWindows.cpp
-    win32/ArchConsoleWindows.h
     win32/ArchDaemonWindows.cpp
     win32/ArchDaemonWindows.h
     win32/ArchLogWindows.cpp
@@ -18,20 +16,12 @@ if(WIN32)
     win32/ArchMultithreadWindows.h
     win32/ArchNetworkWinsock.cpp
     win32/ArchNetworkWinsock.h
-    win32/ArchSleepWindows.cpp
-    win32/ArchSleepWindows.h
-    win32/ArchStringWindows.cpp
-    win32/ArchStringWindows.h
-    win32/ArchTimeWindows.cpp
-    win32/ArchTimeWindows.h
     win32/XArchWindows.cpp
     win32/XArchWindows.h
   )
 
 elseif(UNIX)
   set(PLATFORM_CODE
-    unix/ArchConsoleUnix.cpp
-    unix/ArchConsoleUnix.h
     unix/ArchDaemonUnix.cpp
     unix/ArchDaemonUnix.h
     unix/ArchLogUnix.cpp
@@ -40,12 +30,6 @@ elseif(UNIX)
     unix/ArchMultithreadPosix.h
     unix/ArchNetworkBSD.cpp
     unix/ArchNetworkBSD.h
-    unix/ArchSleepUnix.cpp
-    unix/ArchSleepUnix.h
-    unix/ArchStringUnix.cpp
-    unix/ArchStringUnix.h
-    unix/ArchTimeUnix.cpp
-    unix/ArchTimeUnix.h
     unix/XArchUnix.cpp
     unix/XArchUnix.h
   )
@@ -54,19 +38,14 @@ endif()
 add_library(arch STATIC ${PLATFORM_CODE}
   Arch.cpp
   Arch.h
-  ArchConsoleStd.cpp
-  ArchConsoleStd.h
   ArchDaemonNone.cpp
   ArchDaemonNone.h
-  IArchConsole.h
   IArchDaemon.h
   IArchLog.h
   IArchMultithread.h
   IArchNetwork.h
-  IArchSleep.h
-  IArchString.cpp
-  IArchString.h
-  IArchTime.h
+  ArchString.cpp
+  ArchString.h
   XArch.h
 )
 

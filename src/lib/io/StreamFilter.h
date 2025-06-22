@@ -1,5 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -26,7 +27,7 @@ public:
   StreamFilter(IEventQueue *events, deskflow::IStream *stream, bool adoptStream = true);
   StreamFilter(StreamFilter const &) = delete;
   StreamFilter(StreamFilter &&) = delete;
-  virtual ~StreamFilter();
+  ~StreamFilter() override;
 
   StreamFilter &operator=(StreamFilter const &) = delete;
   StreamFilter &operator=(StreamFilter &&) = delete;
@@ -34,15 +35,15 @@ public:
   // IStream overrides
   // These all just forward to the underlying stream except getEventTarget.
   // Override as necessary.  getEventTarget returns a pointer to this.
-  virtual void close();
-  virtual uint32_t read(void *buffer, uint32_t n);
-  virtual void write(const void *buffer, uint32_t n);
-  virtual void flush();
-  virtual void shutdownInput();
-  virtual void shutdownOutput();
-  virtual void *getEventTarget() const;
-  virtual bool isReady() const;
-  virtual uint32_t getSize() const;
+  void close() override;
+  uint32_t read(void *buffer, uint32_t n) override;
+  void write(const void *buffer, uint32_t n) override;
+  void flush() override;
+  void shutdownInput() override;
+  void shutdownOutput() override;
+  void *getEventTarget() const override;
+  bool isReady() const override;
+  uint32_t getSize() const override;
 
   //! Get the stream
   /*!
@@ -57,9 +58,6 @@ protected:
   identical except using this object as the event target.
   */
   virtual void filterEvent(const Event &);
-
-private:
-  void handleUpstreamEvent(const Event &, void *);
 
 private:
   deskflow::IStream *m_stream;

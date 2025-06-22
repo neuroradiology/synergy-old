@@ -17,11 +17,11 @@ class FunctionEventJob : public IEventJob
 {
 public:
   //! run() invokes \c func(arg)
-  FunctionEventJob(void (*func)(const Event &, void *), void *arg = NULL);
-  virtual ~FunctionEventJob();
+  FunctionEventJob(void (*func)(const Event &, void *), void *arg = nullptr);
+  ~FunctionEventJob() override = default;
 
   // IEventJob overrides
-  virtual void run(const Event &);
+  void run(const Event &) override;
 
 private:
   void (*m_func)(const Event &, void *);

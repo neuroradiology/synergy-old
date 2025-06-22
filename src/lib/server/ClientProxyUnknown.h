@@ -1,5 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -38,7 +39,7 @@ public:
   //! Get the client proxy
   /*!
   Returns the client proxy created after a successful handshake
-  (i.e. when this object sends a success event).  Returns NULL
+  (i.e. when this object sends a success event).  Returns nullptr
   if the handshake is unsuccessful or incomplete.
   */
   ClientProxy *orphanClientProxy();
@@ -59,17 +60,16 @@ private:
   void removeHandlers();
   void initProxy(const std::string &name, int major, int minor);
   void removeTimer();
-  void handleData(const Event &, void *);
-  void handleWriteError(const Event &, void *);
-  void handleTimeout(const Event &, void *);
-  void handleDisconnect(const Event &, void *);
-  void handleReady(const Event &, void *);
+  void handleData();
+  void handleWriteError();
+  void handleTimeout();
+  void handleDisconnect();
 
 private:
-  deskflow::IStream *m_stream;
-  EventQueueTimer *m_timer;
-  ClientProxy *m_proxy;
-  bool m_ready;
-  Server *m_server;
-  IEventQueue *m_events;
+  deskflow::IStream *m_stream = nullptr;
+  EventQueueTimer *m_timer = nullptr;
+  ClientProxy *m_proxy = nullptr;
+  bool m_ready = false;
+  Server *m_server = nullptr;
+  IEventQueue *m_events = nullptr;
 };

@@ -6,7 +6,6 @@
 
 #include "server/ClientProxy1_7.h"
 #include "base/Log.h"
-#include "base/TMethodEventJob.h"
 #include "deskflow/AppUtil.h"
 #include "deskflow/ProtocolUtil.h"
 #include "server/Server.h"
@@ -19,6 +18,7 @@ ClientProxy1_7::ClientProxy1_7(const std::string &name, deskflow::IStream *strea
     : ClientProxy1_6(name, stream, server, events),
       m_events(events)
 {
+  // do nothing
 }
 
 void ClientProxy1_7::secureInputNotification(const std::string &app) const

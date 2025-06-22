@@ -10,6 +10,8 @@
 #include "base/EventTypes.h"
 #include "net/ISocket.h"
 
+#include <memory>
+
 class IDataSocket;
 
 //! Listen socket interface
@@ -26,15 +28,15 @@ public:
   //! Accept connection
   /*!
   Accept a connection, returning a socket representing the full-duplex
-  data stream.  Returns NULL if no socket is waiting to be accepted.
+  data stream.  Returns nullptr if no socket is waiting to be accepted.
   This is only valid after a call to \c bind().
   */
-  virtual IDataSocket *accept() = 0;
+  virtual std::unique_ptr<IDataSocket> accept() = 0;
 
   //@}
 
   // ISocket overrides
-  virtual void bind(const NetworkAddress &) = 0;
-  virtual void close() = 0;
-  virtual void *getEventTarget() const = 0;
+  void bind(const NetworkAddress &) override = 0;
+  void close() override = 0;
+  void *getEventTarget() const override = 0;
 };

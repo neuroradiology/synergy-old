@@ -7,6 +7,7 @@
 
 #include "deskflow/win32/AppUtilWindows.h"
 
+#include "arch/XArch.h"
 #include "arch/win32/ArchMiscWindows.h"
 #include "arch/win32/XArchWindows.h"
 #include "base/Event.h"
@@ -25,14 +26,10 @@
 #include <conio.h>
 #include <memory>
 
-#if HAVE_WINTOAST
-#include "wintoastlib.h"
-#endif
-
 AppUtilWindows::AppUtilWindows(IEventQueue *events) : m_events(events), m_exitMode(kExitModeNormal)
 {
   if (SetConsoleCtrlHandler((PHANDLER_ROUTINE)consoleHandler, TRUE) == FALSE) {
-    throw XArch(new XArchEvalWindows());
+    throw std::runtime_error(windowsErrorToString(GetLastError()));
   }
 
   m_eventThread = std::thread(&AppUtilWindows::eventLoop, this); // NOSONAR - No jthread on Windows
@@ -55,7 +52,7 @@ BOOL WINAPI AppUtilWindows::consoleHandler(DWORD)
 {
   LOG((CLOG_INFO "got shutdown signal"));
   IEventQueue *events = AppUtil::instance().app().getEvents();
-  events->addEvent(Event(Event::kQuit));
+  events->addEvent(Event(EventTypes::Quit));
   return TRUE;
 }
 
@@ -113,7 +110,7 @@ int AppUtilWindows::run(int argc, char **argv)
   }
 
   // record window instance for tray icon, etc
-  ArchMiscWindows::setInstanceWin32(GetModuleHandle(NULL));
+  ArchMiscWindows::setInstanceWin32(GetModuleHandle(nullptr));
 
   MSWindowsScreen::init(ArchMiscWindows::instanceWin32());
   Thread::getCurrentThread().setPriority(-14);
@@ -143,7 +140,7 @@ std::vector<std::string> AppUtilWindows::getKeyboardLayoutList()
 {
   std::vector<std::string> layoutLangCodes;
   {
-    auto uLayouts = GetKeyboardLayoutList(0, NULL);
+    auto uLayouts = GetKeyboardLayoutList(0, nullptr);
     auto lpList = (HKL *)LocalAlloc(LPTR, (uLayouts * sizeof(HKL)));
     uLayouts = GetKeyboardLayoutList(uLayouts, lpList);
 
@@ -182,7 +179,7 @@ HKL AppUtilWindows::getCurrentKeyboardLayout() const
 
   GUITHREADINFO gti = {sizeof(GUITHREADINFO)};
   if (GetGUIThreadInfo(0, &gti) && gti.hwndActive) {
-    layout = GetKeyboardLayout(GetWindowThreadProcessId(gti.hwndActive, NULL));
+    layout = GetKeyboardLayout(GetWindowThreadProcessId(gti.hwndActive, nullptr));
   } else {
     LOG((CLOG_WARN "failed to determine current keyboard layout"));
   }
@@ -190,86 +187,17 @@ HKL AppUtilWindows::getCurrentKeyboardLayout() const
   return layout;
 }
 
-#if HAVE_WINTOAST
-class WinToastHandler : public WinToastLib::IWinToastHandler
-{
-public:
-  WinToastHandler()
-  {
-  }
-  // Public interfaces
-  void toastActivated() const override
-  {
-  }
-  void toastActivated(int actionIndex) const override
-  {
-  }
-  void toastDismissed(WinToastDismissalReason state) const override
-  {
-  }
-  void toastFailed() const override
-  {
-  }
-};
-#endif
-
-void AppUtilWindows::showNotification(const std::string &title, const std::string &text) const
-{
-#if HAVE_WINTOAST
-  LOG((CLOG_INFO "showing notification, title=\"%s\", text=\"%s\"", title.c_str(), text.c_str()));
-  if (!WinToastLib::WinToast::isCompatible()) {
-    LOG((CLOG_INFO "this system does not support toast notifications"));
-    return;
-  }
-  if (!WinToastLib::WinToast::instance()->isInitialized()) {
-    WinToastLib::WinToast::instance()->setAppName(
-        L""
-        "Deskflow"
-    );
-    const auto aumi = WinToastLib::WinToast::configureAUMI(
-        L""
-        "Deskflow Developers",
-        L""
-        "Deskflow",
-        L""
-        "Deskflow",
-        L"1.14.1+"
-    );
-    WinToastLib::WinToast::instance()->setAppUserModelId(aumi);
-
-    if (!WinToastLib::WinToast::instance()->initialize()) {
-      LOG((CLOG_WARN "failed to initialize toast notifications"));
-      return;
-    }
-  }
-
-  WinToastLib::WinToast::WinToastError error;
-  auto handler = std::make_unique<WinToastHandler>();
-  WinToastLib::WinToastTemplate templ = WinToastLib::WinToastTemplate(WinToastLib::WinToastTemplate::Text02);
-  templ.setTextField(std::wstring(title.begin(), title.end()), WinToastLib::WinToastTemplate::FirstLine);
-  templ.setTextField(std::wstring(text.begin(), text.end()), WinToastLib::WinToastTemplate::SecondLine);
-
-  const bool launched = WinToastLib::WinToast::instance()->showToast(templ, handler.get(), &error);
-  if (!launched) {
-    LOG((CLOG_WARN "failed to show toast notification, error code: %d", error));
-    return;
-  }
-#else
-  LOG((CLOG_INFO "toast notifications are not supported"));
-#endif
-}
-
 void AppUtilWindows::eventLoop()
 {
   HANDLE hCloseEvent = CreateEventA(nullptr, TRUE, FALSE, kCloseEventName);
   if (!hCloseEvent) {
     LOG_CRIT("failed to create event for windows event loop");
-    throw XArch(new XArchEvalWindows());
+    throw std::runtime_error(windowsErrorToString(GetLastError()));
   }
 
   LOG_DEBUG("windows event loop running");
   {
-    std::lock_guard lock(m_eventThreadStartedMutex);
+    std::scoped_lock lock{m_eventThreadStartedMutex};
     m_eventThreadRunning = true;
   }
   m_eventThreadStartedCond.notify_one();
@@ -280,7 +208,7 @@ void AppUtilWindows::eventLoop()
 
     if (closeEventResult == WAIT_OBJECT_0) {
       LOG_DEBUG("windows event loop received close event");
-      m_events->addEvent(Event(Event::kQuit));
+      m_events->addEvent(Event(EventTypes::Quit));
       m_eventThreadRunning = false;
     } else if (closeEventResult == WAIT_OBJECT_0 + 1) {
       MSG msg;

@@ -7,7 +7,6 @@
 #include "server/ClientProxy1_6.h"
 
 #include "base/Log.h"
-#include "base/TMethodEventJob.h"
 #include "deskflow/ClipboardChunk.h"
 #include "deskflow/ProtocolUtil.h"
 #include "deskflow/StreamChunker.h"
@@ -22,14 +21,9 @@ ClientProxy1_6::ClientProxy1_6(const std::string &name, deskflow::IStream *strea
     : ClientProxy1_5(name, stream, server, events),
       m_events(events)
 {
-  m_events->adoptHandler(
-      m_events->forClipboard().clipboardSending(), this,
-      new TMethodEventJob<ClientProxy1_6>(this, &ClientProxy1_6::handleClipboardSendingEvent)
-  );
-}
-
-ClientProxy1_6::~ClientProxy1_6()
-{
+  m_events->addHandler(EventTypes::ClipboardSending, this, [this](const auto &e) {
+    ClipboardChunk::send(getStream(), e.getDataObject());
+  });
 }
 
 void ClientProxy1_6::setClipboard(ClipboardID id, const IClipboard *clipboard)
@@ -49,11 +43,6 @@ void ClientProxy1_6::setClipboard(ClipboardID id, const IClipboard *clipboard)
   }
 }
 
-void ClientProxy1_6::handleClipboardSendingEvent(const Event &event, void *)
-{
-  ClipboardChunk::send(getStream(), event.getDataObject());
-}
-
 bool ClientProxy1_6::recvClipboard()
 {
   // parse message
@@ -61,9 +50,7 @@ bool ClientProxy1_6::recvClipboard()
   ClipboardID id;
   uint32_t seq;
 
-  int r = ClipboardChunk::assemble(getStream(), dataCached, id, seq);
-
-  if (r == kStart) {
+  if (int r = ClipboardChunk::assemble(getStream(), dataCached, id, seq); r == kStart) {
     size_t size = ClipboardChunk::getExpectedSize();
     LOG((CLOG_DEBUG "receiving clipboard %d size=%d", id, size));
   } else if (r == kFinish) {
@@ -76,10 +63,10 @@ bool ClientProxy1_6::recvClipboard()
     m_clipboard[id].m_sequenceNumber = seq;
 
     // notify
-    ClipboardInfo *info = new ClipboardInfo;
+    auto *info = new ClipboardInfo;
     info->m_id = id;
     info->m_sequenceNumber = seq;
-    m_events->addEvent(Event(m_events->forClipboard().clipboardChanged(), getEventTarget(), info));
+    m_events->addEvent(Event(EventTypes::ClipboardChanged, getEventTarget(), info));
   }
 
   return true;

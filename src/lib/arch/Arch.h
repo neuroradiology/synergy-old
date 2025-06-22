@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
-// TODO: consider whether or not to use either encapsulation (as below)
+// Consider whether or not to use either encapsulation (as below)
 // or inheritance (as it is now) for the ARCH stuff.
 //
 // case for encapsulation:
@@ -24,32 +24,22 @@
 
 #pragma once
 
+#include "arch/ArchString.h"
 #include "common/Common.h"
 
 #if SYSAPI_WIN32
 
-#include "arch/win32/ArchConsoleWindows.h"
 #include "arch/win32/ArchDaemonWindows.h"
 #include "arch/win32/ArchLogWindows.h"
 #include "arch/win32/ArchMultithreadWindows.h"
 #include "arch/win32/ArchNetworkWinsock.h"
-#include "arch/win32/ArchSleepWindows.h"
-#include "arch/win32/ArchStringWindows.h"
-#include "arch/win32/ArchTimeWindows.h"
 
 #elif SYSAPI_UNIX
 
-#include "arch/unix/ArchConsoleUnix.h"
 #include "arch/unix/ArchDaemonUnix.h"
 #include "arch/unix/ArchLogUnix.h"
-#include "arch/unix/ArchNetworkBSD.h"
-#include "arch/unix/ArchSleepUnix.h"
-#include "arch/unix/ArchStringUnix.h"
-#include "arch/unix/ArchTimeUnix.h"
-
-#if HAVE_PTHREAD
 #include "arch/unix/ArchMultithreadPosix.h"
-#endif
+#include "arch/unix/ArchNetworkBSD.h"
 
 #endif
 
@@ -69,26 +59,19 @@ to each method to those implementations.  Clients should use the
 exactly one of these objects before attempting to call any method,
 typically at the beginning of \c main().
 */
-class Arch : public ARCH_CONSOLE,
-             public ARCH_DAEMON,
-             public ARCH_LOG,
-             public ARCH_MULTITHREAD,
-             public ARCH_NETWORK,
-             public ARCH_SLEEP,
-             public ARCH_STRING,
-             public ARCH_TIME
+class Arch : public ARCH_DAEMON, public ARCH_LOG, public ARCH_MULTITHREAD, public ARCH_NETWORK, public ArchString
 {
 public:
   Arch();
-  Arch(Arch *arch);
-  virtual ~Arch();
+  explicit Arch(Arch *arch);
+  ~Arch() override = default;
 
   //! Call init on other arch classes.
   /*!
   Some arch classes depend on others to exist first. When init is called
   these classes will have ARCH available for use.
   */
-  virtual void init();
+  void init() override;
 
   //
   // accessors
@@ -106,6 +89,19 @@ public:
     s_instance = s;
   }
 
+  /**
+   * @brief blocks calling thread for timout seconds
+   * @param timeout - blocking time in seconds. if < 0 not blocked if == 0 then caller yields the CPU
+   */
+  static void sleep(double timeout);
+
+  /**
+   * @brief time
+   * @return Returns the number of seconds since some arbitrary starting time.
+   * This should return as high a precision as reasonable.
+   */
+  static double time();
+
 private:
   static Arch *s_instance;
 };
@@ -114,7 +110,7 @@ private:
 class ArchMutexLock
 {
 public:
-  ArchMutexLock(ArchMutex mutex) : m_mutex(mutex)
+  explicit ArchMutexLock(ArchMutex mutex) : m_mutex(mutex)
   {
     ARCH->lockMutex(m_mutex);
   }

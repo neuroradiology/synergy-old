@@ -74,16 +74,6 @@ static inline uint32_t fromLEU32(const uint8_t *data)
 // XWindowsClipboardAnyBitmapConverter
 //
 
-XWindowsClipboardAnyBitmapConverter::XWindowsClipboardAnyBitmapConverter()
-{
-  // do nothing
-}
-
-XWindowsClipboardAnyBitmapConverter::~XWindowsClipboardAnyBitmapConverter()
-{
-  // do nothing
-}
-
 IClipboard::EFormat XWindowsClipboardAnyBitmapConverter::getFormat() const
 {
   return IClipboard::kBitmap;
@@ -98,7 +88,7 @@ std::string XWindowsClipboardAnyBitmapConverter::fromIClipboard(const std::strin
 {
   // fill BMP info header with native-endian data
   CBMPInfoHeader infoHeader;
-  const uint8_t *rawBMPInfoHeader = reinterpret_cast<const uint8_t *>(bmp.data());
+  const auto *rawBMPInfoHeader = reinterpret_cast<const uint8_t *>(bmp.data());
   infoHeader.biSize = fromLEU32(rawBMPInfoHeader + 0);
   infoHeader.biWidth = fromLES32(rawBMPInfoHeader + 4);
   infoHeader.biHeight = fromLES32(rawBMPInfoHeader + 8);
@@ -129,7 +119,9 @@ std::string XWindowsClipboardAnyBitmapConverter::fromIClipboard(const std::strin
 std::string XWindowsClipboardAnyBitmapConverter::toIClipboard(const std::string &image) const
 {
   // convert to raw BMP data
-  uint32_t w, h, depth;
+  uint32_t w;
+  uint32_t h;
+  uint32_t depth;
   std::string rawBMP = doToIClipboard(image, w, h, depth);
   if (rawBMP.empty() || w == 0 || h == 0 || (depth != 24 && depth != 32)) {
     return std::string();

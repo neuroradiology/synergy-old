@@ -12,9 +12,6 @@
 #include <map>
 #include <vector>
 
-#if X_DISPLAY_MISSING
-#error X11 is required to build deskflow
-#else
 #include <X11/Xlib.h>
 #if HAVE_X11_EXTENSIONS_XTEST_H
 #include <X11/extensions/XTest.h>
@@ -23,7 +20,6 @@
 #endif
 #if HAVE_XKB_EXTENSION
 #include <X11/extensions/XKBstr.h>
-#endif
 #endif
 
 class IEventQueue;
@@ -44,7 +40,7 @@ public:
 
   XWindowsKeyState(Display *, bool useXKB, IEventQueue *events);
   XWindowsKeyState(Display *, bool useXKB, IEventQueue *events, deskflow::KeyMap &keyMap);
-  ~XWindowsKeyState();
+  ~XWindowsKeyState() override;
 
   //! @name modifiers
   //@{
@@ -94,18 +90,18 @@ public:
   //@}
 
   // IKeyState overrides
-  virtual bool fakeCtrlAltDel();
-  virtual KeyModifierMask pollActiveModifiers() const;
-  virtual int32_t pollActiveGroup() const;
-  virtual void pollPressedKeys(KeyButtonSet &pressedKeys) const;
+  bool fakeCtrlAltDel() override;
+  KeyModifierMask pollActiveModifiers() const override;
+  int32_t pollActiveGroup() const final;
+  void pollPressedKeys(KeyButtonSet &pressedKeys) const override;
 
 protected:
   // KeyState overrides
-  virtual void getKeyMap(deskflow::KeyMap &keyMap);
-  virtual void fakeKey(const Keystroke &keystroke);
+  void getKeyMap(deskflow::KeyMap &keyMap) override;
+  void fakeKey(const Keystroke &keystroke) override;
 
 private:
-  void init(Display *display, bool useXKB);
+  void init(const Display *display, bool useXKB);
   void updateKeysymMap(deskflow::KeyMap &);
   void updateKeysymMapXKB(deskflow::KeyMap &);
   bool hasModifiersXKB() const;
@@ -129,9 +125,6 @@ private:
     bool m_lock;
   };
 
-#ifdef TEST_ENV
-public: // yuck
-#endif
   using KeyModifierMaskList = std::vector<KeyModifierMask>;
 
 private:
@@ -149,7 +142,7 @@ private:
   NonXKBModifierMap m_lastGoodNonXKBModifiers;
 
   // X modifier (bit number) to deskflow modifier (mask) mapping
-  KeyModifierMaskList m_modifierFromX;
+  KeyModifierMaskList m_modifierFromX = {};
 
   // deskflow modifier (mask) to X modifier (mask)
   KeyModifierToXMask m_modifierToX;
@@ -159,20 +152,4 @@ private:
 
   // autorepeat state
   XKeyboardState m_keyboardState;
-
-#ifdef TEST_ENV
-public:
-  int32_t group() const
-  {
-    return m_group;
-  }
-  void group(const int32_t &group)
-  {
-    m_group = group;
-  }
-  KeyModifierMaskList modifierFromX() const
-  {
-    return m_modifierFromX;
-  }
-#endif
 };

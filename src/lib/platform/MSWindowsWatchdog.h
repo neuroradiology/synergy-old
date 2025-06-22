@@ -99,7 +99,7 @@ private:
   /**
    * @brief Controls whether the process should restart immediately or delay start.
    */
-  void handleStartError(const std::string_view &message = "");
+  ProcessState handleStartError(const std::string_view &message = "");
 
   /**
    * @brief Init the output read pipe for standard out/error.
@@ -110,16 +110,6 @@ private:
    * @brief Init the SendSAS function, used for Ctrl+Alt+Del emulation.
    */
   void initSasFunc();
-
-  /**
-   * @brief Re-run the process to get the active desktop name.
-   *
-   * It is necessary to run a utility process because the daemon runs in session 0, which does not
-   * have access to the active desktop, and so cannot query it's name.
-   *
-   * @return std::string The name of the active desktop.
-   */
-  std::string runActiveDesktopUtility();
 
   /**
    * @brief Allows the SendSAS function to be called from other processes.

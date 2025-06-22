@@ -16,13 +16,12 @@ class IEventQueue;
 class AppUtilUnix : public AppUtil
 {
 public:
-  AppUtilUnix(IEventQueue *events);
-  virtual ~AppUtilUnix();
+  explicit AppUtilUnix(const IEventQueue *events);
+  ~AppUtilUnix() override = default;
 
   int run(int argc, char **argv) override;
   void startNode() override;
   std::vector<std::string> getKeyboardLayoutList() override;
   std::string getCurrentLanguageCode() override;
-  void showNotification(const std::string &title, const std::string &text) const override;
   std::string m_evdev;
 };

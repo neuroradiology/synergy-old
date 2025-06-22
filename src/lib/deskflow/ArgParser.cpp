@@ -24,7 +24,7 @@ ArgParser::ArgParser(App *app) : m_app(app)
 {
 }
 
-bool ArgParser::parseServerArgs(deskflow::ServerArgs &args, int argc, const char *const *argv)
+bool ArgParser::parseServerArgs(deskflow::ServerArgs &args, int argc, const char *const *argv) const
 {
   setArgsBase(args);
   updateCommonArgs(argv);
@@ -61,7 +61,7 @@ bool ArgParser::parseServerArgs(deskflow::ServerArgs &args, int argc, const char
   return true;
 }
 
-bool ArgParser::parseClientArgs(deskflow::ClientArgs &args, int argc, const char *const *argv)
+bool ArgParser::parseClientArgs(deskflow::ClientArgs &args, int argc, const char *const *argv) const
 {
   setArgsBase(args);
   updateCommonArgs(argv);
@@ -88,8 +88,6 @@ bool ArgParser::parseClientArgs(deskflow::ClientArgs &args, int argc, const char
       args.m_enableLangSync = true;
     } else if (isArg(i, argc, argv, nullptr, "--invert-scroll")) {
       args.m_clientScrollDirection = deskflow::ClientScrollDirection::INVERT_SERVER;
-    } else if (isArg(i, argc, argv, nullptr, "--host")) {
-      args.m_hostMode = true;
     } else if (isArg(i, argc, argv, nullptr, "client")) {
       ++i;
       continue;
@@ -120,26 +118,16 @@ bool ArgParser::parseClientArgs(deskflow::ClientArgs &args, int argc, const char
 
 bool ArgParser::parsePlatformArgs(
     deskflow::ArgsBase &argsBase, const int &argc, const char *const *argv, int &i, bool isServer
-)
+) const
 {
-#if WINAPI_MSWINDOWS
-  if (isArg(i, argc, argv, nullptr, "--stop-on-desk-switch")) {
-    argsBase.m_stopOnDeskSwitch = true;
-  } else {
-    // option not supported here
-    return false;
-  }
-
-  return true;
-#elif WINAPI_XWINDOWS
+#if !WINAPI_XWINDOWS
+  // no options for carbon or windows
+  return false;
+#else
 
   if (isArg(i, argc, argv, "-display", "--display", 1)) {
     // use alternative display
     argsBase.m_display = argv[++i];
-  }
-
-  else if (isArg(i, argc, argv, nullptr, "--no-xinitthreads")) {
-    argsBase.m_disableXInitThreads = true;
   }
 
   else {
@@ -148,13 +136,10 @@ bool ArgParser::parsePlatformArgs(
   }
 
   return true;
-#elif WINAPI_CARBON
-  // no options for carbon
-  return false;
 #endif
 }
 
-bool ArgParser::parseGenericArgs(int argc, const char *const *argv, int &i)
+bool ArgParser::parseGenericArgs(int argc, const char *const *argv, int &i) const
 {
   if (isArg(i, argc, argv, "-a", "--address", 1)) {
     argsBase().m_deskflowAddress = argv[++i];
@@ -194,27 +179,6 @@ bool ArgParser::parseGenericArgs(int argc, const char *const *argv, int &i)
     // HACK: stop error happening when using portable (deskflowp)
   } else if (isArg(i, argc, argv, nullptr, "--client")) {
     // HACK: stop error happening when using portable (deskflowp)
-  } else if (isArg(i, argc, argv, nullptr, "--enable-drag-drop")) {
-    bool useDragDrop = true;
-
-#ifdef WINAPI_XWINDOWS
-
-    useDragDrop = false;
-    LOG((CLOG_INFO "ignoring --enable-drag-drop, not supported on linux."));
-
-#endif
-
-#ifdef WINAPI_MSWINDOWS
-
-    if (!IsWindowsVistaOrGreater()) {
-      useDragDrop = false;
-      LOG((CLOG_INFO "ignoring --enable-drag-drop, not supported below vista."));
-    }
-#endif
-
-    if (useDragDrop) {
-      argsBase().m_enableDragDrop = true;
-    }
   } else if (isArg(i, argc, argv, nullptr, "--enable-crypto")) {
     argsBase().m_enableCrypto = true;
   } else if (isArg(i, argc, argv, nullptr, "--tls-cert", 1)) {
@@ -229,7 +193,7 @@ bool ArgParser::parseGenericArgs(int argc, const char *const *argv, int &i)
   return true;
 }
 
-bool ArgParser::parseDeprecatedArgs(int argc, const char *const *argv, int &i)
+bool ArgParser::parseDeprecatedArgs(int argc, const char *const *argv, int &i) const
 {
   static const std::vector<const char *> deprecatedArgs = {
       "--crypto-pass", "--res-w", "--res-h", "--prm-wc", "--prm-hc"
@@ -250,9 +214,7 @@ bool ArgParser::isArg(
     int argi, int argc, const char *const *argv, const char *name1, const char *name2, int minRequiredParameters
 )
 {
-  const auto match1 = (name1 != nullptr && strcmp(argv[argi], name1) == 0);
-  const auto match2 = (name2 != nullptr && strcmp(argv[argi], name2) == 0);
-  if (match1 || match2) {
+  if ((name1 != nullptr && strcmp(argv[argi], name1) == 0) || (name2 != nullptr && strcmp(argv[argi], name2) == 0)) {
     // match.  check args left.
     if (argi + minRequiredParameters >= argc) {
       LOG((CLOG_PRINT "%s: missing arguments for `%s'" BYE, argsBase().m_pname, argv[argi], argsBase().m_pname));
@@ -266,7 +228,7 @@ bool ArgParser::isArg(
   return false;
 }
 
-void ArgParser::splitCommandString(std::string &command, std::vector<std::string> &argv)
+void ArgParser::splitCommandString(const std::string_view &command, std::vector<std::string> &argv)
 {
   if (command.empty()) {
     return;
@@ -290,10 +252,10 @@ void ArgParser::splitCommandString(std::string &command, std::vector<std::string
     }
 
     if (!ignoreThisSpace) {
-      std::string subString = command.substr(startPos, space - startPos);
+      auto subString = command.substr(startPos, space - startPos);
 
       removeDoubleQuotes(subString);
-      argv.push_back(subString);
+      argv.emplace_back(subString);
     }
 
     // find next space
@@ -305,12 +267,12 @@ void ArgParser::splitCommandString(std::string &command, std::vector<std::string
     }
   }
 
-  std::string subString = command.substr(startPos, command.size());
+  auto subString = command.substr(startPos, command.size());
   removeDoubleQuotes(subString);
-  argv.push_back(subString);
+  argv.emplace_back(subString);
 }
 
-bool ArgParser::searchDoubleQuotes(std::string &command, size_t &left, size_t &right, size_t startPos)
+bool ArgParser::searchDoubleQuotes(const std::string_view &command, size_t &left, size_t &right, size_t startPos)
 {
   bool result = false;
   left = std::string::npos;
@@ -332,7 +294,7 @@ bool ArgParser::searchDoubleQuotes(std::string &command, size_t &left, size_t &r
   return result;
 }
 
-void ArgParser::removeDoubleQuotes(std::string &arg)
+void ArgParser::removeDoubleQuotes(std::string_view &arg)
 {
   // if string is surrounded by double quotes, remove them
   if (arg[0] == '\"' && arg[arg.size() - 1] == '\"') {
@@ -348,7 +310,7 @@ const char **ArgParser::getArgv(std::vector<std::string> &argsArray)
   // we use the c string pointers from argsArray and assign
   // them to the inner array. So caller only need to use
   // delete[] to delete the outer array
-  const char **argv = new const char *[argc];
+  const auto **argv = new const char *[argc];
 
   for (size_t i = 0; i < argc; i++) {
     argv[i] = argsArray[i].c_str();
@@ -362,7 +324,7 @@ ArgParser::assembleCommand(std::vector<std::string> &argsArray, std::string igno
 {
   std::string result;
 
-  for (std::vector<std::string>::iterator it = argsArray.begin(); it != argsArray.end(); ++it) {
+  for (auto it = argsArray.begin(); it != argsArray.end(); ++it) {
     if (it->compare(ignoreArg) == 0) {
       it = it + parametersRequired;
       continue;
@@ -387,13 +349,13 @@ ArgParser::assembleCommand(std::vector<std::string> &argsArray, std::string igno
   return result;
 }
 
-void ArgParser::updateCommonArgs(const char *const *argv)
+void ArgParser::updateCommonArgs(const char *const *argv) const
 {
   argsBase().m_name = ARCH->getHostName();
   argsBase().m_pname = QFileInfo(argv[0]).fileName().toLocal8Bit().constData();
 }
 
-bool ArgParser::checkUnexpectedArgs()
+bool ArgParser::checkUnexpectedArgs() const
 {
 #if SYSAPI_WIN32
   // suggest that user installs as a windows service. when launched as

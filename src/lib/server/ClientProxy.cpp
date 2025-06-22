@@ -18,6 +18,7 @@
 
 ClientProxy::ClientProxy(const std::string &name, deskflow::IStream *stream) : BaseClientProxy(name), m_stream(stream)
 {
+  // do nothing
 }
 
 ClientProxy::~ClientProxy()
@@ -25,7 +26,7 @@ ClientProxy::~ClientProxy()
   delete m_stream;
 }
 
-void ClientProxy::close(const char *msg)
+void ClientProxy::close(const char *msg) const
 {
   LOG((CLOG_DEBUG1 "send close \"%s\" to \"%s\"", msg, getName().c_str()));
   ProtocolUtil::writef(getStream(), msg);

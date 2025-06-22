@@ -31,12 +31,7 @@
 XWindowsClipboard::XWindowsClipboard(Display *display, Window window, ClipboardID id)
     : m_display(display),
       m_window(window),
-      m_id(id),
-      m_open(false),
-      m_time(0),
-      m_owner(false),
-      m_timeOwned(0),
-      m_timeLost(0)
+      m_id(id)
 {
   // get some atoms
   m_atomTargets = XInternAtom(m_display, "TARGETS", False);
@@ -150,7 +145,7 @@ bool XWindowsClipboard::addSimpleRequest(Window requestor, Atom target, ::Time t
   } else if (target == m_atomTimestamp) {
     type = getTimestampData(data, &format);
   } else {
-    IXWindowsClipboardConverter *converter = getConverter(target);
+    const IXWindowsClipboardConverter *converter = getConverter(target);
     if (converter != nullptr) {
       IClipboard::EFormat clipboardFormat = converter->getFormat();
       if (m_added[clipboardFormat]) {
@@ -194,8 +189,8 @@ bool XWindowsClipboard::processRequest(Window requestor, ::Time /*time*/, Atom p
   // find the property in the known requests.  it should be the
   // first property but we'll check 'em all if we have to.
   ReplyList &replies = index->second;
-  for (ReplyList::iterator index2 = replies.begin(); index2 != replies.end(); ++index2) {
-    Reply *reply = *index2;
+  for (auto index2 = replies.begin(); index2 != replies.end(); ++index2) {
+    const Reply *reply = *index2;
     if (reply->m_replied && reply->m_property == property) {
       // if reply is complete then remove it and start the
       // next one.
@@ -356,7 +351,7 @@ std::string XWindowsClipboard::get(EFormat format) const
 
 void XWindowsClipboard::clearConverters()
 {
-  for (ConverterList::iterator index = m_converters.begin(); index != m_converters.end(); ++index) {
+  for (auto index = m_converters.begin(); index != m_converters.end(); ++index) {
     delete *index;
   }
   m_converters.clear();
@@ -365,7 +360,7 @@ void XWindowsClipboard::clearConverters()
 IXWindowsClipboardConverter *XWindowsClipboard::getConverter(Atom target, bool onlyIfNotAdded) const
 {
   IXWindowsClipboardConverter *converter = nullptr;
-  for (ConverterList::const_iterator index = m_converters.begin(); index != m_converters.end(); ++index) {
+  for (auto index = m_converters.begin(); index != m_converters.end(); ++index) {
     converter = *index;
     if (converter->getAtom() == target) {
       break;
@@ -472,7 +467,7 @@ void XWindowsClipboard::icccmFillCache()
   // try each converter in order (because they're in order of
   // preference).
   for (ConverterList::const_iterator index = m_converters.begin(); index != m_converters.end(); ++index) {
-    IXWindowsClipboardConverter *converter = *index;
+    const IXWindowsClipboardConverter *converter = *index;
 
     // skip already handled targets
     if (m_added[converter->getFormat()]) {
@@ -581,8 +576,7 @@ void XWindowsClipboard::motifUnlockClipboard() const
   LOG((CLOG_DEBUG1 "unlocked motif clipboard"));
 
   // fail if we don't own the lock
-  Window lockOwner = XGetSelectionOwner(m_display, m_atomMotifClipLock);
-  if (lockOwner != m_window) {
+  if (Window lockOwner = XGetSelectionOwner(m_display, m_atomMotifClipLock); lockOwner != m_window) {
     return;
   }
 
@@ -606,8 +600,8 @@ bool XWindowsClipboard::motifOwnsClipboard() const
   Atom target;
   int32_t format;
   std::string data;
-  Window root = RootWindow(m_display, DefaultScreen(m_display));
-  if (!XWindowsUtil::getWindowProperty(m_display, root, m_atomMotifClipHeader, &data, &target, &format, False)) {
+  if (Window root = RootWindow(m_display, DefaultScreen(m_display));
+      !XWindowsUtil::getWindowProperty(m_display, root, m_atomMotifClipHeader, &data, &target, &format, False)) {
     return false;
   }
 
@@ -698,7 +692,7 @@ void XWindowsClipboard::motifFillCache()
   // try each converter in order (because they're in order of
   // preference).
   for (ConverterList::const_iterator index = m_converters.begin(); index != m_converters.end(); ++index) {
-    IXWindowsClipboardConverter *converter = *index;
+    const IXWindowsClipboardConverter *converter = *index;
 
     // skip already handled targets
     if (m_added[converter->getFormat()]) {
@@ -820,7 +814,7 @@ void XWindowsClipboard::insertReply(Reply *reply)
   // find the right reply when handling property notify events we stick
   // to just the requestor.
 
-  const bool newWindow = (m_replies.count(reply->m_requestor) == 0);
+  const bool newWindow = !m_replies.contains(reply->m_requestor);
   m_replies[reply->m_requestor].push_back(reply);
 
   // adjust requestor's event mask if we haven't done so already.  we
@@ -853,9 +847,9 @@ void XWindowsClipboard::pushReplies()
 {
   // send the first reply for each window if that reply hasn't
   // been sent yet.
-  for (ReplyMap::iterator index = m_replies.begin(); index != m_replies.end();) {
+  for (auto index = m_replies.begin(); index != m_replies.end();) {
     assert(!index->second.empty());
-    ReplyList::iterator listit = index->second.begin();
+    auto listit = index->second.begin();
     while (listit != index->second.end()) {
       if (!(*listit)->m_replied)
         break;
@@ -1055,7 +1049,7 @@ bool XWindowsClipboard::sendReply(Reply *reply)
 
 void XWindowsClipboard::clearReplies()
 {
-  for (ReplyMap::iterator index = m_replies.begin(); index != m_replies.end(); ++index) {
+  for (auto index = m_replies.begin(); index != m_replies.end(); ++index) {
     clearReplies(index->second);
   }
   m_replies.clear();
@@ -1064,8 +1058,8 @@ void XWindowsClipboard::clearReplies()
 
 void XWindowsClipboard::clearReplies(ReplyList &replies)
 {
-  for (ReplyList::iterator index = replies.begin(); index != replies.end(); ++index) {
-    delete *index;
+  for (auto reply : replies) {
+    delete reply;
   }
   replies.clear();
 }
@@ -1125,8 +1119,8 @@ Atom XWindowsClipboard::getTargetsData(std::string &data, int *format) const
   XWindowsUtil::appendAtomData(data, m_atomTimestamp);
 
   // add targets we can convert to
-  for (ConverterList::const_iterator index = m_converters.begin(); index != m_converters.end(); ++index) {
-    IXWindowsClipboardConverter *converter = *index;
+  for (auto index = m_converters.begin(); index != m_converters.end(); ++index) {
+    const IXWindowsClipboardConverter *converter = *index;
 
     // skip formats we don't have
     if (m_added[converter->getFormat()]) {
@@ -1238,7 +1232,7 @@ bool XWindowsClipboard::CICCCMGetClipboard::readClipboard(
         }
       }
     } else {
-      ARCH->sleep(0.01);
+      Arch::sleep(0.01);
     }
   }
 
@@ -1255,7 +1249,7 @@ bool XWindowsClipboard::CICCCMGetClipboard::readClipboard(
   return !m_failed;
 }
 
-bool XWindowsClipboard::CICCCMGetClipboard::processEvent(Display *display, XEvent *xevent)
+bool XWindowsClipboard::CICCCMGetClipboard::processEvent(Display *display, const XEvent *xevent)
 {
   // process event
   switch (xevent->type) {
@@ -1374,12 +1368,8 @@ XWindowsClipboard::Reply::Reply(Window requestor, Atom target, ::Time time)
       m_target(target),
       m_time(time),
       m_property(None),
-      m_replied(false),
-      m_done(false),
-      m_data(),
       m_type(None),
-      m_format(32),
-      m_ptr(0)
+      m_format(32)
 {
   // do nothing
 }

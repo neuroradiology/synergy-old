@@ -29,11 +29,6 @@ OSXEventQueueBuffer::OSXEventQueueBuffer(IEventQueue *events) : m_eventQueue(eve
   // Initialization is now managed using modern constructs
 }
 
-OSXEventQueueBuffer::~OSXEventQueueBuffer()
-{
-  // No explicit clean-up needed as GCD and STL handle resource management
-}
-
 void OSXEventQueueBuffer::init()
 {
   // No initialization needed for GCD-based implementation
@@ -71,7 +66,7 @@ bool OSXEventQueueBuffer::addEvent(uint32_t dataID)
 {
   // Use GCD to dispatch event addition on the main queue
   dispatch_async(dispatch_get_main_queue(), ^{
-    std::lock_guard lock(this->m_mutex);
+    std::scoped_lock lock{this->m_mutex};
     LOG_DEBUG2("adding user event with dataID: %u", dataID);
     this->m_dataQueue.push(dataID);
     this->m_cond.notify_one();
@@ -84,7 +79,7 @@ bool OSXEventQueueBuffer::addEvent(uint32_t dataID)
 
 bool OSXEventQueueBuffer::isEmpty() const
 {
-  std::lock_guard lock(m_mutex);
+  std::scoped_lock lock{m_mutex};
   bool empty = m_dataQueue.empty();
   LOG_DEBUG2("queue is %s", empty ? "empty" : "not empty");
   return empty;

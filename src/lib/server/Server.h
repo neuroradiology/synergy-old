@@ -1,5 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -12,7 +13,6 @@
 #include "base/Stopwatch.h"
 #include "deskflow/Clipboard.h"
 #include "deskflow/ClipboardTypes.h"
-#include "deskflow/DragInformation.h"
 #include "deskflow/INode.h"
 #include "deskflow/KeyTypes.h"
 #include "deskflow/MouseTypes.h"
@@ -87,8 +87,9 @@ public:
   class ScreenConnectedInfo
   {
   public:
-    ScreenConnectedInfo(std::string screen) : m_screen(screen)
+    explicit ScreenConnectedInfo(std::string screen) : m_screen(screen)
     {
+      // do nothing
     }
 
   public:
@@ -125,20 +126,10 @@ public:
   );
   Server(Server const &) = delete;
   Server(Server &&) = delete;
-  ~Server();
+  ~Server() override;
 
   Server &operator=(Server const &) = delete;
   Server &operator=(Server &&) = delete;
-
-#ifdef TEST_ENV
-  Server() : m_mock(true), m_config(NULL)
-  {
-  }
-  void setActive(BaseClientProxy *active)
-  {
-    m_active = active;
-  }
-#endif
 
   //! @name manipulators
   //@{
@@ -166,12 +157,6 @@ public:
   The caller can also just destroy this object to force the disconnection.
   */
   void disconnect();
-
-  //! Create a new thread and use it to send file to client
-  void sendFileToClient(const char *filename);
-
-  //! Received dragging information from client
-  void dragInfoReceived(uint32_t fileNum, std::string content);
 
   //! Store ClientListener pointer
   void setListener(ClientListener *p)
@@ -201,30 +186,6 @@ public:
   */
   void getClients(std::vector<std::string> &list) const;
 
-  //! Return true if received file size is valid
-  bool isReceivedFileSizeValid();
-
-  //! Return expected file data size
-  size_t &getExpectedFileSize()
-  {
-    return m_expectedFileSize;
-  }
-
-  //! Return received file data
-  std::string &getReceivedFileData()
-  {
-    return m_receivedFileData;
-  }
-
-  //! Return fake drag file list
-  DragFileList getFakeDragFileList()
-  {
-    return m_fakeDragFileList;
-  }
-
-  //! Returns true if it's client mode and server initiates connection
-  bool isClientMode() const;
-
   //@}
 
 private:
@@ -244,7 +205,7 @@ private:
   bool isLockedToScreen() const;
 
   // returns the jump zone of the client
-  int32_t getJumpZoneSize(BaseClientProxy *) const;
+  int32_t getJumpZoneSize(const BaseClientProxy *) const;
 
   // change the active screen
   void switchScreen(BaseClientProxy *, int32_t x, int32_t y, bool forScreenSaver);
@@ -254,30 +215,30 @@ private:
 
   // convert pixel position to fraction, using x or y depending on the
   // direction.
-  float mapToFraction(BaseClientProxy *, EDirection, int32_t x, int32_t y) const;
+  float mapToFraction(const BaseClientProxy *, EDirection, int32_t x, int32_t y) const;
 
   // convert fraction to pixel position, writing only x or y depending
   // on the direction.
-  void mapToPixel(BaseClientProxy *, EDirection, float f, int32_t &x, int32_t &y) const;
+  void mapToPixel(const BaseClientProxy *, EDirection, float f, int32_t &x, int32_t &y) const;
 
   // returns true if the client has a neighbor anywhere along the edge
   // indicated by the direction.
-  bool hasAnyNeighbor(BaseClientProxy *, EDirection) const;
+  bool hasAnyNeighbor(const BaseClientProxy *, EDirection) const;
 
   // lookup neighboring screen, mapping the coordinate independent of
   // the direction to the neighbor's coordinate space.
-  BaseClientProxy *getNeighbor(BaseClientProxy *, EDirection, int32_t &x, int32_t &y) const;
+  BaseClientProxy *getNeighbor(const BaseClientProxy *, EDirection, int32_t &x, int32_t &y) const;
 
   // lookup neighboring screen.  given a position relative to the
   // source screen, find the screen we should move onto and where.
   // if the position is sufficiently far from the source then we
   // cross multiple screens.  if there is no suitable screen then
-  // return NULL and x,y are not modified.
+  // return nullptr and x,y are not modified.
   BaseClientProxy *mapToNeighbor(BaseClientProxy *, EDirection, int32_t &x, int32_t &y) const;
 
   // adjusts x and y or neither to avoid ending up in a jump zone
   // after entering the client in the given direction.
-  void avoidJumpZone(BaseClientProxy *, EDirection, int32_t &x, int32_t &y) const;
+  void avoidJumpZone(const BaseClientProxy *, EDirection, int32_t &x, int32_t &y) const;
 
   // test if a switch is permitted.  this includes testing user
   // options like switch delay and tracking any state required to
@@ -317,7 +278,7 @@ private:
 
   // returns the corner (EScreenSwitchCornerMasks) where x,y is on the
   // given client.  corners have the given size.
-  uint32_t getCorner(BaseClientProxy *, int32_t x, int32_t y, int32_t size) const;
+  uint32_t getCorner(const BaseClientProxy *, int32_t x, int32_t y, int32_t size) const;
 
   // stop relative mouse moves
   void stopRelativeMoves();
@@ -329,33 +290,27 @@ private:
   void processOptions();
 
   // event handlers
-  void handleShapeChanged(const Event &, void *);
-  void handleClipboardGrabbed(const Event &, void *);
-  void handleClipboardChanged(const Event &, void *);
-  void handleKeyDownEvent(const Event &, void *);
-  void handleKeyUpEvent(const Event &, void *);
-  void handleKeyRepeatEvent(const Event &, void *);
-  void handleButtonDownEvent(const Event &, void *);
-  void handleButtonUpEvent(const Event &, void *);
-  void handleMotionPrimaryEvent(const Event &, void *);
-  void handleMotionSecondaryEvent(const Event &, void *);
-  void handleWheelEvent(const Event &, void *);
-  void handleScreensaverActivatedEvent(const Event &, void *);
-  void handleScreensaverDeactivatedEvent(const Event &, void *);
-  void handleSwitchWaitTimeout(const Event &, void *);
-  void handleClientDisconnected(const Event &, void *);
-  void handleClientCloseTimeout(const Event &, void *);
-  void handleSwitchToScreenEvent(const Event &, void *);
-  void handleSwitchInDirectionEvent(const Event &, void *);
-  void handleKeyboardBroadcastEvent(const Event &, void *);
-  void handleLockCursorToScreenEvent(const Event &, void *);
-  void handleFakeInputBeginEvent(const Event &, void *);
-  void handleFakeInputEndEvent(const Event &, void *);
-  void handleFileChunkSendingEvent(const Event &, void *);
-  void handleFileReceiveCompletedEvent(const Event &, void *);
+  void handleShapeChanged(BaseClientProxy *client);
+  void handleClipboardGrabbed(const Event &event, BaseClientProxy *client);
+  void handleClipboardChanged(const Event &event, BaseClientProxy *client);
+  void handleKeyDownEvent(const Event &event);
+  void handleKeyUpEvent(const Event &event);
+  void handleKeyRepeatEvent(const Event &event);
+  void handleButtonDownEvent(const Event &event);
+  void handleButtonUpEvent(const Event &event);
+  void handleMotionPrimaryEvent(const Event &event);
+  void handleMotionSecondaryEvent(const Event &event);
+  void handleWheelEvent(const Event &event);
+  void handleSwitchWaitTimeout();
+  void handleClientDisconnected(BaseClientProxy *client);
+  void handleClientCloseTimeout(BaseClientProxy *client);
+  void handleSwitchToScreenEvent(const Event &event);
+  void handleSwitchInDirectionEvent(const Event &event);
+  void handleKeyboardBroadcastEvent(const Event &event);
+  void handleLockCursorToScreenEvent(const Event &event);
 
   // event processing
-  void onClipboardChanged(BaseClientProxy *sender, ClipboardID id, uint32_t seqNum);
+  void onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, uint32_t seqNum);
   void onScreensaver(bool activated);
   void onKeyDown(KeyID, KeyModifierMask, KeyButton, const std::string &, const char *screens);
   void onKeyUp(KeyID, KeyModifierMask, KeyButton, const char *screens);
@@ -365,8 +320,6 @@ private:
   bool onMouseMovePrimary(int32_t x, int32_t y);
   void onMouseMoveSecondary(int32_t dx, int32_t dy);
   void onMouseWheel(int32_t xDelta, int32_t yDelta);
-  void onFileChunkSending(const void *data);
-  void onFileReceiveCompleted();
 
   // add client to list and attach event handlers for client
   bool addClient(BaseClientProxy *);
@@ -389,34 +342,19 @@ private:
   void removeOldClient(BaseClientProxy *);
 
   // force the cursor off of \p client
-  void forceLeaveClient(BaseClientProxy *client);
-
-  // thread funciton for sending file
-  void sendFileThread(void *);
-
-  // thread function for writing file to drop directory
-  void writeToDropDirThread(void *);
-
-  // thread function for sending drag information
-  void sendDragInfoThread(void *);
-
-  // send drag info to new client screen
-  void sendDragInfo(BaseClientProxy *newScreen);
-
-public:
-  bool m_mock;
+  void forceLeaveClient(const BaseClientProxy *client);
 
 private:
   class ClipboardInfo
   {
   public:
-    ClipboardInfo();
+    ClipboardInfo() = default;
 
   public:
     Clipboard m_clipboard;
     std::string m_clipboardData;
     std::string m_clipboardOwner;
-    uint32_t m_clipboardSeqNum;
+    uint32_t m_clipboardSeqNum = 0;
   };
 
   // used in hello message sent to the client
@@ -439,18 +377,21 @@ private:
   BaseClientProxy *m_active;
 
   // the sequence number of enter messages
-  uint32_t m_seqNum;
+  uint32_t m_seqNum = 0;
 
   // current mouse position (in absolute screen coordinates) on
   // whichever screen is active
-  int32_t m_x, m_y;
+  int32_t m_x;
+  int32_t m_y;
 
   // last mouse deltas.  this is needed to smooth out double tap
   // on win32 which reports bogus mouse motion at the edge of
   // the screen when using low level hooks, synthesizing motion
   // in the opposite direction the mouse actually moved.
-  int32_t m_xDelta, m_yDelta;
-  int32_t m_xDelta2, m_yDelta2;
+  int32_t m_xDelta = 0;
+  int32_t m_yDelta = 0;
+  int32_t m_xDelta2 = 0;
+  int32_t m_yDelta2 = 0;
 
   // current configuration
   ServerConfig *m_config;
@@ -462,63 +403,52 @@ private:
   ClipboardInfo m_clipboards[kClipboardEnd];
 
   // state saved when screen saver activates
-  BaseClientProxy *m_activeSaver;
-  int32_t m_xSaver, m_ySaver;
+  BaseClientProxy *m_activeSaver = nullptr;
+  int32_t m_xSaver;
+  int32_t m_ySaver;
 
   // common state for screen switch tests.  all tests are always
   // trying to reach the same screen in the same direction.
-  EDirection m_switchDir;
-  BaseClientProxy *m_switchScreen;
+  EDirection m_switchDir = EDirection::kNoDirection;
+  BaseClientProxy *m_switchScreen = nullptr;
 
   // state for delayed screen switching
-  double m_switchWaitDelay;
-  EventQueueTimer *m_switchWaitTimer;
-  int32_t m_switchWaitX, m_switchWaitY;
+  double m_switchWaitDelay = 0.0;
+  EventQueueTimer *m_switchWaitTimer = nullptr;
+  int32_t m_switchWaitX;
+  int32_t m_switchWaitY;
 
   // state for double-tap screen switching
-  double m_switchTwoTapDelay;
+  double m_switchTwoTapDelay = 0.0;
   Stopwatch m_switchTwoTapTimer;
-  bool m_switchTwoTapEngaged;
-  bool m_switchTwoTapArmed;
-  int32_t m_switchTwoTapZone;
+  bool m_switchTwoTapEngaged = false;
+  bool m_switchTwoTapArmed = false;
+  int32_t m_switchTwoTapZone = 3;
 
   // modifiers needed before switching
-  bool m_switchNeedsShift;
-  bool m_switchNeedsControl;
-  bool m_switchNeedsAlt;
+  bool m_switchNeedsShift = false;
+  bool m_switchNeedsControl = false;
+  bool m_switchNeedsAlt = false;
 
   // relative mouse move option
-  bool m_relativeMoves;
+  bool m_relativeMoves = false;
 
   // flag whether or not we have broadcasting enabled and the screens to
   // which we should send broadcasted keys.
-  bool m_keyboardBroadcasting;
+  bool m_keyboardBroadcasting = false;
   std::string m_keyboardBroadcastingScreens;
 
   // screen locking (former scroll lock)
-  bool m_lockedToScreen;
+  bool m_lockedToScreen = false;
 
   // server screen
   deskflow::Screen *m_screen;
 
   IEventQueue *m_events;
 
-  // file transfer
-  using AutoThread = std::unique_ptr<Thread>;
-  size_t m_expectedFileSize;
-  std::string m_receivedFileData;
-  DragFileList m_dragFileList;
-  DragFileList m_fakeDragFileList;
-  AutoThread m_sendFileThread;
-  AutoThread m_writeToDropDirThread;
-  std::string m_dragFileExt;
-  bool m_ignoreFileTransfer;
-  bool m_disableLockToScreen;
-  bool m_enableClipboard;
-  size_t m_maximumClipboardSize;
-
-  AutoThread m_sendDragInfoThread;
-  bool m_waitDragInfoThread;
+  bool m_disableLockToScreen = false;
+  bool m_enableClipboard = true;
+  size_t m_maximumClipboardSize = INT_MAX;
 
   ClientListener *m_clientListener;
   deskflow::ServerArgs m_args;

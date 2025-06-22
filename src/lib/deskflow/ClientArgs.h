@@ -22,7 +22,7 @@ class ClientArgs : public ArgsBase
 public:
   ClientArgs();
 
-  ~ClientArgs() override;
+  ~ClientArgs() override = default;
 
 public:
   int m_yscroll = 0;
@@ -33,12 +33,6 @@ public:
    * This option is responcible for scroll direction on client side.
    */
   ClientScrollDirection m_clientScrollDirection = ClientScrollDirection::SERVER;
-
-  /**
-   * @brief m_hostMode - activates host mode.
-   * Client starts a listener and waits for a server connection.
-   */
-  bool m_hostMode = false;
 
   /**
    * @brief m_serverAddress stores deskflow server address

@@ -12,16 +12,11 @@
 // Stopwatch
 //
 
-Stopwatch::Stopwatch(bool triggered) : m_mark(0.0), m_triggered(triggered), m_stopped(triggered)
+Stopwatch::Stopwatch(bool triggered) : m_triggered(triggered), m_stopped(triggered)
 {
   if (!triggered) {
-    m_mark = ARCH->time();
+    m_mark = Arch::time();
   }
-}
-
-Stopwatch::~Stopwatch()
-{
-  // do nothing
 }
 
 double Stopwatch::reset()
@@ -31,7 +26,7 @@ double Stopwatch::reset()
     m_mark = 0.0;
     return dt;
   } else {
-    const double t = ARCH->time();
+    const double t = Arch::time();
     const double dt = t - m_mark;
     m_mark = t;
     return dt;
@@ -45,7 +40,7 @@ void Stopwatch::stop()
   }
 
   // save the elapsed time
-  m_mark = ARCH->time() - m_mark;
+  m_mark = Arch::time() - m_mark;
   m_stopped = true;
 }
 
@@ -57,7 +52,7 @@ void Stopwatch::start()
   }
 
   // set the mark such that it reports the time elapsed at stop()
-  m_mark = ARCH->time() - m_mark;
+  m_mark = Arch::time() - m_mark;
   m_stopped = false;
 }
 
@@ -76,7 +71,7 @@ double Stopwatch::getTime()
   } else if (m_stopped) {
     return m_mark;
   } else {
-    return ARCH->time() - m_mark;
+    return Arch::time() - m_mark;
   }
 }
 
@@ -95,7 +90,7 @@ double Stopwatch::getTime() const
   if (m_stopped) {
     return m_mark;
   } else {
-    return ARCH->time() - m_mark;
+    return Arch::time() - m_mark;
   }
 }
 

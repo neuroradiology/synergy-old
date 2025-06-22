@@ -21,16 +21,13 @@
 #include "base/IEventQueue.h"
 #endif
 
-#if WINAPI_CARBON
-#include "platform/OSXDragSimulator.h"
-#endif
-
 #include <iostream>
 #include <stdexcept>
 #include <stdio.h>
 #include <vector>
 
 #if WINAPI_CARBON
+#include "platform/OSXCocoaApp.h"
 #include <ApplicationServices/ApplicationServices.h>
 #endif
 
@@ -46,12 +43,9 @@ App *App::s_instance = nullptr;
 
 App::App(IEventQueue *events, deskflow::ArgsBase *args)
     : m_bye(&exit),
-      m_suspended(false),
       m_events(events),
       m_args(args),
-      m_fileLog(nullptr),
-      m_appUtil(events),
-      m_socketMultiplexer(nullptr)
+      m_appUtil(events)
 {
   assert(s_instance == nullptr);
   s_instance = this;
@@ -107,7 +101,7 @@ int App::run(int argc, char **argv)
     // display invalid exceptions can occur when going to sleep. When this
     // process exits, the UI will restart us instantly. We don't really want
     // that behevior, so we quies for a bit
-    ARCH->sleep(10);
+    Arch::sleep(10);
   } catch (std::runtime_error &re) {
     LOG((CLOG_CRIT "a runtime error occurred: %s\n", re.what()));
   } catch (std::exception &e) {
@@ -131,22 +125,20 @@ int App::daemonMainLoop(int, const char **)
 
 void App::setupFileLogging()
 {
-  if (argsBase().m_logFile != NULL) {
+  if (argsBase().m_logFile != nullptr) {
     m_fileLog = new FileLogOutputter(argsBase().m_logFile); // NOSONAR - Adopted by `Log`
     CLOG->insert(m_fileLog);
     LOG((CLOG_DEBUG1 "logging to file (%s) enabled", argsBase().m_logFile));
   }
 }
 
-void App::loggingFilterWarning()
+void App::loggingFilterWarning() const
 {
-  if (CLOG->getFilter() > CLOG->getConsoleMaxLevel()) {
-    if (argsBase().m_logFile == NULL) {
-      LOG(
-          (CLOG_WARN "log messages above %s are NOT sent to console (use file logging)",
-           CLOG->getFilterName(CLOG->getConsoleMaxLevel()))
-      );
-    }
+  if ((CLOG->getFilter() > CLOG->getConsoleMaxLevel()) && (argsBase().m_logFile == nullptr)) {
+    LOG(
+        (CLOG_WARN "log messages above %s are NOT sent to console (use file logging)",
+         CLOG->getFilterName(CLOG->getConsoleMaxLevel()))
+    );
   }
 }
 
@@ -195,75 +187,9 @@ void App::runEventsLoop(void *)
 {
   m_events->loop();
 
-#if defined(MAC_OS_X_VERSION_10_7)
+#if WINAPI_CARBON
 
   stopCocoaLoop();
 
 #endif
-}
-
-//
-// MinimalApp
-//
-
-MinimalApp::MinimalApp() : App(NULL, new deskflow::ArgsBase())
-{
-  m_arch.init();
-  setEvents(m_events);
-}
-
-MinimalApp::~MinimalApp()
-{
-}
-
-int MinimalApp::standardStartup(int argc, char **argv)
-{
-  return 0;
-}
-
-int MinimalApp::runInner(int argc, char **argv, StartupFunc startup)
-{
-  return 0;
-}
-
-void MinimalApp::startNode()
-{
-}
-
-int MinimalApp::mainLoop()
-{
-  return 0;
-}
-
-int MinimalApp::foregroundStartup(int argc, char **argv)
-{
-  return 0;
-}
-
-deskflow::Screen *MinimalApp::createScreen()
-{
-  return NULL;
-}
-
-void MinimalApp::loadConfig()
-{
-}
-
-bool MinimalApp::loadConfig(const std::string &pathname)
-{
-  return false;
-}
-
-const char *MinimalApp::daemonInfo() const
-{
-  return "";
-}
-
-const char *MinimalApp::daemonName() const
-{
-  return "";
-}
-
-void MinimalApp::parseArgs(int argc, const char *const *argv)
-{
 }

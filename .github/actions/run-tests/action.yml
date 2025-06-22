@@ -15,12 +15,12 @@ runs:
   using: "composite"
 
   steps:
-    - name: Unit tests
+    - name: Unit Tests
       id: unittests
       env:
         QT_QPA_PLATFORM: offscreen
       run: |
-        ./${{ inputs.bin-dir }}/unittests
+        ctest --test-dir  "build/src/unittests" --output-on-failure
         result=$?
 
         if [ $result -ne 0 ]; then
@@ -29,16 +29,16 @@ runs:
       shell: bash
       continue-on-error: true
 
-    - name: Integration tests
-      id: integtests
+    - name: Legacy Tests
+      id: legacytests
       env:
         QT_QPA_PLATFORM: offscreen
       run: |
-        ./${{ inputs.bin-dir }}/integtests
+        ./${{ inputs.bin-dir }}/legacytests
         result=$?
 
         if [ $result -ne 0 ]; then
-          echo "Integration tests failed with code: $result" >> $GITHUB_STEP_SUMMARY
+          echo "Legacy tests failed with code: $result" >> $GITHUB_STEP_SUMMARY
         fi
       shell: bash
       continue-on-error: true
@@ -49,11 +49,11 @@ runs:
         pass="✅ Pass"
         fail="❌ Fail"
         unittests_outcome="${{ steps.unittests.outcome }}"
-        integtests_outcome="${{ steps.integtests.outcome }}"
+        legacytests_outcome="${{ steps.legacytests.outcome }}"
         unittests=$( [ "$unittests_outcome" = "success" ] && echo $pass || echo $fail )
-        integtests=$( [ "$integtests_outcome" = "success" ] && echo $pass || echo $fail )
+        legacytests=$( [ "$legacytests_outcome" = "success" ] && echo $pass || echo $fail )
         echo "unittests=$unittests" >> $GITHUB_OUTPUT
-        echo "integtests=$integtests" >> $GITHUB_OUTPUT
+        echo "legacytests=$legacytests" >> $GITHUB_OUTPUT
       shell: bash
 
     - name: Summary row
@@ -64,7 +64,7 @@ runs:
         row=""
         row+="| ${{ inputs.job }} "
         row+="| ${{ steps.results.outputs.unittests }} "
-        row+="| ${{ steps.results.outputs.integtests }} |"
+        row+="| ${{ steps.results.outputs.legacytests }} "
         echo "$row" > $file
 
         echo "file=$file" > $GITHUB_OUTPUT

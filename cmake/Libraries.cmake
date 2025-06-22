@@ -21,7 +21,7 @@ macro(configure_libs)
 
   find_package(Qt6 ${REQUIRED_QT_VERSION} REQUIRED COMPONENTS Core Widgets Network)
   if(UNIX AND NOT APPLE)
-      find_package(Qt6 ${REQUIRED_QT_VERSION} REQUIRED COMPONENTS DBus)
+      find_package(Qt6 ${REQUIRED_QT_VERSION} REQUIRED COMPONENTS DBus Xml)
   endif()
 
   # Define the location of Qt deployment tool
@@ -46,7 +46,7 @@ macro(configure_libs)
     message(STATUS "Enabling code coverage")
     include(cmake/CodeCoverage.cmake)
     append_coverage_compiler_flags()
-    set(test_exclude subprojects/* build/* src/test/*)
+    set(test_exclude subprojects/* build/* src/unittests/*)
     set(test_src ${PROJECT_SOURCE_DIR}/src)
 
     # Apparently solves the bug in gcov where it returns negative counts and confuses gcovr.
@@ -55,15 +55,8 @@ macro(configure_libs)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-update=atomic")
 
     setup_target_for_coverage_gcovr_xml(
-      NAME coverage-integtests
-      EXECUTABLE integtests
-      BASE_DIRECTORY ${test_src}
-      EXCLUDE ${test_exclude}
-    )
-
-    setup_target_for_coverage_gcovr_xml(
-      NAME coverage-unittests
-      EXECUTABLE unittests
+      NAME coverage-legacytests
+      EXECUTABLE legacytests
       BASE_DIRECTORY ${test_src}
       EXCLUDE ${test_exclude}
     )
@@ -89,12 +82,17 @@ macro(configure_unix_libs)
   include(CheckSymbolExists)
   include(CheckCSourceCompiles)
 
-  check_include_files(sys/select.h HAVE_SYS_SELECT_H)
   check_include_files(sys/socket.h HAVE_SYS_SOCKET_H)
-  check_include_files(sys/time.h HAVE_SYS_TIME_H)
-  check_include_files(unistd.h HAVE_UNISTD_H)
+  if (NOT HAVE_SYS_SOCKET_H)
+    message(FATAL_ERROR "Missing header: sys/socket.h")
+  endif()
 
-  check_function_exists(nanosleep HAVE_NANOSLEEP)
+
+  check_include_files(unistd.h HAVE_UNISTD_H)
+  if (NOT HAVE_UNISTD_H)
+    message(FATAL_ERROR "Missing unistd.h")
+  endif()
+
   check_function_exists(sigwait HAVE_POSIX_SIGWAIT)
   check_function_exists(inet_aton HAVE_INET_ATON)
 
@@ -149,38 +147,17 @@ macro(configure_unix_libs)
     configure_xorg_libs()
 
     include(FindPkgConfig)
-
+    find_package(PkgConfig)
     if(PKG_CONFIG_FOUND)
       pkg_check_modules(LIBXKBCOMMON REQUIRED xkbcommon)
-      pkg_check_modules(GLIB2 REQUIRED glib-2.0 gio-2.0)
+      pkg_check_modules(GLIB2 REQUIRED glib-2.0)
       find_library(LIBM m)
       include_directories(${LIBXKBCOMMON_INCLUDE_DIRS} ${GLIB2_INCLUDE_DIRS}
                           ${LIBM_INCLUDE_DIRS})
     else()
       message(WARNING "pkg-config not found, skipping wayland libraries")
     endif()
-
-
-    find_package(pugixml REQUIRED)
-
-    find_package(PkgConfig)
-    if(PKG_CONFIG_FOUND)
-      pkg_check_modules(lib_glib REQUIRED IMPORTED_TARGET glib-2.0)
-      pkg_check_modules(lib_notify REQUIRED IMPORTED_TARGET libnotify)
-      add_definitions(-DHAVE_LIBNOTIFY=1)
-    else()
-      message(WARNING "pkg-config not found, skipping libnotify")
-    endif()
   endif()
-
-  # For config.h, set some static values; it may be a good idea to make these
-  # values dynamic for non-standard UNIX compilers.
-  set(HAVE_PTHREAD_SIGNAL 1)
-  set(SELECT_TYPE_ARG1 int)
-  set(SELECT_TYPE_ARG234 " (fd_set *)")
-  set(SELECT_TYPE_ARG5 " (struct timeval *)")
-  set(TIME_WITH_SYS_TIME 1)
-  set(HAVE_SOCKLEN_T 1)
 
   # Unix only: For config.h, save the results based on a template (config.h.in).
   # Note that this won't work on Windows because filenames are not case sensitive,
@@ -214,11 +191,6 @@ macro(configure_xorg_libs)
   check_include_files("X11/extensions/XTest.h" HAVE_X11_EXTENSIONS_XTEST_H)
   check_include_files("${XKBlib}" HAVE_X11_XKBLIB_H)
   check_include_files("X11/extensions/XInput2.h" HAVE_XI2)
-
-  if(HAVE_X11_EXTENSIONS_DPMS_H)
-    # Assume that function prototypes declared, when include exists.
-    set(HAVE_DPMS_PROTOTYPES 1)
-  endif()
 
   if(NOT HAVE_X11_XKBLIB_H)
     message(FATAL_ERROR "Missing header: " ${XKBlib})

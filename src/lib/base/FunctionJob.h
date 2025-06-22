@@ -17,11 +17,11 @@ class FunctionJob : public IJob
 {
 public:
   //! run() invokes \c func(arg)
-  FunctionJob(void (*func)(void *), void *arg = NULL);
-  virtual ~FunctionJob();
+  FunctionJob(void (*func)(void *), void *arg = nullptr);
+  ~FunctionJob() override = default;
 
   // IJob overrides
-  virtual void run();
+  void run() override;
 
 private:
   void (*m_func)(void *);

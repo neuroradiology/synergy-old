@@ -10,6 +10,7 @@
 #include "arch/IArchMultithread.h"
 
 #include <list>
+#include <mutex>
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
@@ -41,7 +42,7 @@ class ArchMultithreadWindows : public IArchMultithread
 {
 public:
   ArchMultithreadWindows();
-  virtual ~ArchMultithreadWindows();
+  ~ArchMultithreadWindows() override;
 
   //! @name manipulators
   //@{
@@ -61,29 +62,29 @@ public:
   //@}
 
   // IArchMultithread overrides
-  virtual ArchCond newCondVar();
-  virtual void closeCondVar(ArchCond);
-  virtual void signalCondVar(ArchCond);
-  virtual void broadcastCondVar(ArchCond);
-  virtual bool waitCondVar(ArchCond, ArchMutex, double timeout);
-  virtual ArchMutex newMutex();
-  virtual void closeMutex(ArchMutex);
-  virtual void lockMutex(ArchMutex);
-  virtual void unlockMutex(ArchMutex);
-  virtual ArchThread newThread(ThreadFunc, void *);
-  virtual ArchThread newCurrentThread();
-  virtual ArchThread copyThread(ArchThread);
-  virtual void closeThread(ArchThread);
-  virtual void cancelThread(ArchThread);
-  virtual void setPriorityOfThread(ArchThread, int n);
-  virtual void testCancelThread();
-  virtual bool wait(ArchThread, double timeout);
-  virtual bool isSameThread(ArchThread, ArchThread);
-  virtual bool isExitedThread(ArchThread);
-  virtual void *getResultOfThread(ArchThread);
-  virtual ThreadID getIDOfThread(ArchThread);
-  virtual void setSignalHandler(ESignal, SignalFunc, void *);
-  virtual void raiseSignal(ESignal);
+  ArchCond newCondVar() override;
+  void closeCondVar(ArchCond) override;
+  void signalCondVar(ArchCond) override;
+  void broadcastCondVar(ArchCond) override;
+  bool waitCondVar(ArchCond, ArchMutex, double timeout) override;
+  ArchMutex newMutex() override;
+  void closeMutex(ArchMutex) override;
+  void lockMutex(ArchMutex) override;
+  void unlockMutex(ArchMutex) override;
+  ArchThread newThread(ThreadFunc, void *) override;
+  ArchThread newCurrentThread() override;
+  ArchThread copyThread(ArchThread) override;
+  void closeThread(ArchThread) override;
+  void cancelThread(ArchThread) override;
+  void setPriorityOfThread(ArchThread, int n) override;
+  void testCancelThread() override;
+  bool wait(ArchThread, double timeout) override;
+  bool isSameThread(ArchThread, ArchThread) override;
+  bool isExitedThread(ArchThread) override;
+  void *getResultOfThread(ArchThread) override;
+  ThreadID getIDOfThread(ArchThread) override;
+  void setSignalHandler(ESignal, SignalFunc, void *) override;
+  void raiseSignal(ESignal) override;
 
 private:
   ArchThreadImpl *find(DWORD id);
@@ -103,7 +104,7 @@ private:
 
   static ArchMultithreadWindows *s_instance;
 
-  ArchMutex m_threadMutex;
+  std::mutex m_threadMutex;
 
   ThreadList m_threadList;
   ArchThread m_mainThread;

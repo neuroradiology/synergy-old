@@ -1,5 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -12,11 +13,7 @@
 
 #include <map>
 
-#if X_DISPLAY_MISSING
-#error X11 is required to build deskflow
-#else
 #include <X11/Xlib.h>
-#endif
 
 class Event;
 class EventQueueTimer;
@@ -28,7 +25,7 @@ public:
   XWindowsScreenSaver(Display *, Window, void *eventTarget, IEventQueue *events);
   XWindowsScreenSaver(XWindowsScreenSaver const &) = delete;
   XWindowsScreenSaver(XWindowsScreenSaver &&) = delete;
-  virtual ~XWindowsScreenSaver();
+  ~XWindowsScreenSaver() override;
 
   XWindowsScreenSaver &operator=(XWindowsScreenSaver const &) = delete;
   XWindowsScreenSaver &operator=(XWindowsScreenSaver &&) = delete;
@@ -53,11 +50,11 @@ public:
   //@}
 
   // IScreenSaver overrides
-  virtual void enable();
-  virtual void disable();
-  virtual void activate();
-  virtual void deactivate();
-  virtual bool isActive() const;
+  void enable() override;
+  void disable() override;
+  void activate() override;
+  void deactivate() override;
+  bool isActive() const override;
 
 private:
   // find and set the running xscreensaver's window.  returns true iff
@@ -91,7 +88,7 @@ private:
   void updateDisableTimer();
 
   // called periodically to prevent the screen saver from starting
-  void handleDisableTimer(const Event &, void *);
+  void handleDisableTimer();
 
   // force DPMS to activate or deactivate
   void activateDPMS(bool activate);
@@ -118,10 +115,10 @@ private:
   void *m_eventTarget;
 
   // xscreensaver's window
-  Window m_xscreensaver;
+  Window m_xscreensaver = None;
 
   // xscreensaver activation state
-  bool m_xscreensaverActive;
+  bool m_xscreensaverActive = false;
 
   // old event mask on root window
   long m_rootEventMask;
@@ -142,24 +139,24 @@ private:
   int m_allowExposures;
 
   // DPMS screen saver settings
-  bool m_dpms;
+  bool m_dpms = false;
   bool m_dpmsEnabled;
 
   // true iff the client wants the screen saver suppressed
-  bool m_disabled;
+  bool m_disabled = false;
 
   // true iff we're ignoring m_disabled.  this is true, for example,
   // when the client has called activate() and so presumably wants
   // to activate the screen saver even if disabled.
-  bool m_suppressDisable;
+  bool m_suppressDisable = false;
 
-  // the disable timer (NULL if not installed)
-  EventQueueTimer *m_disableTimer;
+  // the disable timer (nullptr if not installed)
+  EventQueueTimer *m_disableTimer = nullptr;
 
   // fake mouse motion position for suppressing the screen saver.
   // xscreensaver since 2.21 requires the mouse to move more than 10
   // pixels to be considered significant.
-  int32_t m_disablePos;
+  int32_t m_disablePos = 0;
 
-  IEventQueue *m_events;
+  IEventQueue *m_events = nullptr;
 };

@@ -17,22 +17,22 @@ A socket multiplexer job class that invokes a member function.
 template <class T> class TSocketMultiplexerMethodJob : public ISocketMultiplexerJob
 {
 public:
-  typedef ISocketMultiplexerJob *(T::*Method)(ISocketMultiplexerJob *, bool, bool, bool);
+  using Method = ISocketMultiplexerJob *(T::*)(ISocketMultiplexerJob *, bool, bool, bool);
 
   //! run() invokes \c object->method(arg)
   TSocketMultiplexerMethodJob(T *object, Method method, ArchSocket socket, bool readable, bool writeable);
   TSocketMultiplexerMethodJob(TSocketMultiplexerMethodJob const &) = delete;
   TSocketMultiplexerMethodJob(TSocketMultiplexerMethodJob &&) = delete;
-  virtual ~TSocketMultiplexerMethodJob();
+  ~TSocketMultiplexerMethodJob() override;
 
   TSocketMultiplexerMethodJob &operator=(TSocketMultiplexerMethodJob const &) = delete;
   TSocketMultiplexerMethodJob &operator=(TSocketMultiplexerMethodJob &&) = delete;
 
   // IJob overrides
-  virtual ISocketMultiplexerJob *run(bool readable, bool writable, bool error);
-  virtual ArchSocket getSocket() const;
-  virtual bool isReadable() const;
-  virtual bool isWritable() const;
+  ISocketMultiplexerJob *run(bool readable, bool writable, bool error) override;
+  ArchSocket getSocket() const override;
+  bool isReadable() const override;
+  bool isWritable() const override;
 
 private:
   T *m_object;
@@ -63,10 +63,10 @@ template <class T> inline TSocketMultiplexerMethodJob<T>::~TSocketMultiplexerMet
 
 template <class T> inline ISocketMultiplexerJob *TSocketMultiplexerMethodJob<T>::run(bool read, bool write, bool error)
 {
-  if (m_object != NULL) {
+  if (m_object != nullptr) {
     return (m_object->*m_method)(this, read, write, error);
   }
-  return NULL;
+  return nullptr;
 }
 
 template <class T> inline ArchSocket TSocketMultiplexerMethodJob<T>::getSocket() const

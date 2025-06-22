@@ -9,9 +9,7 @@
 #include "deskflow/AppUtil.h"
 #include <vector>
 
-namespace deskflow {
-
-namespace languages {
+namespace deskflow::languages {
 
 class LanguageManager
 {
@@ -27,7 +25,7 @@ public:
    * @brief setRemoteLanguages sets remote languages
    * @param remoteLanguages is a string with sericalized languages
    */
-  void setRemoteLanguages(const std::string &remoteLanguages);
+  void setRemoteLanguages(const std::string_view &remoteLanguages);
 
   /**
    * @brief getRemoteLanguages getter for remote languages
@@ -62,6 +60,4 @@ public:
   bool isLanguageInstalled(const std::string &language) const;
 };
 
-} // namespace languages
-
-} // namespace deskflow
+} // namespace deskflow::languages

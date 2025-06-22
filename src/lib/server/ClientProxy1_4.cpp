@@ -9,7 +9,6 @@
 
 #include "base/IEventQueue.h"
 #include "base/Log.h"
-#include "base/TMethodEventJob.h"
 #include "deskflow/ProtocolUtil.h"
 #include "server/Server.h"
 
@@ -24,11 +23,7 @@ ClientProxy1_4::ClientProxy1_4(const std::string &name, deskflow::IStream *strea
     : ClientProxy1_3(name, stream, events),
       m_server(server)
 {
-  assert(m_server != NULL);
-}
-
-ClientProxy1_4::~ClientProxy1_4()
-{
+  assert(m_server != nullptr);
 }
 
 void ClientProxy1_4::keyDown(KeyID key, KeyModifierMask mask, KeyButton button, const std::string &lang)

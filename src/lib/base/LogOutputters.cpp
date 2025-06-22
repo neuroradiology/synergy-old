@@ -12,6 +12,7 @@
 #include "base/String.h"
 
 #include <fstream>
+#include <iostream>
 
 enum EFileLogOutputter
 {
@@ -21,16 +22,6 @@ enum EFileLogOutputter
 //
 // StopLogOutputter
 //
-
-StopLogOutputter::StopLogOutputter()
-{
-  // do nothing
-}
-
-StopLogOutputter::~StopLogOutputter()
-{
-  // do nothing
-}
 
 void StopLogOutputter::open(const char *)
 {
@@ -56,52 +47,39 @@ bool StopLogOutputter::write(ELevel, const char *)
 // ConsoleLogOutputter
 //
 
-ConsoleLogOutputter::ConsoleLogOutputter()
-{
-}
-
-ConsoleLogOutputter::~ConsoleLogOutputter()
-{
-}
-
 void ConsoleLogOutputter::open(const char *title)
 {
-  ARCH->openConsole(title);
+  // do nothing
 }
 
 void ConsoleLogOutputter::close()
 {
-  ARCH->closeConsole();
+  // do nothing
 }
 
 void ConsoleLogOutputter::show(bool showIfEmpty)
 {
-  ARCH->showConsole(showIfEmpty);
+  // do nothing
 }
 
 bool ConsoleLogOutputter::write(ELevel level, const char *msg)
 {
-  ARCH->writeConsole(level, msg);
+  if ((level >= kFATAL) && (level <= kWARNING))
+    std::cerr << msg << std::endl;
+  else
+    std::cout << msg << std::endl;
+  std::cout.flush();
   return true;
 }
 
-void ConsoleLogOutputter::flush()
+void ConsoleLogOutputter::flush() const
 {
+  // do nothing
 }
 
 //
 // SystemLogOutputter
 //
-
-SystemLogOutputter::SystemLogOutputter()
-{
-  // do nothing
-}
-
-SystemLogOutputter::~SystemLogOutputter()
-{
-  // do nothing
-}
 
 void SystemLogOutputter::open(const char *title)
 {
@@ -128,7 +106,7 @@ bool SystemLogOutputter::write(ELevel level, const char *msg)
 // SystemLogger
 //
 
-SystemLogger::SystemLogger(const char *title, bool blockConsole) : m_stop(NULL)
+SystemLogger::SystemLogger(const char *title, bool blockConsole)
 {
   // redirect log messages
   if (blockConsole) {
@@ -144,7 +122,7 @@ SystemLogger::~SystemLogger()
 {
   CLOG->remove(m_syslog);
   delete m_syslog;
-  if (m_stop != NULL) {
+  if (m_stop != nullptr) {
     CLOG->remove(m_stop);
     delete m_stop;
   }
@@ -159,13 +137,9 @@ FileLogOutputter::FileLogOutputter(const char *logFile)
   setLogFilename(logFile);
 }
 
-FileLogOutputter::~FileLogOutputter()
-{
-}
-
 void FileLogOutputter::setLogFilename(const char *logFile)
 {
-  assert(logFile != NULL);
+  assert(logFile != nullptr);
   m_fileName = logFile;
 }
 
@@ -197,12 +171,15 @@ bool FileLogOutputter::write(ELevel level, const char *message)
 
 void FileLogOutputter::open(const char *title)
 {
+  // do nothing
 }
 
 void FileLogOutputter::close()
 {
+  // do nothing
 }
 
 void FileLogOutputter::show(bool showIfEmpty)
 {
+  // do nothing
 }

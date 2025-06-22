@@ -10,6 +10,7 @@ namespace deskflow::gui {
 
 ServerMessage::ServerMessage(const QString &message) : m_message(message), m_clientName(parseClientName(message))
 {
+  // do nothing
 }
 
 bool ServerMessage::isNewClientMessage() const
@@ -40,10 +41,10 @@ const QString &ServerMessage::getClientName() const
 QString ServerMessage::parseClientName(const QString &line) const
 {
   QString clientName("Unknown");
-  auto nameStart = line.indexOf('"') + 1;
-  auto nameEnd = line.indexOf('"', nameStart);
 
-  if (nameEnd > nameStart) {
+  auto nameStart = line.indexOf('"') + 1;
+
+  if (auto nameEnd = line.indexOf('"', nameStart); nameEnd > nameStart) {
     clientName = line.mid(nameStart, nameEnd - nameStart);
   }
 

@@ -5,18 +5,23 @@
 # calling CMAKE_CURRENT_LIST_DIR after include would return the wrong scope var
 set(MY_DIR ${CMAKE_CURRENT_LIST_DIR})
 
+set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)
+set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION .)
+include(InstallRequiredSystemLibraries)
+
 install(CODE "execute_process(
   COMMAND ${DEPLOYQT} --no-compiler-runtime --no-system-d3d-compiler --no-quick-import -network \"\${CMAKE_INSTALL_PREFIX}/deskflow.exe\"
 )")
 
-# Setup OS_STRING
-if(CMAKE_SYSTEM_PROCESSOR MATCHES AMD64)
-  set(OS_STRING "win-x64")
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES ARM64)
-  set(OS_STRING "win-arm64")
-else()
-  set(OS_STRING "win-${CMAKE_SYSTEM_PROCESSOR}")
-endif()
+configure_file(${MY_DIR}/pre-cpack.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/pre-cpack.cmake @ONLY)
+set(CPACK_PRE_BUILD_SCRIPTS ${CMAKE_CURRENT_BINARY_DIR}/pre-cpack.cmake)
+
+configure_file(${MY_DIR}/cpack-options.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/cpack-options.cmake @ONLY)
+set(CPACK_PROJECT_CONFIG_FILE ${CMAKE_CURRENT_BINARY_DIR}/cpack-options.cmake)
+
+set(OS_STRING "win-${BUILD_ARCHITECTURE}")
+
+list(APPEND CPACK_GENERATOR "7Z")
 
 # If Wix4+ is installed make a package
 find_program(WIX_APP wix)

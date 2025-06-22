@@ -1,5 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -14,10 +15,10 @@
 #include "mt/CondVar.h"
 
 #include <map>
+#include <memory>
+#include <mutex>
 #include <queue>
 #include <set>
-
-class Mutex;
 
 //! Event queue
 /*!
@@ -30,43 +31,49 @@ public:
   EventQueue();
   EventQueue(EventQueue const &) = delete;
   EventQueue(EventQueue &&) = delete;
-  virtual ~EventQueue();
+  ~EventQueue() override;
   EventQueue &operator=(EventQueue const &) = delete;
   EventQueue &operator=(EventQueue &&) = delete;
 
   // IEventQueue overrides
-  virtual void loop();
-  virtual void adoptBuffer(IEventQueueBuffer *);
-  virtual bool getEvent(Event &event, double timeout = -1.0);
-  virtual bool dispatchEvent(const Event &event);
-  virtual void addEvent(const Event &event);
-  virtual EventQueueTimer *newTimer(double duration, void *target);
-  virtual EventQueueTimer *newOneShotTimer(double duration, void *target);
-  virtual void deleteTimer(EventQueueTimer *);
-  virtual void adoptHandler(Event::Type type, void *target, IEventJob *handler);
-  virtual void removeHandler(Event::Type type, void *target);
-  virtual void removeHandlers(void *target);
-  virtual Event::Type registerTypeOnce(Event::Type &type, const char *name);
-  virtual bool isEmpty() const;
-  virtual IEventJob *getHandler(Event::Type type, void *target) const;
-  virtual const char *getTypeName(Event::Type type);
-  virtual Event::Type getRegisteredType(const std::string &name) const;
-  void *getSystemTarget();
-  virtual void waitForReady() const;
+  void loop() override;
+  void adoptBuffer(IEventQueueBuffer *) override;
+  bool getEvent(Event &event, double timeout = -1.0) override;
+  bool dispatchEvent(const Event &event) override;
+  void addEvent(const Event &event) override;
+  EventQueueTimer *newTimer(double duration, void *target) override;
+  EventQueueTimer *newOneShotTimer(double duration, void *target) override;
+  void deleteTimer(EventQueueTimer *) override;
+  void addHandler(EventTypes type, void *target, const EventHandler &handler) override;
+  void removeHandler(EventTypes type, void *target) override;
+  void removeHandlers(void *target) override;
+  bool isEmpty() const override;
+  void *getSystemTarget() override;
+  void waitForReady() const override;
 
 private:
+  const EventHandler *getHandler(EventTypes type, void *target) const;
   uint32_t saveEvent(const Event &event);
   Event removeEvent(uint32_t eventID);
   bool hasTimerExpired(Event &event);
   double getNextTimerTimeout() const;
   void addEventToBuffer(const Event &event);
 
+  //!
+  //! \brief processEvent Internal event proccessing
+  //! \param event - event to process
+  //! \param timeout - Timeout to stop
+  //! \param timer - StopWatch to use
+  //! \return true if handled
+  //!
+  bool processEvent(Event &event, double timeout, Stopwatch &timer);
+
 private:
   class Timer
   {
   public:
     Timer(EventQueueTimer *, double timeout, double initialTime, void *target, bool oneShot);
-    ~Timer();
+    ~Timer() = default;
 
     void reset();
 
@@ -93,21 +100,14 @@ private:
   using TimerQueue = PriorityQueue<Timer>;
   using EventTable = std::map<uint32_t, Event>;
   using EventIDList = std::vector<uint32_t>;
-  using TypeMap = std::map<Event::Type, const char *>;
-  using NameMap = std::map<std::string, Event::Type>;
-  using TypeHandlerTable = std::map<Event::Type, IEventJob *>;
+  using TypeHandlerTable = std::map<EventTypes, EventHandler>;
   using HandlerTable = std::map<void *, TypeHandlerTable>;
 
-  int m_systemTarget;
-  ArchMutex m_mutex;
-
-  // registered events
-  Event::Type m_nextType;
-  TypeMap m_typeMap;
-  NameMap m_nameMap;
+  int m_systemTarget = 0;
+  mutable std::mutex m_mutex;
 
   // buffer of events
-  IEventQueueBuffer *m_buffer;
+  std::unique_ptr<IEventQueueBuffer> m_buffer;
 
   // saved events
   EventTable m_events;
@@ -122,58 +122,7 @@ private:
   // event handlers
   HandlerTable m_handlers;
 
-public:
-  //
-  // Event type providers.
-  //
-  ClientEvents &forClient();
-  IStreamEvents &forIStream();
-  IDataSocketEvents &forIDataSocket();
-  IListenSocketEvents &forIListenSocket();
-  ISocketEvents &forISocket();
-  OSXScreenEvents &forOSXScreen();
-  ClientListenerEvents &forClientListener();
-  ClientProxyEvents &forClientProxy();
-  ClientProxyUnknownEvents &forClientProxyUnknown();
-  ServerEvents &forServer();
-  ServerAppEvents &forServerApp();
-  IKeyStateEvents &forIKeyState();
-  IPrimaryScreenEvents &forIPrimaryScreen();
-  IScreenEvents &forIScreen();
-  ClipboardEvents &forClipboard();
-  FileEvents &forFile();
-  EiEvents &forEi();
-
-private:
-  ClientEvents *m_typesForClient;
-  IStreamEvents *m_typesForIStream;
-  IDataSocketEvents *m_typesForIDataSocket;
-  IListenSocketEvents *m_typesForIListenSocket;
-  ISocketEvents *m_typesForISocket;
-  OSXScreenEvents *m_typesForOSXScreen;
-  ClientListenerEvents *m_typesForClientListener;
-  ClientProxyEvents *m_typesForClientProxy;
-  ClientProxyUnknownEvents *m_typesForClientProxyUnknown;
-  ServerEvents *m_typesForServer;
-  ServerAppEvents *m_typesForServerApp;
-  IKeyStateEvents *m_typesForIKeyState;
-  IPrimaryScreenEvents *m_typesForIPrimaryScreen;
-  IScreenEvents *m_typesForIScreen;
-  ClipboardEvents *m_typesForClipboard;
-  FileEvents *m_typesForFile;
-  EiEvents *m_typesForEi;
-  Mutex *m_readyMutex;
-  CondVar<bool> *m_readyCondVar;
+  Mutex *m_readyMutex = nullptr;
+  CondVar<bool> *m_readyCondVar = nullptr;
   std::queue<Event> m_pending;
 };
-
-#define EVENT_TYPE_ACCESSOR(type_)                                                                                     \
-type_##Events&                                                                \
-EventQueue::for##type_()                                                                                               \
-  {                                                                                                                    \
-    if (m_typesFor##type_ == NULL) {                                                                                   \
-      m_typesFor##type_ = new type_##Events();                                                                         \
-      m_typesFor##type_->setEvents(dynamic_cast<IEventQueue *>(this));                                                 \
-    }                                                                                                                  \
-    return *m_typesFor##type_;                                                                                         \
-  }

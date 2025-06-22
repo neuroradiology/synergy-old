@@ -10,7 +10,8 @@
 #include "arch/IArchNetwork.h"
 #include "net/IListenSocket.h"
 
-class Mutex;
+#include <mutex>
+
 class ISocketMultiplexerJob;
 class IEventQueue;
 class SocketMultiplexer;
@@ -25,18 +26,18 @@ public:
   TCPListenSocket(IEventQueue *events, SocketMultiplexer *socketMultiplexer, IArchNetwork::EAddressFamily family);
   TCPListenSocket(TCPListenSocket const &) = delete;
   TCPListenSocket(TCPListenSocket &&) = delete;
-  virtual ~TCPListenSocket();
+  ~TCPListenSocket() override;
 
   TCPListenSocket &operator=(TCPListenSocket const &) = delete;
   TCPListenSocket &operator=(TCPListenSocket &&) = delete;
 
   // ISocket overrides
-  virtual void bind(const NetworkAddress &);
-  virtual void close();
-  virtual void *getEventTarget() const;
+  void bind(const NetworkAddress &) override;
+  void close() override;
+  void *getEventTarget() const override;
 
   // IListenSocket overrides
-  virtual IDataSocket *accept();
+  std::unique_ptr<IDataSocket> accept() override;
 
 protected:
   void setListeningJob();
@@ -46,7 +47,7 @@ public:
 
 protected:
   ArchSocket m_socket;
-  Mutex *m_mutex;
+  std::mutex m_mutex;
   IEventQueue *m_events;
   SocketMultiplexer *m_socketMultiplexer;
 };

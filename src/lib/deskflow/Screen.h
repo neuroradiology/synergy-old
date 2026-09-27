@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -71,7 +71,7 @@ public:
   //! Update configuration
   /*!
   This is called when the configuration has changed.  \c activeSides
-  is a bitmask of EDirectionMask indicating which sides of the
+  is a bitmask of DirectionMask indicating which sides of the
   primary screen are linked to clients.
   */
   void reconfigure(uint32_t activeSides);

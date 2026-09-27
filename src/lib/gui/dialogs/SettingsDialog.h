@@ -1,7 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
- * SPDX-FileCopyrightText: (C) 2012 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2025 - 2026 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2012 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2008 Volker Lanz <vl@fidra.de>
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -9,10 +9,9 @@
 #pragma once
 #include <QDialog>
 
-#include "gui/config/IServerConfig.h"
-#include "gui/core/CoreProcess.h"
-#include "gui/tls/TlsUtility.h"
-#include "validators/ValidationError.h"
+#include "gui/config/ServerConfig.h"
+
+class SettingsDialogButtonBox;
 
 namespace Ui {
 class SettingsDialog;
@@ -20,18 +19,18 @@ class SettingsDialog;
 
 class SettingsDialog : public QDialog
 {
-  using IServerConfig = deskflow::gui::IServerConfig;
-  using CoreProcess = deskflow::gui::CoreProcess;
-
   Q_OBJECT
 
 public:
   void extracted();
-  SettingsDialog(QWidget *parent, const IServerConfig &serverConfig, const CoreProcess &coreProcess);
+  SettingsDialog(QWidget *parent, const ServerConfig &serverConfig);
   ~SettingsDialog() override;
 
 Q_SIGNALS:
-  void shown();
+  void requestRemoveAllSettings();
+
+protected:
+  void changeEvent(QEvent *e) override;
 
 private:
   void initConnections() const;
@@ -40,11 +39,11 @@ private:
   void browseLogPath();
   void setLogToFile(bool logToFile);
   void accept() override;
-  void showEvent(QShowEvent *event) override;
   bool isClientMode() const;
   void updateTlsControls();
   void updateTlsControlsEnabled();
-  void showReadOnlyMessage();
+  void resetAllSettings();
+  void updateText();
 
   /// @brief Load all settings.
   void loadFromConfig();
@@ -58,8 +57,34 @@ private:
   /// @brief updates the setting vaule for key size.
   void updateRequestedKeySize() const;
 
+  /// @brief update if the log level warning is shown
+  void logLevelChanged();
+
+  /**
+   * @brief isModified
+   * @return true when any client settings in the gui do not match the stored settings values.
+   */
+  bool isModified() const;
+
+  /**
+   * @brief isDefault
+   * @return true if all client settings match the default values
+   */
+  bool isDefault() const;
+
+  /**
+   * @brief Set the gui values to the defalut values for all client settings
+   */
+  void resetToDefault();
+
+  /**
+   * @brief setButtonBoxEnabledButtons
+   * Enable / Disable the button box buttons based on the state of the gui
+   */
+  void setButtonBoxEnabledButtons() const;
+
+  bool m_interfaceSetOnLoad = false;
   std::unique_ptr<Ui::SettingsDialog> ui;
-  const IServerConfig &m_serverConfig;
-  const CoreProcess &m_coreProcess;
-  deskflow::gui::TlsUtility m_tlsUtility;
+  const ServerConfig &m_serverConfig;
+  SettingsDialogButtonBox *m_buttonBox = nullptr;
 };

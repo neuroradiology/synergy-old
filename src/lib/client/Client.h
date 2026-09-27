@@ -1,7 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2025 - 2026 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2012 - 2016, 2026 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -10,16 +10,16 @@
 
 #include "deskflow/IClient.h"
 
-#include "HelloBack.h"
+#include "base/Event.h"
 #include "base/EventTypes.h"
-#include "deskflow/ClientArgs.h"
-#include "deskflow/Clipboard.h"
-#include "deskflow/INode.h"
-#include "mt/CondVar.h"
+#include "common/Enums.h"
+#include "deskflow/IClipboard.h"
 #include "net/NetworkAddress.h"
 
-#include <memory>
+#include <climits>
+#include <string>
 
+class Event;
 class EventQueueTimer;
 namespace deskflow {
 class Screen;
@@ -38,9 +38,42 @@ class TCPSocket;
 /*!
 This class implements the top-level client algorithms for deskflow.
 */
-class Client : public IClient, public INode
+class Client : public IClient
 {
 public:
+  class DisconnectRequest : public EventData
+  {
+  public:
+    enum class Kind
+    {
+      Disconnect,
+      Refuse
+    };
+
+    DisconnectRequest(Kind kind, const char *message);
+    DisconnectRequest(deskflow::core::ConnectionRefusal reason, const char *message);
+
+    Kind kind() const
+    {
+      return m_kind;
+    }
+
+    deskflow::core::ConnectionRefusal refusalReason() const
+    {
+      return m_refusalReason;
+    }
+
+    const char *message() const
+    {
+      return m_message.empty() ? nullptr : m_message.c_str();
+    }
+
+  private:
+    Kind m_kind = Kind::Disconnect;
+    deskflow::core::ConnectionRefusal m_refusalReason = deskflow::core::ConnectionRefusal::ProtocolError;
+    std::string m_message;
+  };
+
   class FailInfo
   {
   public:
@@ -49,7 +82,7 @@ public:
       // do nothing
     }
     bool m_retry = false;
-    std::string m_what;
+    QString m_what;
   };
 
 public:
@@ -60,7 +93,7 @@ public:
   */
   Client(
       IEventQueue *events, const std::string &name, const NetworkAddress &address, ISocketFactory *socketFactory,
-      deskflow::Screen *screen, deskflow::ClientArgs const &args
+      deskflow::Screen *screen
   );
   Client(Client const &) = delete;
   Client(Client &&) = delete;
@@ -78,6 +111,7 @@ public:
   the client is trying to connect or is already connected.
   */
   void connect(size_t addressIndex = 0);
+  void setServerAddress(const NetworkAddress &address);
 
   //! Disconnect
   /*!
@@ -90,7 +124,7 @@ public:
   Disconnects from the server with an optional error message.
   Unlike disconnect this function doesn't try to use other ip addresses
   */
-  void refuseConnection(const char *msg);
+  void refuseConnection(deskflow::core::ConnectionRefusal reason, const char *msg);
 
   //! Notify of handshake complete
   /*!
@@ -104,13 +138,13 @@ public:
 
   //! Test if connected
   /*!
-  Returns true iff the client is successfully connected to the server.
+  Returns true if the client is successfully connected to the server.
   */
   bool isConnected() const;
 
   //! Test if connecting
   /*!
-  Returns true iff the client is currently attempting to connect to
+  Returns true if the client is currently attempting to connect to
   the server.
   */
   bool isConnecting() const;
@@ -127,6 +161,7 @@ public:
   {
     return m_resolvedAddressesCount;
   }
+  size_t getMaximumClipboardReceiveSizeBytes() const;
 
   //@}
 
@@ -156,12 +191,13 @@ public:
   std::string getName() const override;
 
 private:
+  void saveRelativeRestorePosition();
   void sendClipboard(ClipboardID);
-  void sendEvent(EventTypes, void *);
+  void sendEvent(deskflow::EventTypes);
   void sendConnectionFailedEvent(const char *msg);
   void setupConnecting();
   void setupConnection();
-  void setupScreen();
+  bool setupScreen(int16_t protocolMinor);
   void setupTimer();
   void cleanup();
   void cleanupConnecting();
@@ -174,6 +210,7 @@ private:
   void handleConnectTimeout();
   void handleOutputError();
   void handleDisconnected();
+  void handleDisconnectRequested(const Event &event);
   void handleShapeChanged();
   void handleClipboardGrabbed(const Event &event);
   void handleHello();
@@ -201,8 +238,10 @@ private:
   IEventQueue *m_events = nullptr;
   bool m_useSecureNetwork = false;
   bool m_enableClipboard = true;
+  bool m_relativeMouseMoves = false;
+  bool m_hasRelativeRestorePosition = false;
+  int32_t m_relativeRestoreX = 0;
+  int32_t m_relativeRestoreY = 0;
   size_t m_maximumClipboardSize = INT_MAX;
-  deskflow::ClientArgs m_args;
   size_t m_resolvedAddressesCount = 0;
-  std::unique_ptr<deskflow::client::HelloBack> m_pHelloBack;
 };

@@ -1,30 +1,28 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2026 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #include "base/Log.h"
-#include "arch/Arch.h"
 #include "base/LogOutputters.h"
 #include "common/Constants.h"
+#include "common/LogLevel.h"
 
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <ctime>
-#include <iostream>
+
+#if HAVE_FORMAT
+#include <format>
+#endif
+
+#include <QDateTime>
 
 const int kPriorityPrefixLength = 3;
-
-// names of priorities
-static const char *g_priority[] = {"FATAL",  "ERROR",  "WARNING", "NOTE",   "INFO",  "DEBUG",
-                                   "DEBUG1", "DEBUG2", "DEBUG3",  "DEBUG4", "DEBUG5"};
-
-// number of priorities
-static const int g_numPriority = 11;
 
 // if NDEBUG (not debug) is not specified, i.e. you're building in debug,
 // then set default log level to DEBUG, otherwise the max level is INFO.
@@ -33,14 +31,14 @@ static const int g_numPriority = 11;
 // for visual studio, then NDEBUG will be set (even if your VS solution
 // config is Debug).
 #ifndef NDEBUG
-static const int g_defaultMaxPriority = kDEBUG;
+static const auto g_defaultMaxPriority = LogLevel::Level::Debug;
 #else
-static const int g_defaultMaxPriority = kINFO;
+static const auto g_defaultMaxPriority = LogLevel::Level::Info;
 #endif
 
 namespace {
 
-ELevel getPriority(const char *&fmt)
+LogLevel::Level getPriority(const char *&fmt)
 {
   if (strnlen(fmt, SIZE_MAX) < kPriorityPrefixLength) {
     throw std::invalid_argument("invalid format string, too short");
@@ -50,46 +48,23 @@ ELevel getPriority(const char *&fmt)
     throw std::invalid_argument("invalid format string, missing priority");
   }
 
-  return static_cast<ELevel>(fmt[2] - '0');
+  return static_cast<LogLevel::Level>(fmt[2] - '0');
 }
 
-void makeTimeString(std::vector<char> &buffer)
-{
-  const int yearOffset = 1900;
-  const int monthOffset = 1;
-
-  time_t t;
-  time(&t);
-  struct tm tm;
-
-#if WINAPI_MSWINDOWS
-  localtime_s(&tm, &t);
-#else
-  localtime_r(&t, &tm);
-#endif
-
-  snprintf(
-      buffer.data(), buffer.size(), "%04i-%02i-%02iT%02i:%02i:%02i", tm.tm_year + yearOffset, tm.tm_mon + monthOffset,
-      tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec
-  );
-}
-
-std::vector<char> makeMessage(const char *filename, int lineNumber, const char *message, ELevel priority)
+std::vector<char> makeMessage(const char *filename, int lineNumber, const char *message, LogLevel::Level priority)
 {
 
   // base size includes null terminator, colon, space, etc.
   const int baseSize = 10;
 
-  const int timeBufferSize = 50;
-  const int priorityMaxSize = 10;
+  const auto currentPriority = static_cast<int>(priority);
 
-  std::vector<char> timeBuffer(timeBufferSize);
-  makeTimeString(timeBuffer);
+  auto timeStr = QDateTime::currentDateTime().toString(Qt::ISODateWithMs).toStdString();
 
-  size_t timestampLength = strnlen(timeBuffer.data(), timeBufferSize);
-  size_t priorityLength = strnlen(g_priority[priority], priorityMaxSize);
+  auto sectionName = LogLevel::toOption(priority).toStdString();
+
   size_t messageLength = strnlen(message, SIZE_MAX);
-  size_t bufferSize = baseSize + timestampLength + priorityLength + messageLength;
+  size_t bufferSize = baseSize + timeStr.length() + sectionName.length() + messageLength;
 
   const auto filenameSet = filename != nullptr && filename[0] != '\0';
   if (filenameSet) {
@@ -98,14 +73,25 @@ std::vector<char> makeMessage(const char *filename, int lineNumber, const char *
     bufferSize += filenameLength + lineNumberLength;
 
     std::vector<char> buffer(bufferSize);
-    snprintf(
-        buffer.data(), bufferSize, "[%s] %s: %s\n\t%s:%d", timeBuffer.data(), g_priority[priority], message, filename,
+#if HAVE_FORMAT
+    std::format_to_n(
+        buffer.data(), bufferSize, "[{}] {}: {}\n\t{}:{}", timeStr.c_str(), sectionName.c_str(), message, filename,
         lineNumber
     );
+#else
+    snprintf(
+        buffer.data(), bufferSize, "[%s] %s: %s\n\t%s:%d", timeStr.c_str(), sectionName.c_str(), message, filename,
+        lineNumber
+    );
+#endif
     return buffer;
   } else {
     std::vector<char> buffer(bufferSize);
-    snprintf(buffer.data(), bufferSize, "[%s] %s: %s", timeBuffer.data(), g_priority[priority], message);
+#if HAVE_FORMAT
+    std::format_to_n(buffer.data(), bufferSize, "[{}] {}: {}", timeStr.c_str(), sectionName.c_str(), message);
+#else
+    snprintf(buffer.data(), bufferSize, "[%s] %s: %s", timeStr.c_str(), sectionName.c_str(), message);
+#endif
     return buffer;
   }
 }
@@ -154,25 +140,12 @@ Log *Log::getInstance()
   return s_log;
 }
 
-const char *Log::getFilterName() const
-{
-  return getFilterName(getFilter());
-}
-
-const char *Log::getFilterName(int level) const
-{
-  if (level < 0) {
-    return "Message";
-  }
-  return g_priority[level];
-}
-
 void Log::print(const char *file, int line, const char *fmt, ...)
 {
   const int initBufferSize = 1024;
   const int bufferResizeScale = 2;
 
-  ELevel priority = getPriority(fmt);
+  const auto priority = getPriority(fmt);
   fmt += kPriorityPrefixLength;
 
   if (priority > getFilter()) {
@@ -196,7 +169,7 @@ void Log::print(const char *file, int line, const char *fmt, ...)
     }
   }
 
-  if (priority == kPRINT) {
+  if (priority == LogLevel::Level::Print) {
     output(priority, buffer.data());
   } else {
     auto message = makeMessage(file, line, buffer.data(), priority);
@@ -235,35 +208,29 @@ void Log::pop_front(bool alwaysAtHead)
   }
 }
 
-bool Log::setFilter(const char *maxPriority)
+bool Log::setFilter(const QString &maxPriority)
 {
-  if (maxPriority != nullptr) {
-    for (int i = 0; i < g_numPriority; ++i) {
-      if (strcmp(maxPriority, g_priority[i]) == 0) {
-        setFilter(i);
-        return true;
-      }
-    }
+  if (maxPriority.isEmpty()) {
     return false;
   }
+  setFilter(LogLevel::fromOption(maxPriority));
   return true;
 }
 
-void Log::setFilter(int maxPriority)
+void Log::setFilter(LogLevel::Level maxPriority)
 {
   std::scoped_lock lock{m_mutex};
   m_maxPriority = maxPriority;
 }
 
-int Log::getFilter() const
+LogLevel::Level Log::getFilter() const
 {
   std::scoped_lock lock{m_mutex};
   return m_maxPriority;
 }
 
-void Log::output(ELevel priority, const char *msg)
+void Log::output(LogLevel::Level priority, const char *msg)
 {
-  assert(priority >= -1 && priority < g_numPriority);
   assert(msg != nullptr);
   if (!msg)
     return;

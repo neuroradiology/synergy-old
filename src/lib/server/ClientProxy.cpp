@@ -1,13 +1,12 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #include "server/ClientProxy.h"
 
-#include "base/EventQueue.h"
 #include "base/Log.h"
 #include "deskflow/ProtocolUtil.h"
 #include "io/IStream.h"
@@ -28,7 +27,7 @@ ClientProxy::~ClientProxy()
 
 void ClientProxy::close(const char *msg) const
 {
-  LOG((CLOG_DEBUG1 "send close \"%s\" to \"%s\"", msg, getName().c_str()));
+  LOG_VERBOSE("send close \"%s\" to \"%s\"", msg, getName().c_str());
   ProtocolUtil::writef(getStream(), msg);
 
   // force the close to be sent before we return

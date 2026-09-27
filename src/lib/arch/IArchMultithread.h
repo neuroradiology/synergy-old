@@ -1,13 +1,14 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
 
-#include "common/IInterface.h"
+#include <cstdint>
 
 /*!
 \class ArchCondImpl
@@ -57,28 +58,30 @@ using ArchThread = ArchThreadImpl *;
 This interface defines the multithreading operations required by
 deskflow.  Each architecture must implement this interface.
 */
-class IArchMultithread : public IInterface
+class IArchMultithread
 {
 public:
   //! Type of thread entry point
   using ThreadFunc = void *(*)(void *);
   //! Type of thread identifier
   using ThreadID = unsigned int;
+
+  virtual ~IArchMultithread() = default;
   //! Types of signals
   /*!
   Not all platforms support all signals.  Unsupported signals are
   ignored.
   */
-  enum ESignal
+  enum class ThreadSignal : uint8_t
   {
-    kINTERRUPT, //!< Interrupt (e.g. Ctrl+C)
-    kTERMINATE, //!< Terminate (e.g. Ctrl+Break)
-    kHANGUP,    //!< Hangup (SIGHUP)
-    kUSER,      //!< User (SIGUSR2)
-    kNUM_SIGNALS
+    Interrupt, //!< Interrupt (e.g. Ctrl+C)
+    Terminate, //!< Terminate (e.g. Ctrl+Break)
+    Hangup,    //!< Hangup (SIGHUP)
+    User,      //!< User (SIGUSR2)
+    MaxSignals //!< Number of differnt signals
   };
   //! Type of signal handler function
-  using SignalFunc = void (*)(ESignal, void *userData);
+  using SignalFunc = void (*)(ThreadSignal, void *userData);
 
   //! @name manipulators
   //@{
@@ -249,15 +252,15 @@ public:
   Sets the function to call on receipt of an external interrupt.
   By default and when \p func is nullptr, the main thread is cancelled.
   */
-  virtual void setSignalHandler(ESignal, SignalFunc func, void *userData) = 0;
+  virtual void setSignalHandler(ThreadSignal, SignalFunc func, void *userData) = 0;
 
   //! Invoke the signal handler
   /*!
   Invokes the signal handler for \p signal, if any.  If no handler
-  cancels the main thread for \c kINTERRUPT and \c kTERMINATE and
+  cancels the main thread for \c ThreadSignal::Interrupt and \c ThreadSignal::Terminate and
   ignores the call otherwise.
   */
-  virtual void raiseSignal(ESignal signal) = 0;
+  virtual void raiseSignal(ThreadSignal signal) = 0;
 
   //@}
 };

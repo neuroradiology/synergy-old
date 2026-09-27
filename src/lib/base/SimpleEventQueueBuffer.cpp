@@ -1,6 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2026 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -8,10 +9,6 @@
 #include "base/SimpleEventQueueBuffer.h"
 #include "arch/Arch.h"
 #include "base/Stopwatch.h"
-
-class EventQueueTimer
-{
-};
 
 //
 // SimpleEventQueueBuffer
@@ -49,12 +46,12 @@ IEventQueueBuffer::Type SimpleEventQueueBuffer::getEvent(Event &, uint32_t &data
 {
   ArchMutexLock lock(m_queueMutex);
   if (!m_queueReady) {
-    return kNone;
+    return IEventQueueBuffer::Type::Unknown;
   }
   dataID = m_queue.back();
   m_queue.pop_back();
   m_queueReady = !m_queue.empty();
-  return kUser;
+  return IEventQueueBuffer::Type::User;
 }
 
 bool SimpleEventQueueBuffer::addEvent(uint32_t dataID)
@@ -72,14 +69,4 @@ bool SimpleEventQueueBuffer::isEmpty() const
 {
   ArchMutexLock lock(m_queueMutex);
   return !m_queueReady;
-}
-
-EventQueueTimer *SimpleEventQueueBuffer::newTimer(double, bool) const
-{
-  return new EventQueueTimer;
-}
-
-void SimpleEventQueueBuffer::deleteTimer(EventQueueTimer *timer) const
-{
-  delete timer;
 }

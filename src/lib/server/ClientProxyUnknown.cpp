@@ -1,7 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -10,12 +10,10 @@
 
 #include "base/IEventQueue.h"
 #include "base/Log.h"
-#include "deskflow/AppUtil.h"
+#include "deskflow/DeskflowException.h"
 #include "deskflow/ProtocolTypes.h"
 #include "deskflow/ProtocolUtil.h"
-#include "deskflow/XDeskflow.h"
 #include "io/IStream.h"
-#include "io/XIO.h"
 #include "server/ClientProxy1_0.h"
 #include "server/ClientProxy1_1.h"
 #include "server/ClientProxy1_2.h"
@@ -26,9 +24,6 @@
 #include "server/ClientProxy1_7.h"
 #include "server/ClientProxy1_8.h"
 #include "server/Server.h"
-
-#include <iterator>
-#include <sstream>
 
 //
 // ClientProxyUnknown
@@ -48,7 +43,7 @@ ClientProxyUnknown::ClientProxyUnknown(deskflow::IStream *stream, double timeout
   const auto protocol = m_server->protocolString();
   const auto helloMessage = protocol + kMsgHelloArgs;
 
-  LOG_DEBUG("saying hello as %s, protocol v%d.%d", protocol.c_str(), kProtocolMajorVersion, kProtocolMinorVersion);
+  LOG_INFO("saying hello as %s, protocol v%d.%d", protocol.c_str(), kProtocolMajorVersion, kProtocolMinorVersion);
   ProtocolUtil::writef(m_stream, helloMessage.c_str(), kProtocolMajorVersion, kProtocolMinorVersion);
 }
 
@@ -119,16 +114,17 @@ void ClientProxyUnknown::addProxyHandlers()
 
 void ClientProxyUnknown::removeHandlers()
 {
+  using enum EventTypes;
   if (m_stream != nullptr) {
-    m_events->removeHandler(EventTypes::StreamInputReady, m_stream->getEventTarget());
-    m_events->removeHandler(EventTypes::StreamOutputError, m_stream->getEventTarget());
-    m_events->removeHandler(EventTypes::StreamInputShutdown, m_stream->getEventTarget());
-    m_events->removeHandler(EventTypes::StreamInputFormatError, m_stream->getEventTarget());
-    m_events->removeHandler(EventTypes::StreamOutputShutdown, m_stream->getEventTarget());
+    m_events->removeHandler(StreamInputReady, m_stream->getEventTarget());
+    m_events->removeHandler(StreamOutputError, m_stream->getEventTarget());
+    m_events->removeHandler(StreamInputShutdown, m_stream->getEventTarget());
+    m_events->removeHandler(StreamInputFormatError, m_stream->getEventTarget());
+    m_events->removeHandler(StreamOutputShutdown, m_stream->getEventTarget());
   }
   if (m_proxy != nullptr) {
-    m_events->removeHandler(EventTypes::ClientProxyReady, m_proxy);
-    m_events->removeHandler(EventTypes::ClientProxyDisconnected, m_proxy);
+    m_events->removeHandler(ClientProxyReady, m_proxy);
+    m_events->removeHandler(ClientProxyDisconnected, m_proxy);
   }
 }
 
@@ -180,38 +176,41 @@ void ClientProxyUnknown::initProxy(const std::string &name, int major, int minor
     case 8:
       m_proxy = new ClientProxy1_8(name, m_stream, m_server, m_events);
       break;
+
+    default:
+      break;
     }
   }
 
   // hangup (with error) if version isn't supported
   if (m_proxy == nullptr) {
-    throw XIncompatibleClient(major, minor);
+    throw IncompatibleClientException(major, minor);
   }
 }
 
 void ClientProxyUnknown::handleData()
 {
-  LOG((CLOG_DEBUG1 "parsing hello reply"));
+  LOG_VERBOSE("parsing hello reply");
 
   std::string name("<unknown>");
 
   try {
     // limit the maximum length of the hello
     if (uint32_t n = m_stream->getSize(); n > kMaxHelloLength) {
-      LOG((CLOG_DEBUG1 "hello reply too long"));
-      throw XBadClient();
+      LOG_VERBOSE("hello reply too long");
+      throw BadClientException();
     }
 
     // parse the reply to hello
     int16_t major;
     int16_t minor;
     if (std::string protocolName; !ProtocolUtil::readf(m_stream, kMsgHelloBack, &protocolName, &major, &minor, &name)) {
-      throw XBadClient();
+      throw BadClientException();
     }
 
     // disallow invalid version numbers
     if (major <= 0 || minor < 0) {
-      throw XIncompatibleClient(major, minor);
+      throw IncompatibleClientException(major, minor);
     }
 
     // remove stream event handlers.  the proxy we're about to create
@@ -223,41 +222,41 @@ void ClientProxyUnknown::handleData()
     initProxy(name, major, minor);
 
     // the proxy is created and now proxy now owns the stream
-    LOG((CLOG_DEBUG1 "created proxy for client \"%s\" version %d.%d", name.c_str(), major, minor));
+    LOG_VERBOSE("created proxy for client \"%s\" version %d.%d", name.c_str(), major, minor);
     m_stream = nullptr;
 
     // wait until the proxy signals that it's ready or has disconnected
     addProxyHandlers();
     return;
-  } catch (XIncompatibleClient &e) {
+  } catch (IncompatibleClientException &e) {
     // client is incompatible
-    LOG((CLOG_WARN "client \"%s\" has incompatible version %d.%d)", name.c_str(), e.getMajor(), e.getMinor()));
+    LOG_WARN("client \"%s\" has incompatible version %d.%d)", name.c_str(), e.getMajor(), e.getMinor());
     ProtocolUtil::writef(m_stream, kMsgEIncompatible, kProtocolMajorVersion, kProtocolMinorVersion);
-  } catch (XBadClient &) {
+  } catch (BadClientException &) {
     // client not behaving
-    LOG((CLOG_WARN "protocol error from client \"%s\"", name.c_str()));
+    LOG_WARN("protocol error from client \"%s\"", name.c_str());
     ProtocolUtil::writef(m_stream, kMsgEBad);
-  } catch (XBase &e) {
+  } catch (BaseException &e) {
     // misc error
-    LOG((CLOG_WARN "error communicating with client \"%s\": %s", name.c_str(), e.what()));
+    LOG_WARN("error communicating with client \"%s\": %s", name.c_str(), e.what());
   }
   sendFailure();
 }
 
 void ClientProxyUnknown::handleWriteError()
 {
-  LOG((CLOG_NOTE "error communicating with new client"));
+  LOG_INFO("error communicating with new client");
   sendFailure();
 }
 
 void ClientProxyUnknown::handleTimeout()
 {
-  LOG((CLOG_NOTE "new client is unresponsive"));
+  LOG_INFO("new client is unresponsive");
   sendFailure();
 }
 
 void ClientProxyUnknown::handleDisconnect()
 {
-  LOG((CLOG_NOTE "new client disconnected"));
+  LOG_INFO("new client disconnected");
   sendFailure();
 }

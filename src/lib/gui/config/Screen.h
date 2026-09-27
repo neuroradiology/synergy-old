@@ -1,7 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Chris Rizzitello <sithlord48@gmail.com>
- * SPDX-FileCopyrightText: (C) 2012 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2008 Volker Lanz <vl@fidra.de>
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -10,6 +10,7 @@
 
 #include "ScreenConfig.h"
 
+#include "common/KeyboardModifier.h"
 #include "common/QSettingsProxy.h"
 
 #include <QIcon>
@@ -62,7 +63,7 @@ public:
   }
   [[nodiscard]] int modifier(int m) const
   {
-    return m_Modifiers[m] == static_cast<int>(ScreenConfig::Modifier::DefaultMod) ? m : m_Modifiers[m];
+    return m_Modifiers[m] == static_cast<int>(KeyboardModifier::DefaultMod) ? m : m_Modifiers[m];
   }
   [[nodiscard]] const QList<int> &modifiers() const
   {
@@ -119,7 +120,7 @@ protected:
   {
     return m_Aliases;
   }
-  void setModifier(const Modifier m, const int n)
+  void setModifier(const KeyboardModifier m, const int n)
   {
     m_Modifiers[static_cast<int8_t>(m)] = n;
   }
@@ -160,7 +161,7 @@ private:
   QPixmap m_Pixmap = QIcon::fromTheme("video-display").pixmap(QSize(96, 96));
   QString m_Name = {};
   QStringList m_Aliases = {};
-  QList<int> m_Modifiers = {0, 1, 2, 3, 4, 5};
+  QList<int> m_Modifiers = {0, 1, 2, 3, 4, 5, 6};
   QList<bool> m_SwitchCorners = {false, false, false, false};
   int m_SwitchCornerSize = 0;
   QList<bool> m_Fixes{false, false, false, false};

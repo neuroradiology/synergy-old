@@ -1,13 +1,14 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2015 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2015 - 2016 Synergy App Ltd
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
 
-#include "common/Common.h"
 #include <base/Event.h>
+
+#include <cstring>
 
 class Chunk : public EventData
 {

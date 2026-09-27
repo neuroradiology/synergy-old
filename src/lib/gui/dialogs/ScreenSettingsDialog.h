@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2008 Volker Lanz <vl@fidra.de>
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -24,19 +24,19 @@ class ScreenSettingsDialog : public QDialog
   Q_OBJECT
 
 public:
-  ScreenSettingsDialog(QWidget *parent, Screen *pScreen = nullptr, const ScreenList *pScreens = nullptr);
+  explicit ScreenSettingsDialog(QWidget *parent, Screen *screen = nullptr, const ScreenList *screens = nullptr);
   ~ScreenSettingsDialog() override;
 
 public Q_SLOTS:
   void accept() override;
 
 private Q_SLOTS:
-  void on_m_pButtonAddAlias_clicked();
-  void on_m_pButtonRemoveAlias_clicked();
-  void on_m_pLineEditAlias_textChanged(const QString &text);
-  void on_m_pListAliases_itemSelectionChanged();
+  void addAlias();
+  void removeAlias() const;
+  void checkNewAliasName(const QString &text);
+  void aliasSelected();
 
 private:
   std::unique_ptr<Ui::ScreenSettingsDialog> ui;
-  Screen *m_pScreen;
+  Screen *m_screen;
 };

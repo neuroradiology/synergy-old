@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2024 Chris Rizzitello <sithlord48@gmail.com>
+# SPDX-FileCopyrightText: (C) 2024 Chris Rizzitello <sithlord48@gmail.com>
 # SPDX-License-Identifier: MIT
 
 # HACK This is set when the files is included so its the real path
@@ -6,12 +6,8 @@
 set(MY_DIR ${CMAKE_CURRENT_LIST_DIR})
 
 set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)
-set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION .)
+set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION ${CMAKE_INSTALL_LIBDIR})
 include(InstallRequiredSystemLibraries)
-
-install(CODE "execute_process(
-  COMMAND ${DEPLOYQT} --no-compiler-runtime --no-system-d3d-compiler --no-quick-import -network \"\${CMAKE_INSTALL_PREFIX}/deskflow.exe\"
-)")
 
 configure_file(${MY_DIR}/pre-cpack.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/pre-cpack.cmake @ONLY)
 set(CPACK_PRE_BUILD_SCRIPTS ${CMAKE_CURRENT_BINARY_DIR}/pre-cpack.cmake)
@@ -21,12 +17,13 @@ set(CPACK_PROJECT_CONFIG_FILE ${CMAKE_CURRENT_BINARY_DIR}/cpack-options.cmake)
 
 set(OS_STRING "win-${BUILD_ARCHITECTURE}")
 
-list(APPEND CPACK_GENERATOR "7Z")
+list(APPEND CPACK_GENERATOR "ZIP")
 
 # If Wix4+ is installed make a package
 find_program(WIX_APP wix)
 if (NOT "${WIX_APP}" STREQUAL "")
   set(CPACK_WIX_VERSION 4)
+  set(CPACK_WIX_ARCHITECTURE ${BUILD_ARCHITECTURE})
   list(APPEND CPACK_GENERATOR "WIX")
 endif()
 

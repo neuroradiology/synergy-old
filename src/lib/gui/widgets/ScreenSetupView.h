@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2008 Volker Lanz <vl@fidra.de>
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -9,8 +9,6 @@
 
 #include <QFlags>
 #include <QTableView>
-
-#include "gui/config/Screen.h"
 
 class QWidget;
 class QMouseEvent;
@@ -40,5 +38,6 @@ protected:
   void initViewItemOption(QStyleOptionViewItem *option) const override;
   void scrollTo(const QModelIndex &, ScrollHint) override
   {
+    // do nothing
   }
 };

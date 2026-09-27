@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2015 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2015 - 2016 Synergy App Ltd
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
@@ -16,7 +16,4 @@ public:
   ~ClientProxy1_7() override = default;
 
   void secureInputNotification(const std::string &app) const override;
-
-private:
-  IEventQueue *m_events;
 };

@@ -1,7 +1,8 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Chris Rizzitello <sithlord48@gmail.com>
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2008 Volker Lanz <vl@fidra.de>
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -24,15 +25,16 @@ class ActionDialog : public QDialog
   Q_OBJECT
 
 public:
-  enum ActionTypes
+  struct ActionTypes
   {
-    PressKey,
-    ReleaseKey,
-    ToggleKey,
-    SwitchTo,
-    SwitchInDirection,
-    ModifyCursorLock,
-    RestartServer
+    inline static const auto PressKey = 0;
+    inline static const auto ReleaseKey = 1;
+    inline static const auto ToggleKey = 2;
+    inline static const auto SwitchTo = 3;
+    inline static const auto SwitchInDirection = 4;
+    inline static const auto SwitchToNextScreen = 5;
+    inline static const auto ModifyCursorLock = 6;
+    inline static const auto RestartServer = 7;
   };
 
   ActionDialog(QWidget *parent, const ServerConfig &config, Hotkey &hotkey, Action &action);
@@ -44,6 +46,7 @@ protected Q_SLOTS:
 private:
   void updateSize();
   void keySequenceChanged();
+  void itemToggled() const;
   void actionTypeChanged(int index);
   bool isKeyAction(int index) const;
   bool canSave() const;

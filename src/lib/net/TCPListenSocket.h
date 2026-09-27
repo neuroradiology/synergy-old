@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -23,7 +23,7 @@ A listen socket using TCP.
 class TCPListenSocket : public IListenSocket
 {
 public:
-  TCPListenSocket(IEventQueue *events, SocketMultiplexer *socketMultiplexer, IArchNetwork::EAddressFamily family);
+  TCPListenSocket(IEventQueue *events, SocketMultiplexer *socketMultiplexer, IArchNetwork::AddressFamily family);
   TCPListenSocket(TCPListenSocket const &) = delete;
   TCPListenSocket(TCPListenSocket &&) = delete;
   ~TCPListenSocket() override;
@@ -39,15 +39,29 @@ public:
   // IListenSocket overrides
   std::unique_ptr<IDataSocket> accept() override;
 
-protected:
-  void setListeningJob();
-
-public:
   ISocketMultiplexerJob *serviceListening(ISocketMultiplexerJob *, bool, bool, bool);
 
 protected:
+  void setListeningJob();
+
+  ArchSocket socket() const
+  {
+    return m_socket;
+  }
+
+  IEventQueue *events() const
+  {
+    return m_events;
+  }
+
+  SocketMultiplexer *socketMultiplexer() const
+  {
+    return m_socketMultiplexer;
+  }
+
+private:
   ArchSocket m_socket;
-  std::mutex m_mutex;
   IEventQueue *m_events;
   SocketMultiplexer *m_socketMultiplexer;
+  std::mutex m_mutex;
 };

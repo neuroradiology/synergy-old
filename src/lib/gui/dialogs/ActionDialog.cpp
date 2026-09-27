@@ -1,7 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Chris Rizzitello <sithlord48@gmail.com>
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2008 Volker Lanz <vl@fidra.de>
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -9,10 +9,10 @@
 #include "ActionDialog.h"
 #include "ui_ActionDialog.h"
 
-#include "Action.h"
-#include "Hotkey.h"
-#include "KeySequence.h"
-#include "ServerConfig.h"
+#include "common/Action.h"
+#include "common/Hotkey.h"
+#include "common/KeySequence.h"
+#include "config/ServerConfig.h"
 
 #include <QTimer>
 
@@ -27,9 +27,7 @@ ActionDialog::ActionDialog(QWidget *parent, const ServerConfig &config, Hotkey &
   connect(
       ui->comboActionType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ActionDialog::actionTypeChanged
   );
-  connect(ui->listScreens, &QListWidget::itemChanged, this, [&] {
-    ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(canSave());
-  });
+  connect(ui->listScreens, &QListWidget::itemChanged, this, &ActionDialog::itemToggled);
   connect(ui->buttonBox, &QDialogButtonBox::accepted, this, &ActionDialog::accept);
   connect(ui->buttonBox, &QDialogButtonBox::rejected, this, &ActionDialog::reject);
 
@@ -53,7 +51,7 @@ ActionDialog::ActionDialog(QWidget *parent, const ServerConfig &config, Hotkey &
 
     ui->listScreens->addItem(newListItem);
 
-    ui->comboSwitchToScreen->addItem(tr("Switch to %1").arg(screen.name()));
+    ui->comboSwitchToScreen->addItem(tr("Switch to %1").arg(screen.name()), screen.name());
     if (screen.name() == m_action.switchScreenName())
       ui->comboSwitchToScreen->setCurrentIndex(ui->comboSwitchToScreen->count() - 1);
   }
@@ -76,25 +74,25 @@ void ActionDialog::accept()
   m_action.setKeySequence(ui->keySequenceWidget->keySequence());
   m_action.setType(ui->comboActionType->currentIndex());
 
-  m_action.typeScreenNames().clear();
+  m_action.clearScreens();
 
   int screenCount = ui->listScreens->count();
 
   for (int i = 0; i < ui->listScreens->count(); i++) {
     const auto &item = ui->listScreens->item(i);
-    m_action.typeScreenNames().append(item->text());
+    m_action.addScreen(item->text());
     if (item->checkState() == Qt::Unchecked) {
       screenCount--;
-      m_action.typeScreenNames().removeLast();
+      m_action.removeScreen(item->text());
     }
   }
 
   if (screenCount == ui->listScreens->count())
-    m_action.typeScreenNames().clear();
+    m_action.clearScreens();
 
   m_action.setHaveScreens(screenCount);
 
-  m_action.setSwitchScreenName(ui->comboSwitchToScreen->currentText().remove(tr("Switch to ")));
+  m_action.setSwitchScreenName(ui->comboSwitchToScreen->currentData().toString());
   m_action.setSwitchDirection(ui->comboSwitchInDirection->currentIndex());
   m_action.setLockCursorMode(ui->comboLockCursorToScreen->currentIndex());
   m_action.setActiveOnRelease(ui->comboTriggerOn->currentIndex());
@@ -114,6 +112,11 @@ void ActionDialog::updateSize()
 void ActionDialog::keySequenceChanged()
 {
   ui->listScreens->setEnabled(!ui->keySequenceWidget->keySequence().isMouseButton());
+  ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(canSave());
+}
+
+void ActionDialog::itemToggled() const
+{
   ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(canSave());
 }
 

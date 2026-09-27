@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -21,13 +21,14 @@ Clipboard::Clipboard()
 
 bool Clipboard::empty()
 {
+  std::scoped_lock lock{m_mutex};
   if (!m_open) {
     LOG_WARN("cannot empty clipboard, not open");
     return false;
   }
 
   // clear all data
-  for (int32_t index = 0; index < kNumFormats; ++index) {
+  for (int32_t index = 0; index < static_cast<int>(Format::TotalFormats); ++index) {
     m_data[index] = "";
     m_added[index] = false;
   }
@@ -41,8 +42,9 @@ bool Clipboard::empty()
   return true;
 }
 
-void Clipboard::add(EFormat format, const std::string &data)
+void Clipboard::add(Format format, const std::string &data)
 {
+  std::scoped_lock lock{m_mutex};
   if (!m_open) {
     LOG_WARN("cannot add to clipboard, not open");
     return;
@@ -53,12 +55,14 @@ void Clipboard::add(EFormat format, const std::string &data)
     return;
   }
 
-  m_data[format] = data;
-  m_added[format] = true;
+  const auto formatID = static_cast<int>(format);
+  m_data[formatID] = data;
+  m_added[formatID] = true;
 }
 
 bool Clipboard::open(Time time) const
 {
+  std::scoped_lock lock{m_mutex};
   if (m_open) {
     LOG_DEBUG("skipping clipboard open, already open");
     return true;
@@ -72,6 +76,7 @@ bool Clipboard::open(Time time) const
 
 void Clipboard::close() const
 {
+  std::scoped_lock lock{m_mutex};
   if (!m_open) {
     LOG_WARN("clipboard is not open");
   }
@@ -83,22 +88,24 @@ Clipboard::Time Clipboard::getTime() const
   return m_timeOwned;
 }
 
-bool Clipboard::has(EFormat format) const
+bool Clipboard::has(Format format) const
 {
+  std::scoped_lock lock{m_mutex};
   if (!m_open) {
     LOG_WARN("cannot check for clipboard format, not open");
     return false;
   }
-  return m_added[format];
+  return m_added[static_cast<int>(format)];
 }
 
-std::string Clipboard::get(EFormat format) const
+std::string Clipboard::get(Format format) const
 {
+  std::scoped_lock lock{m_mutex};
   if (!m_open) {
     LOG_WARN("cannot get clipboard format, not open");
     return "";
   }
-  return m_data[format];
+  return m_data[static_cast<int>(format)];
 }
 
 void Clipboard::unmarshall(const std::string &data, Time time)

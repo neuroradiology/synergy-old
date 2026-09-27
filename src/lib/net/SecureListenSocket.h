@@ -1,7 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
- * SPDX-FileCopyrightText: (C) 2015 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2015 - 2016 Synergy App Ltd
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
@@ -9,8 +9,6 @@
 
 #include "net/SecurityLevel.h"
 #include "net/TCPListenSocket.h"
-
-#include <set>
 
 class IEventQueue;
 class SocketMultiplexer;
@@ -20,7 +18,7 @@ class SecureListenSocket : public TCPListenSocket
 {
 public:
   SecureListenSocket(
-      IEventQueue *events, SocketMultiplexer *socketMultiplexer, IArchNetwork::EAddressFamily family,
+      IEventQueue *events, SocketMultiplexer *socketMultiplexer, IArchNetwork::AddressFamily family,
       SecurityLevel securityLevel = SecurityLevel::PlainText
   );
 

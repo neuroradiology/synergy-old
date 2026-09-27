@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -19,9 +19,9 @@ XWindowsClipboardHTMLConverter::XWindowsClipboardHTMLConverter(Display *display,
   // do nothing
 }
 
-IClipboard::EFormat XWindowsClipboardHTMLConverter::getFormat() const
+IClipboard::Format XWindowsClipboardHTMLConverter::getFormat() const
 {
-  return IClipboard::kHTML;
+  return IClipboard::Format::HTML;
 }
 
 Atom XWindowsClipboardHTMLConverter::getAtom() const

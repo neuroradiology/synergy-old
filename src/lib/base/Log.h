@@ -1,17 +1,19 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2026 Deskflow Developers.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
 
-#include "arch/Arch.h"
-#include "arch/IArchMultithread.h"
-#include "common/Common.h"
+#include "common/LogLevel.h"
 
+#include <list>
 #include <mutex>
+
+#include <QString>
 
 #define CLOG (Log::getInstance())
 #define BYE "\nTry `%s --help' for more information."
@@ -84,10 +86,10 @@ public:
   true if the priority \c name was recognized;  if \c name is nullptr
   then it simply returns true.
   */
-  bool setFilter(const char *name);
+  bool setFilter(const QString &name);
 
   //! Set the minimum priority filter (by ordinal).
-  void setFilter(int);
+  void setFilter(LogLevel::Level);
 
   //@}
   //! @name accessors
@@ -102,28 +104,22 @@ public:
   void print(const char *file, int line, const char *format, ...);
 
   //! Get the minimum priority level.
-  int getFilter() const;
-
-  //! Get the filter name of the current filter level.
-  const char *getFilterName() const;
-
-  //! Get the filter name of a specified filter level.
-  const char *getFilterName(int level) const;
+  LogLevel::Level getFilter() const;
 
   //! Get the singleton instance of the log
   static Log *getInstance();
 
   //! Get the console filter level (messages above this are not sent to
   //! console).
-  int getConsoleMaxLevel() const
+  LogLevel::Level getConsoleMaxLevel() const
   {
-    return kDEBUG2;
+    return LogLevel::Level::Verbose;
   }
 
   //@}
 
 private:
-  void output(ELevel priority, const char *msg);
+  void output(LogLevel::Level priority, const char *msg);
 
 private:
   using OutputterList = std::list<ILogOutputter *>;
@@ -133,7 +129,7 @@ private:
   mutable std::mutex m_mutex;
   OutputterList m_outputters;
   OutputterList m_alwaysOutputters;
-  int m_maxPriority;
+  LogLevel::Level m_maxPriority;
 };
 
 /*!
@@ -145,7 +141,7 @@ LOG((CLOG_XXX "%d and %d are %s", x, y, x == y ? "equal" : "not equal"));
 \endcode
 In particular, notice the double open and close parentheses.  Also note
 that there is no comma after the \c CLOG_XXX.  The \c XXX should be
-replaced by one of enumerants in \c Log::ELevel without the leading
+replaced by one of enumerants in \c Log::LogLevel without the leading
 \c k.  For example, \c CLOG_INFO.  The special \c CLOG_PRINT level will
 not be filtered and is never prefixed by the filename and line number.
 
@@ -164,7 +160,7 @@ LOGC(x == y, (CLOG_XXX "%d and %d are equal", x, y));
 \endcode
 In particular, notice the parentheses around everything after the boolean
 expression.    Also note that there is no comma after the \c CLOG_XXX.
-The \c XXX should be replaced by one of enumerants in \c Log::ELevel
+The \c XXX should be replaced by one of enumerants in \c Log::LogLevel
 without the leading \c k.  For example, \c CLOG_INFO.  The special
 \c CLOG_PRINT level will not be filtered and is never prefixed by the
 filename and line number.
@@ -198,28 +194,28 @@ otherwise it expands to a call that doesn't.
 // end, then we resort to using non-numerical chars. this still works (since
 // to deduce the number we subtract octal \060, so '/' is -1, and ':' is 10
 
-#define CLOG_PRINT CLOG_TRACE "%z\057" // char is '/'
-#define CLOG_CRIT CLOG_TRACE "%z\060"  // char is '0'
-#define CLOG_ERR CLOG_TRACE "%z\061"
-#define CLOG_WARN CLOG_TRACE "%z\062"
-#define CLOG_NOTE CLOG_TRACE "%z\063"
-#define CLOG_INFO CLOG_TRACE "%z\064"
-#define CLOG_DEBUG CLOG_TRACE "%z\065"
-#define CLOG_DEBUG1 CLOG_TRACE "%z\066"
-#define CLOG_DEBUG2 CLOG_TRACE "%z\067"
-#define CLOG_DEBUG3 CLOG_TRACE "%z\070"
-#define CLOG_DEBUG4 CLOG_TRACE "%z\071" // char is '9'
-#define CLOG_DEBUG5 CLOG_TRACE "%z\072" // char is ':'
+// Priority tag used as the first three bytes of a format string. Log::print
+// reads fmt[2] - '0' to recover the level, so the escape must be ASCII '0'-'9'.
+#define CLOG_TAG_PRINT "%z\057" // char is '/'
+#define CLOG_TAG_CRIT "%z\060"  // char is '0'
+#define CLOG_TAG_ERR "%z\061"
+#define CLOG_TAG_WARN "%z\062"
+#define CLOG_TAG_INFO "%z\063"
+#define CLOG_TAG_DEBUG "%z\064"
+#define CLOG_TAG_VERBOSE "%z\065"
+
+#define CLOG_PRINT CLOG_TRACE CLOG_TAG_PRINT
+#define CLOG_CRIT CLOG_TRACE CLOG_TAG_CRIT
+#define CLOG_ERR CLOG_TRACE CLOG_TAG_ERR
+#define CLOG_WARN CLOG_TRACE CLOG_TAG_WARN
+#define CLOG_INFO CLOG_TRACE CLOG_TAG_INFO
+#define CLOG_DEBUG CLOG_TRACE CLOG_TAG_DEBUG
+#define CLOG_VERBOSE CLOG_TRACE CLOG_TAG_VERBOSE
 
 #define LOG_PRINT(...) LOG((CLOG_PRINT __VA_ARGS__))
 #define LOG_CRIT(...) LOG((CLOG_CRIT __VA_ARGS__))
 #define LOG_ERR(...) LOG((CLOG_ERR __VA_ARGS__))
 #define LOG_WARN(...) LOG((CLOG_WARN __VA_ARGS__))
-#define LOG_NOTE(...) LOG((CLOG_NOTE __VA_ARGS__))
 #define LOG_INFO(...) LOG((CLOG_INFO __VA_ARGS__))
 #define LOG_DEBUG(...) LOG((CLOG_DEBUG __VA_ARGS__))
-#define LOG_DEBUG1(...) LOG((CLOG_DEBUG1 __VA_ARGS__))
-#define LOG_DEBUG2(...) LOG((CLOG_DEBUG2 __VA_ARGS__))
-#define LOG_DEBUG3(...) LOG((CLOG_DEBUG3 __VA_ARGS__))
-#define LOG_DEBUG4(...) LOG((CLOG_DEBUG4 __VA_ARGS__))
-#define LOG_DEBUG5(...) LOG((CLOG_DEBUG5 __VA_ARGS__))
+#define LOG_VERBOSE(...) LOG((CLOG_VERBOSE __VA_ARGS__))

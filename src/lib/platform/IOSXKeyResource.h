@@ -1,6 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2016 Synergy App Ltd
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
@@ -8,9 +9,12 @@
 
 #include "deskflow/KeyState.h"
 
-class IOSXKeyResource : public IInterface
+#include <CoreServices/CoreServices.h>
+
+class IOSXKeyResource
 {
 public:
+  virtual ~IOSXKeyResource() = default;
   virtual bool isValid() const = 0;
   virtual uint32_t getNumModifierCombinations() const = 0;
   virtual uint32_t getNumTables() const = 0;

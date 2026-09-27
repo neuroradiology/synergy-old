@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (C) 2024 Chris Rizzitello <sithlord48@gmail.com>
-# SPDX-FileCopyrightText: Copyright (C) 2011 Symless Ltd.
+# SPDX-FileCopyrightText: Copyright (C) 2011 Synergy App Ltd
 # SPDX-FileCopyrightText: Copyright (C) 2010 Jason Axelson <BostonVaulter@gmail.com>
 # SPDX-License-Identifier: MIT
 
@@ -25,6 +25,12 @@ deskflow-config.toml
 /*.user
 *.ui.autosave
 
+#Qt creator 18 user files
+/.qtcreator
+
+# generated vcpkg file
+vcpkg.json
+
 #Generic linux files
 **/*.directory
 
@@ -39,3 +45,7 @@ CMakeFiles/*
 
 # scripts folder
 /scripts
+
+# Ai helperfilers
+**/[cC]laude.[mM][dD]
+**/CLAUDE.[mM][dD]

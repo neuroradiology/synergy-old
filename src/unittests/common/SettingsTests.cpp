@@ -18,7 +18,12 @@ void SettingsTests::initTestCase()
 
 void SettingsTests::setSettingsFile()
 {
-  Settings::setSettingFile(m_settingsFile);
+  Settings::setSettingsFile(m_settingsFile);
+}
+
+void SettingsTests::setStateFile()
+{
+  Settings::setStateFile(m_stateFile);
 }
 
 void SettingsTests::settingsFile()
@@ -36,11 +41,6 @@ void SettingsTests::tlsDir()
   QVERIFY(Settings::tlsDir().endsWith(m_expectedTlsDir));
 }
 
-void SettingsTests::tlsLocalDb()
-{
-  QVERIFY(Settings::tlsLocalDb().endsWith(m_expectedTlsLocalDB));
-}
-
 void SettingsTests::tlsTrustedServersDb()
 {
   QVERIFY(Settings::tlsTrustedServersDb().endsWith(m_expectedTlsServerDB));
@@ -56,7 +56,8 @@ void SettingsTests::checkValidSettings()
   QSignalSpy spy(Settings::instance(), &Settings::settingsChanged);
   QVERIFY(spy.isValid());
 
-  const auto validKeys = Settings::validKeys();
+  const auto keysToCheck = QRegularExpression(QLatin1String("[^%1]").arg(Settings::Core::ComputerName));
+  const auto validKeys = Settings::validKeys().filter(keysToCheck);
   for (const auto &setting : validKeys) {
     const auto value = Settings::value(setting).toString();
     QCOMPARE(Settings::defaultValue(setting).toString(), value);
@@ -66,7 +67,7 @@ void SettingsTests::checkValidSettings()
     QCOMPARE(qvariant_cast<QString>(spy.first().at(0)), setting);
     QCOMPARE(Settings::value(setting).toString(), "NEW_VALUE");
 
-    Settings::setValue(setting, QVariant());
+    Settings::setValue(setting);
     QCOMPARE(spy.count(), 2);
     QCOMPARE(Settings::value(setting).toString(), value);
 
@@ -74,6 +75,40 @@ void SettingsTests::checkValidSettings()
     spy.clear();
     QCOMPARE(spy.count(), 0);
   }
+}
+
+void SettingsTests::checkCleanScreenName()
+{
+  const auto input = QStringLiteral("--!_ _-S@c#r$e%e^&*(n)= +Name\n[1]2|3?4--5>6<,7`~/8*90\\.lan--..    ..");
+  const auto expected = QStringLiteral("Screen_Name_1234--567890.lan");
+
+  Settings::setValue(Settings::Core::ComputerName, input);
+
+  QCOMPARE(Settings::value(Settings::Core::ComputerName).toString(), expected);
+}
+
+void SettingsTests::checkCleanScreenName_LongName()
+{
+  QString input;
+  input.fill('f', 300);
+  input.prepend('.');
+
+  QString expected;
+  expected.fill('f', 255);
+
+  Settings::setValue(Settings::Core::ComputerName, input);
+
+  QCOMPARE(Settings::value(Settings::Core::ComputerName).toString(), expected);
+}
+
+void SettingsTests::checkClearState()
+{
+  Settings::setValue(Settings::Gui::WindowGeometry, QRect(1, 2, 3, 4));
+  QVERIFY(Settings::value(Settings::Gui::WindowGeometry).toRect().isValid());
+
+  Settings::clearState();
+
+  QVERIFY(!Settings::value(Settings::Gui::WindowGeometry).toRect().isValid());
 }
 
 QTEST_MAIN(SettingsTests)

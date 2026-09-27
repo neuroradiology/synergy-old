@@ -1,11 +1,13 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
+
+#if WINAPI_XWINDOWS
 
 #include <string>
 #include <vector>
@@ -66,3 +68,5 @@ const std::vector<std::pair<std::string, std::string>> ISO_Table = {
     std::make_pair("wln", "wa"), std::make_pair("wol", "wo"), std::make_pair("xho", "xh"), std::make_pair("yid", "yi"),
     std::make_pair("yor", "yo"), std::make_pair("zha", "za"), std::make_pair("zho", "zh"), std::make_pair("zul", "zu"),
 };
+
+#endif

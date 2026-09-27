@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2024 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2024 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2022 Red Hat, Inc.
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -14,20 +14,13 @@
 #include "mt/Thread.h"
 
 #include <cassert>
-#include <cstdio>
 #include <fcntl.h>
 #include <poll.h>
 #include <unistd.h>
 
-class EventQueueTimer
-{
-};
-
 namespace deskflow {
 
-EiEventQueueBuffer::EiEventQueueBuffer(const EiScreen *screen, ei *ei, IEventQueue *events)
-    : m_ei{ei_ref(ei)},
-      m_events{events}
+EiEventQueueBuffer::EiEventQueueBuffer(ei *ei, IEventQueue *events) : m_ei{ei_ref(ei)}, m_events{events}
 {
   // We need a pipe to signal ourselves when addEvent() is called
   int pipefd[2];
@@ -45,27 +38,24 @@ EiEventQueueBuffer::~EiEventQueueBuffer()
   close(m_pipeWrite);
 }
 
-void EiEventQueueBuffer::waitForEvent(double timeout_in_ms)
+void EiEventQueueBuffer::waitForEvent(double msTimeout)
 {
   Thread::testCancel();
 
-  enum
-  {
-    EIFD,
-    PIPEFD,
-    POLLFD_COUNT, // Last element
-  };
+  static const auto s_eiFd = 0;
+  static const auto s_pipeFd = 1;
+  static const auto s_pollFdCount = 2;
 
-  struct pollfd pfds[POLLFD_COUNT];
-  pfds[EIFD].fd = ei_get_fd(m_ei);
-  pfds[EIFD].events = POLLIN;
-  pfds[PIPEFD].fd = m_pipeRead;
-  pfds[PIPEFD].events = POLLIN;
+  struct pollfd pfds[s_pollFdCount];
+  pfds[s_eiFd].fd = ei_get_fd(m_ei);
+  pfds[s_eiFd].events = POLLIN;
+  pfds[s_pipeFd].fd = m_pipeRead;
+  pfds[s_pipeFd].events = POLLIN;
 
-  int timeout = (timeout_in_ms < 0.0) ? -1 : static_cast<int>(1000.0 * timeout_in_ms);
+  int timeout = (msTimeout < 0.0) ? -1 : static_cast<int>(1000.0 * msTimeout);
 
-  if (int retval = poll(pfds, POLLFD_COUNT, timeout); retval > 0) {
-    if (pfds[EIFD].revents & POLLIN) {
+  if (int retval = poll(pfds, s_pollFdCount, timeout); retval > 0) {
+    if (pfds[s_eiFd].revents & POLLIN) {
       std::scoped_lock lock{m_mutex};
 
       // libei doesn't allow ei_event_ref() because events are
@@ -80,14 +70,14 @@ void EiEventQueueBuffer::waitForEvent(double timeout_in_ms)
     }
     // the pipefd data doesn't matter, it only exists to wake up the thread
     // and potentially testCancel
-    if (pfds[PIPEFD].revents & POLLIN) {
+    if (pfds[s_pipeFd].revents & POLLIN) {
       char buf[64];
       ssize_t total = 0;
       ssize_t result;
       while ((result = read(m_pipeRead, buf, sizeof(buf)) > 0)) {
         total += result;
       }
-      LOG_DEBUG2("event queue read result: %d (total drained: %zd)", result, total);
+      LOG_VERBOSE("event queue read result: %d (total drained: %zd)", result, total);
     }
   }
   Thread::testCancel();
@@ -115,12 +105,12 @@ IEventQueueBuffer::Type EiEventQueueBuffer::getEvent(Event &event, uint32_t &dat
   // if this an injected special event, just return the data and exit
   if (pair.first == false) {
     dataID = pair.second;
-    return kUser;
+    return IEventQueueBuffer::Type::User;
   }
 
   event = Event(EventTypes::System, m_events->getSystemTarget());
 
-  return kSystem;
+  return IEventQueueBuffer::Type::System;
 }
 
 bool EiEventQueueBuffer::addEvent(uint32_t dataID)
@@ -130,7 +120,7 @@ bool EiEventQueueBuffer::addEvent(uint32_t dataID)
 
   // tickle the pipe so our read thread wakes up
   auto result = write(m_pipeWrite, "!", 1);
-  LOG_DEBUG2("event queue write result: %d", result);
+  LOG_VERBOSE("event queue write result: %d", result);
 
   return true;
 }
@@ -140,16 +130,6 @@ bool EiEventQueueBuffer::isEmpty() const
   std::scoped_lock lock{m_mutex};
 
   return m_queue.empty();
-}
-
-EventQueueTimer *EiEventQueueBuffer::newTimer(double duration, bool oneShot) const
-{
-  return new EventQueueTimer;
-}
-
-void EiEventQueueBuffer::deleteTimer(EventQueueTimer *timer) const
-{
-  delete timer;
 }
 
 } // namespace deskflow

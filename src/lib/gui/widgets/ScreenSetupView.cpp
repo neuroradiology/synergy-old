@@ -1,7 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Chris Rizzitello <sithlord48@gmail.com>
- * SPDX-FileCopyrightText: (C) 2012 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2008 Volker Lanz <vl@fidra.de>
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -129,7 +129,7 @@ void ScreenSetupView::startDrag(Qt::DropActions)
   auto *pDrag = new QDrag(this);
   pDrag->setPixmap(pixmap);
   pDrag->setMimeData(pData);
-  pDrag->setHotSpot(QPoint(pixmap.width() / 2, pixmap.height() / 2));
+  pDrag->setHotSpot(QPoint(iconSize().width() / 2, iconSize().height() / 2));
 
   if (pDrag->exec(Qt::MoveAction, Qt::MoveAction) == Qt::MoveAction) {
     selectionModel()->clear();

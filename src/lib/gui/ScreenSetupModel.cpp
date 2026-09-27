@@ -1,18 +1,19 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Chris Rizzitello <sithlord48@gmail.com>
- * SPDX-FileCopyrightText: (C) 2012 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2008 Volker Lanz <vl@fidra.de>
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #include "ScreenSetupModel.h"
 
+#include "common/Constants.h"
+#include "gui/config/Screen.h"
+
 #include <QIODevice>
 #include <QIcon>
 #include <QMimeData>
-
-#include "gui/config/Screen.h"
 
 const QString ScreenSetupModel::m_MimeType = "application/x-deskflow-screen";
 
@@ -22,17 +23,19 @@ ScreenSetupModel::ScreenSetupModel(ScreenList &screens, int numColumns, int numR
       m_NumColumns(numColumns),
       m_NumRows(numRows)
 {
-
-  // bound rows and columns to prevent multiply overflow.
-  // this is unlikely to happen, as the grid size is only 3x9.
-  if (m_NumColumns > 100 || m_NumRows > 100) {
-    qFatal("grid size out of bounds: %d columns x %d rows", m_NumColumns, m_NumRows);
-    return;
+  // bound the grid so that multiplying columns by rows cannot overflow.
+  if (m_NumColumns < 1 || m_NumColumns > kMaxGridSize || m_NumRows < 1 || m_NumRows > kMaxGridSize) {
+    qCritical("grid size out of bounds: %d columns x %d rows", m_NumColumns, m_NumRows);
+    m_NumColumns = kServerGridWidth;
+    m_NumRows = kServerGridHeight;
   }
 
-  const long span = static_cast<long>(m_NumColumns) * m_NumRows;
-  if (span > screens.size()) {
-    qFatal("scrren list (%lld) too small for %d columns x %d rows", screens.size(), m_NumColumns, m_NumRows);
+  const int span = m_NumColumns * m_NumRows;
+  if (span > m_Screens.size()) {
+    qCritical(
+        "screen list too small for grid, screens: %lld, cells: %d", static_cast<long long>(m_Screens.size()), span
+    );
+    m_Screens.resize(span);
   }
 }
 
@@ -57,6 +60,9 @@ QVariant ScreenSetupModel::data(const QModelIndex &index, int role) const
 
   case Qt::DisplayRole:
     return screen(index).name();
+
+  default:
+    break;
   }
   return QVariant();
 }
@@ -121,22 +127,24 @@ bool ScreenSetupModel::dropMimeData(
   stream >> sourceColumn;
   stream >> sourceRow;
 
+  const auto pColumn = parent.column();
+  const auto pRow = parent.row();
+
   // don't drop screen onto itself
-  if (sourceColumn == parent.column() && sourceRow == parent.row())
+  if (sourceColumn == pColumn && sourceRow == pRow)
     return false;
 
   Screen droppedScreen;
   stream >> droppedScreen;
 
-  auto oldScreen = Screen(screen(parent.column(), parent.row()));
-  if (!oldScreen.isNull() && sourceColumn != -1 && sourceRow != -1) {
+  if (auto oldScreen = Screen(screen(pColumn, pRow)); !oldScreen.isNull() && sourceColumn != -1 && sourceRow != -1) {
     // mark the screen so it isn't deleted after the dragndrop succeeded
     // see ScreenSetupView::startDrag()
     oldScreen.setSwapped(true);
     screen(sourceColumn, sourceRow) = oldScreen;
   }
 
-  screen(parent.column(), parent.row()) = droppedScreen;
+  screen(pColumn, pRow) = droppedScreen;
 
   Q_EMIT screensChanged();
 
@@ -151,8 +159,6 @@ void ScreenSetupModel::addScreen(const Screen &newScreen)
 
 bool ScreenSetupModel::isFull() const
 {
-  auto emptyScreen =
-      std::find_if(m_Screens.cbegin(), m_Screens.cend(), [](const Screen &item) { return item.isNull(); });
-
-  return (emptyScreen == m_Screens.cend());
+  auto emptyScreen = std::ranges::find_if(m_Screens, [](const Screen &item) { return item.isNull(); });
+  return (static_cast<QList<Screen>::const_iterator>(emptyScreen) == m_Screens.cend());
 }

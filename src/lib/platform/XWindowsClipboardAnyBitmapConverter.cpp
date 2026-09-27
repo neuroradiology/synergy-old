@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -74,9 +74,9 @@ static inline uint32_t fromLEU32(const uint8_t *data)
 // XWindowsClipboardAnyBitmapConverter
 //
 
-IClipboard::EFormat XWindowsClipboardAnyBitmapConverter::getFormat() const
+IClipboard::Format XWindowsClipboardAnyBitmapConverter::getFormat() const
 {
-  return IClipboard::kBitmap;
+  return IClipboard::Format::Bitmap;
 }
 
 int XWindowsClipboardAnyBitmapConverter::getDataSize() const

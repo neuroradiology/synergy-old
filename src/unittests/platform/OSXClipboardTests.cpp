@@ -1,7 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Chris Rizzitello <sithlord48@gmail.com>
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2011 Nick Bolton
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -21,17 +21,19 @@ void OSXClipboardTests::open()
 
 void OSXClipboardTests::singleFormat()
 {
+  using enum IClipboard::Format;
+
   OSXClipboard clipboard;
   QVERIFY(clipboard.empty());
-  clipboard.add(OSXClipboard::kText, m_testString);
-  QVERIFY(clipboard.has(OSXClipboard::kText));
-  QCOMPARE(clipboard.get(OSXClipboard::kText), m_testString);
+  clipboard.add(Text, m_testString);
+  QVERIFY(clipboard.has(Text));
+  QCOMPARE(clipboard.get(Text), m_testString);
 }
 
 void OSXClipboardTests::formatConvert_UTF8()
 {
   OSXClipboardUTF8Converter converter;
-  QCOMPARE(IClipboard::kText, converter.getFormat());
+  QCOMPARE(IClipboard::Format::Text, converter.getFormat());
   QCOMPARE(converter.getOSXFormat(), CFSTR("public.utf8-plain-text"));
   QCOMPARE(converter.fromIClipboard("test data\n"), "test data\r");
   QCOMPARE(converter.toIClipboard("test data\r"), "test data\n");

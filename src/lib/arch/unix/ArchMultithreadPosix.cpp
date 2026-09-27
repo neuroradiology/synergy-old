@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -8,7 +8,7 @@
 #include "arch/unix/ArchMultithreadPosix.h"
 
 #include "arch/Arch.h"
-#include "arch/XArch.h"
+#include "arch/ArchException.h"
 
 #include <cerrno>
 #include <signal.h>
@@ -61,7 +61,7 @@ ArchMultithreadPosix::ArchMultithreadPosix()
   s_instance = this;
 
   // no signal handlers
-  for (size_t i = 0; i < kNUM_SIGNALS; ++i) {
+  for (size_t i = 0; i < static_cast<size_t>(ThreadSignal::MaxSignals); ++i) {
     m_signalFunc[i] = nullptr;
     m_signalUserData[i] = nullptr;
   }
@@ -388,7 +388,7 @@ void ArchMultithreadPosix::testCancelThread()
   ArchThreadImpl *thread = nullptr;
   {
     std::scoped_lock lock{m_threadMutex};
-    thread = findNoRef(pthread_self());
+    thread = findNoRefOrInsert(pthread_self());
   }
   // test cancel on thread
   testCancelThreadImpl(thread);
@@ -402,7 +402,7 @@ bool ArchMultithreadPosix::wait(ArchThread target, double timeout)
   {
     std::scoped_lock lock{m_threadMutex};
     // find current thread
-    self = findNoRef(pthread_self());
+    self = findNoRefOrInsert(pthread_self());
     // ignore wait if trying to wait on ourself
     if (target == self) {
       return false;
@@ -467,20 +467,24 @@ IArchMultithread::ThreadID ArchMultithreadPosix::getIDOfThread(ArchThread thread
   return thread->m_id;
 }
 
-void ArchMultithreadPosix::setSignalHandler(ESignal signal, SignalFunc func, void *userData)
+void ArchMultithreadPosix::setSignalHandler(ThreadSignal signal, SignalFunc func, void *userData)
 {
   std::scoped_lock lock{m_threadMutex};
-  m_signalFunc[signal] = func;
-  m_signalUserData[signal] = userData;
+  const auto index = static_cast<int>(signal);
+  m_signalFunc[index] = func;
+  m_signalUserData[index] = userData;
 }
 
-void ArchMultithreadPosix::raiseSignal(ESignal signal)
+void ArchMultithreadPosix::raiseSignal(ThreadSignal signal)
 {
+  using enum ThreadSignal;
+
   std::scoped_lock lock{m_threadMutex};
-  if (m_signalFunc[signal] != nullptr) {
-    m_signalFunc[signal](signal, m_signalUserData[signal]);
+  const auto index = static_cast<int>(signal);
+  if (m_signalFunc[index] != nullptr) {
+    m_signalFunc[index](signal, m_signalUserData[index]);
     pthread_kill(m_mainThread->m_thread, SIGWAKEUP);
-  } else if (signal == kINTERRUPT || signal == kTERMINATE) {
+  } else if (signal == Interrupt || signal == Terminate) {
     ARCH->cancelThread(m_mainThread);
   }
 }
@@ -513,9 +517,23 @@ void ArchMultithreadPosix::startSignalHandler()
 
 ArchThreadImpl *ArchMultithreadPosix::find(pthread_t thread)
 {
-  ArchThreadImpl *impl = findNoRef(thread);
+  ArchThreadImpl *impl = findNoRefOrInsert(thread);
   if (impl != nullptr) {
     refThread(impl);
+  }
+  return impl;
+}
+
+ArchThreadImpl *ArchMultithreadPosix::findNoRefOrInsert(pthread_t thread)
+{
+  ArchThreadImpl *impl = findNoRef(thread);
+  if (impl == nullptr) {
+    // create thread for calling thread which isn't in our list and
+    // add it to the list. this can happen when a foreign thread
+    // (e.g. a Qt thread) calls into the arch layer.
+    impl = new ArchThreadImpl;
+    impl->m_thread = thread;
+    insert(impl);
   }
   return impl;
 }
@@ -580,7 +598,7 @@ void ArchMultithreadPosix::testCancelThreadImpl(ArchThreadImpl *thread)
 
   // unwind thread's stack if cancelling
   if (cancel) {
-    throw XThreadCancel();
+    throw ThreadCancelException();
   }
 }
 
@@ -616,7 +634,7 @@ void ArchMultithreadPosix::doThreadFunc(ArchThread thread)
     result = (*thread->m_func)(thread->m_userData);
   }
 
-  catch (XThreadCancel &) {
+  catch (ThreadCancelException &) {
     // client called cancel()
     // set base value
     result = nullptr;
@@ -668,29 +686,26 @@ void *ArchMultithreadPosix::threadSignalHandler(void *)
   // we exit the loop via thread cancellation in sigwait()
   for (;;) {
     // wait
-#if HAVE_POSIX_SIGWAIT
     int signal = 0;
     sigwait(&sigset, &signal);
-#else
-    sigwait(&sigset);
-#endif
 
     // if we get here then the signal was raised
     switch (signal) {
+      using enum ThreadSignal;
     case SIGINT:
-      ARCH->raiseSignal(kINTERRUPT);
+      ARCH->raiseSignal(Interrupt);
       break;
 
     case SIGTERM:
-      ARCH->raiseSignal(kTERMINATE);
+      ARCH->raiseSignal(Terminate);
       break;
 
     case SIGHUP:
-      ARCH->raiseSignal(kHANGUP);
+      ARCH->raiseSignal(Hangup);
       break;
 
     case SIGUSR2:
-      ARCH->raiseSignal(kUSER);
+      ARCH->raiseSignal(User);
       break;
 
     default:

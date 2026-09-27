@@ -1,7 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
- * SPDX-FileCopyrightText: (C) 2025 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2025 Synergy App Ltd
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
@@ -9,20 +9,20 @@
 
 #include "arch/win32/XArchWindows.h"
 #include "base/Log.h"
-#include "common/Common.h"
 #include "common/Constants.h"
+#include "common/ExitCodes.h"
+#include "platform/MSWindowsSession.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 
 #include <UserEnv.h>
 
-#include <stdexcept>
 #include <string>
 
 namespace deskflow::platform {
 
-MSWindowsProcess::MSWindowsProcess(const std::string &command, HANDLE stdOutput, HANDLE stdError)
+MSWindowsProcess::MSWindowsProcess(const std::wstring &command, HANDLE stdOutput, HANDLE stdError)
     : m_command(command),
       m_stdOutput(stdOutput),
       m_stdError(stdError)
@@ -51,7 +51,7 @@ BOOL MSWindowsProcess::startInForeground()
   si.wShowWindow = SW_MINIMIZE;
 
   m_createProcessResult =
-      CreateProcess(nullptr, LPSTR(m_command.c_str()), nullptr, nullptr, TRUE, 0, nullptr, nullptr, &si, &m_info);
+      CreateProcess(nullptr, LPWSTR(m_command.c_str()), nullptr, nullptr, TRUE, 0, nullptr, nullptr, &si, &m_info);
   return m_createProcessResult;
 }
 
@@ -62,14 +62,15 @@ BOOL MSWindowsProcess::startAsUser(HANDLE userToken, LPSECURITY_ATTRIBUTES sa)
 
   LPVOID environment;
   if (!CreateEnvironmentBlock(&environment, userToken, FALSE)) {
-    LOG((CLOG_ERR "could not create environment block"));
+    LOG_ERR("could not create environment block");
     throw std::runtime_error(windowsErrorToString(GetLastError()));
   }
 
   ZeroMemory(&m_info, sizeof(PROCESS_INFORMATION));
   const DWORD creationFlags = NORMAL_PRIORITY_CLASS | CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT;
   m_createProcessResult = CreateProcessAsUser(
-      userToken, nullptr, LPSTR(m_command.c_str()), sa, nullptr, TRUE, creationFlags, environment, nullptr, &si, &m_info
+      userToken, nullptr, LPWSTR(m_command.c_str()), sa, nullptr, TRUE, creationFlags, environment, nullptr, &si,
+      &m_info
   );
 
   DestroyEnvironmentBlock(environment);
@@ -80,7 +81,7 @@ BOOL MSWindowsProcess::startAsUser(HANDLE userToken, LPSECURITY_ATTRIBUTES sa)
 
 void MSWindowsProcess::setStartupInfo(STARTUPINFO &si)
 {
-  static char g_desktopName[] = "winsta0\\Default"; // NOSONAR -- Idiomatic Win32
+  static wchar_t g_desktopName[] = L"winsta0\\Default"; // NOSONAR -- Idiomatic Win32
 
   ZeroMemory(&si, sizeof(STARTUPINFO));
   si.cb = sizeof(STARTUPINFO);
@@ -181,11 +182,56 @@ void MSWindowsProcess::shutdown(HANDLE handle, DWORD pid, int timeout)
   }
 
   // Last resort, terminate the process forcefully.
-  if (TerminateProcess(handle, kExitSuccess)) {
+  if (TerminateProcess(handle, s_exitSuccess)) {
     LOG_WARN("forcefully terminated process %d", pid);
   } else {
     LOG_ERR("failed to terminate process %d, error: %s", pid, windowsErrorToString(GetLastError()).c_str());
   }
+}
+
+bool MSWindowsProcess::startDetachedAsSessionUser(const std::wstring &command)
+{
+  MSWindowsSession session;
+  session.updateActiveSession();
+
+  HANDLE userToken = nullptr;
+  try {
+    userToken = session.getUserToken(nullptr);
+  } catch (const std::runtime_error &e) {
+    LOG_ERR("could not get session user token: %s", e.what());
+    return false;
+  }
+
+  LPVOID environment = nullptr;
+  if (!CreateEnvironmentBlock(&environment, userToken, FALSE)) {
+    LOG_ERR("could not create environment block, error: %s", windowsErrorToString(GetLastError()).c_str());
+    CloseHandle(userToken);
+    return false;
+  }
+
+  STARTUPINFOW si = {};
+  si.cb = sizeof(si);
+  PROCESS_INFORMATION pi = {};
+
+  std::wstring mutableCommand = command;
+  const DWORD flags = CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE;
+
+  LOG_DEBUG("starting detached process as session user, command: %s", command.c_str());
+  const BOOL ok = CreateProcessAsUserW(
+      userToken, nullptr, mutableCommand.data(), nullptr, nullptr, FALSE, flags, environment, nullptr, &si, &pi
+  );
+
+  DestroyEnvironmentBlock(environment);
+  CloseHandle(userToken);
+
+  if (!ok) {
+    LOG_ERR("could not start process as session user, error: %s", windowsErrorToString(GetLastError()).c_str());
+    return false;
+  }
+
+  CloseHandle(pi.hProcess);
+  CloseHandle(pi.hThread);
+  return true;
 }
 
 void MSWindowsProcess::createPipes()
@@ -216,20 +262,20 @@ void MSWindowsProcess::createPipes()
   }
 }
 
-std::string MSWindowsProcess::readStdOutput()
+std::wstring MSWindowsProcess::readStdOutput()
 {
   return readOutput(m_outputPipe);
 }
 
-std::string MSWindowsProcess::readStdError()
+std::wstring MSWindowsProcess::readStdError()
 {
   return readOutput(m_errorPipe);
 }
 
-std::string MSWindowsProcess::readOutput(HANDLE handle)
+std::wstring MSWindowsProcess::readOutput(HANDLE handle)
 {
   const auto kOutputBufferSize = 4096;
-  char buffer[kOutputBufferSize]; // NOSONAR -- Idiomatic Win32
+  wchar_t buffer[kOutputBufferSize]; // NOSONAR -- Idiomatic Win32
 
   DWORD bytesRead;
   DWORD totalBytesAvail;
@@ -242,7 +288,7 @@ std::string MSWindowsProcess::readOutput(HANDLE handle)
   }
 
   if (totalBytesAvail == 0) {
-    return "";
+    return {};
   }
 
   if (!ReadFile(handle, buffer, kOutputBufferSize, &bytesRead, nullptr)) {
@@ -250,7 +296,7 @@ std::string MSWindowsProcess::readOutput(HANDLE handle)
     throw std::runtime_error(windowsErrorToString(GetLastError()));
   }
 
-  return std::string(buffer, bytesRead);
+  return std::wstring(buffer, bytesRead);
 }
 
 } // namespace deskflow::platform

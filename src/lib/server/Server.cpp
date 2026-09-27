@@ -1,38 +1,38 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers.
- * SPDX-FileCopyrightText: (C) 2012 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #include "server/Server.h"
 
-#include "arch/Arch.h"
 #include "base/IEventQueue.h"
 #include "base/Log.h"
-#include "base/TMethodJob.h"
 #include "deskflow/AppUtil.h"
+#include "deskflow/DeskflowException.h"
 #include "deskflow/IPlatformScreen.h"
 #include "deskflow/OptionTypes.h"
 #include "deskflow/PacketStreamFilter.h"
 #include "deskflow/ProtocolTypes.h"
 #include "deskflow/Screen.h"
 #include "deskflow/StreamChunker.h"
-#include "deskflow/XDeskflow.h"
-#include "mt/Thread.h"
+#include "deskflow/ipc/CoreIpc.h"
 #include "net/TCPSocket.h"
 #include "server/ClientListener.h"
 #include "server/ClientProxy.h"
 #include "server/ClientProxyUnknown.h"
 #include "server/PrimaryClient.h"
 
-#include <climits>
+#ifdef _WIN32
+#include <algorithm>
+#include <array>
+#endif
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
-#include <stdexcept>
 
 using namespace deskflow::server;
 
@@ -40,17 +40,13 @@ using namespace deskflow::server;
 // Server
 //
 
-Server::Server(
-    ServerConfig &config, PrimaryClient *primaryClient, deskflow::Screen *screen, IEventQueue *events,
-    deskflow::ServerArgs const &args
-)
+Server::Server(ServerConfig &config, PrimaryClient *primaryClient, deskflow::Screen *screen, IEventQueue *events)
     : m_primaryClient(primaryClient),
       m_active(primaryClient),
       m_config(&config),
       m_inputFilter(config.getInputFilter()),
       m_screen(screen),
-      m_events(events),
-      m_args(args)
+      m_events(events)
 {
   // must have a primary client and it must have a canonical name
   assert(m_primaryClient != nullptr);
@@ -108,6 +104,9 @@ Server::Server(
   m_events->addHandler(EventTypes::ServerSwitchInDirection, m_inputFilter, [this](const auto &e) {
     handleSwitchInDirectionEvent(e);
   });
+  m_events->addHandler(EventTypes::ServerToggleScreen, m_inputFilter, [this](const auto &e) {
+    handleToggleScreenEvent(e);
+  });
   m_events->addHandler(EventTypes::ServerKeyboardBroadcast, m_inputFilter, [this](const auto &e) {
     handleKeyboardBroadcastEvent(e);
   });
@@ -127,14 +126,26 @@ Server::Server(
   // set initial configuration
   setConfig(config);
 
+  // If we are using libportal, we need to set the primary client first.
+  // This enables the rules of the primary client. The hotkeys are then enabled in EiScreen.cpp after the rules
+  // registered them.
+#if WINAPI_LIBPORTAL
   // enable primary client
+  m_inputFilter->setPrimaryClient(m_primaryClient);
+  m_primaryClient->enable();
+  // If we are on Mac, X11 or Windows, we need a key map, which is created in screen->enable().
+  // So we need to enable the screen first, then enable the primary client.
+#else
   m_primaryClient->enable();
   m_inputFilter->setPrimaryClient(m_primaryClient);
-
+#endif
   // Determine if scroll lock is already set. If so, lock the cursor to the
-  // primary screen
-  if (m_primaryClient->getToggleMask() & KeyModifierScrollLock) {
-    LOG((CLOG_NOTE "scroll lock is on, locking cursor to screen"));
+  // primary screen (unless the user has disabled lock to screen in config)
+  if (!m_disableLockToScreen && (m_primaryClient->getToggleMask() & KeyModifierScrollLock)) {
+    LOG_INFO("scroll lock is on, locking cursor to screen");
+    m_lockedToScreen = true;
+  } else if (m_defaultLockToScreenState) {
+    LOG_INFO("default screen lock is on, locking cursor to screen");
     m_lockedToScreen = true;
   }
 }
@@ -142,42 +153,53 @@ Server::Server(
 Server::~Server()
 {
   // remove event handlers and timers
-  m_events->removeHandler(EventTypes::KeyStateKeyDown, m_inputFilter);
-  m_events->removeHandler(EventTypes::KeyStateKeyUp, m_inputFilter);
-  m_events->removeHandler(EventTypes::KeyStateKeyRepeat, m_inputFilter);
-  m_events->removeHandler(EventTypes::PrimaryScreenButtonDown, m_inputFilter);
-  m_events->removeHandler(EventTypes::PrimaryScreenButtonUp, m_inputFilter);
-  m_events->removeHandler(EventTypes::PrimaryScreenMotionOnPrimary, m_primaryClient->getEventTarget());
-  m_events->removeHandler(EventTypes::PrimaryScreenMotionOnSecondary, m_primaryClient->getEventTarget());
-  m_events->removeHandler(EventTypes::PrimaryScreenWheel, m_primaryClient->getEventTarget());
-  m_events->removeHandler(EventTypes::PrimaryScreenSaverActivated, m_primaryClient->getEventTarget());
-  m_events->removeHandler(EventTypes::PrimaryScreenSaverDeactivated, m_primaryClient->getEventTarget());
-  m_events->removeHandler(EventTypes::PrimaryScreenFakeInputBegin, m_inputFilter);
-  m_events->removeHandler(EventTypes::PrimaryScreenFakeInputEnd, m_inputFilter);
-  m_events->removeHandler(EventTypes::Timer, this);
+  using enum EventTypes;
+  m_events->removeHandler(KeyStateKeyDown, m_inputFilter);
+  m_events->removeHandler(KeyStateKeyUp, m_inputFilter);
+  m_events->removeHandler(KeyStateKeyRepeat, m_inputFilter);
+  m_events->removeHandler(PrimaryScreenButtonDown, m_inputFilter);
+  m_events->removeHandler(PrimaryScreenButtonUp, m_inputFilter);
+  m_events->removeHandler(PrimaryScreenMotionOnPrimary, m_primaryClient->getEventTarget());
+  m_events->removeHandler(PrimaryScreenMotionOnSecondary, m_primaryClient->getEventTarget());
+  m_events->removeHandler(PrimaryScreenWheel, m_primaryClient->getEventTarget());
+  m_events->removeHandler(PrimaryScreenSaverActivated, m_primaryClient->getEventTarget());
+  m_events->removeHandler(PrimaryScreenSaverDeactivated, m_primaryClient->getEventTarget());
+  m_events->removeHandler(PrimaryScreenFakeInputBegin, m_inputFilter);
+  m_events->removeHandler(PrimaryScreenFakeInputEnd, m_inputFilter);
+  m_events->removeHandler(Timer, this);
   stopSwitch();
 
   try {
     // force immediate disconnection of secondary clients
     disconnect();
   } catch (std::exception &e) { // NOSONAR
-    LOG((CLOG_ERR "failed to disconnect: %s", e.what()));
+    LOG_ERR("failed to disconnect: %s", e.what());
   }
 
   for (auto index = m_oldClients.begin(); index != m_oldClients.end(); ++index) {
     BaseClientProxy *client = index->first;
     m_events->deleteTimer(index->second);
-    m_events->removeHandler(EventTypes::Timer, client);
-    m_events->removeHandler(EventTypes::ClientProxyDisconnected, client);
+    m_events->removeHandler(Timer, client);
+    m_events->removeHandler(ClientProxyDisconnected, client);
     delete client;
   }
 
-  // remove input filter
-  m_inputFilter->setPrimaryClient(nullptr);
-
+  // See at Server::Server for why we do this in this order.
+#if WINAPI_LIBPORTAL
   // disable and disconnect primary client
   m_primaryClient->disable();
+  // remove input filter
+  m_inputFilter->setPrimaryClient(nullptr);
+#else
+  m_inputFilter->setPrimaryClient(nullptr);
+  m_primaryClient->disable();
+#endif
   removeClient(m_primaryClient);
+}
+
+size_t Server::getMaximumClipboardSizeBytes() const
+{
+  return m_maximumClipboardSize * 1024;
 }
 
 bool Server::setConfig(const ServerConfig &config)
@@ -231,7 +253,8 @@ void Server::adoptClient(BaseClientProxy *client)
 
   // name must be in our configuration
   if (!m_config->isScreen(client->getName())) {
-    LOG((CLOG_WARN "unrecognised client name \"%s\", check server config", client->getName().c_str()));
+    LOG_WARN("unrecognised client name \"%s\", check server config", client->getName().c_str());
+    ipcSendToClient("unrecognisedClient", QString::fromStdString(client->getName()));
     closeClient(client, kMsgEUnknown);
     return;
   }
@@ -239,11 +262,13 @@ void Server::adoptClient(BaseClientProxy *client)
   // add client to client list
   if (!addClient(client)) {
     // can only have one screen with a given name at any given time
-    LOG((CLOG_WARN "a client with name \"%s\" is already connected", getName(client).c_str()));
+    LOG_WARN("a client with name \"%s\" is already connected", getName(client).c_str());
     closeClient(client, kMsgEBusy);
     return;
   }
-  LOG((CLOG_NOTE "client \"%s\" has connected", getName(client).c_str()));
+  LOG_DEBUG("client \"%s\" has connected", getName(client).c_str());
+  ipcSendConnectionState(deskflow::core::ConnectionState::Connected);
+  sendConnectedClientsIpc();
 
   // send configuration options to client
   sendOptions(client);
@@ -271,13 +296,9 @@ void Server::disconnect()
 
 std::string Server::protocolString() const
 {
-  using enum ENetworkProtocol;
-  if (m_protocol == kSynergy) {
-    return kSynergyProtocolName;
-  } else if (m_protocol == kBarrier) {
-    return kBarrierProtocolName;
-  }
-  throw XInvalidProtocol();
+  if (m_protocol == NetworkProtocol::Unknown)
+    throw InvalidProtocolException();
+  return networkProtocolToName(m_protocol).toStdString();
 }
 
 uint32_t Server::getNumClients() const
@@ -293,6 +314,18 @@ void Server::getClients(std::vector<std::string> &list) const
   }
 }
 
+void Server::sendConnectedClientsIpc() const
+{
+  const auto primaryName = getName(m_primaryClient);
+  QStringList clientList;
+  for (const auto &[name, _] : m_clients) {
+    if (name != primaryName) {
+      clientList.append(QString::fromStdString(name));
+    }
+  }
+  ipcSendToClient("connectedClients", clientList.join(","));
+}
+
 std::string Server::getName(const BaseClientProxy *client) const
 {
   std::string name = m_config->getCanonicalName(client->getName());
@@ -304,19 +337,21 @@ std::string Server::getName(const BaseClientProxy *client) const
 
 uint32_t Server::getActivePrimarySides() const
 {
+  using enum DirectionMask;
+  using enum Direction;
   uint32_t sides = 0;
   if (!isLockedToScreenServer()) {
-    if (hasAnyNeighbor(m_primaryClient, kLeft)) {
-      sides |= kLeftMask;
+    if (hasAnyNeighbor(m_primaryClient, Left)) {
+      sides |= static_cast<int>(LeftMask);
     }
-    if (hasAnyNeighbor(m_primaryClient, kRight)) {
-      sides |= kRightMask;
+    if (hasAnyNeighbor(m_primaryClient, Right)) {
+      sides |= static_cast<int>(RightMask);
     }
-    if (hasAnyNeighbor(m_primaryClient, kTop)) {
-      sides |= kTopMask;
+    if (hasAnyNeighbor(m_primaryClient, Top)) {
+      sides |= static_cast<int>(TopMask);
     }
-    if (hasAnyNeighbor(m_primaryClient, kBottom)) {
-      sides |= kBottomMask;
+    if (hasAnyNeighbor(m_primaryClient, Bottom)) {
+      sides |= static_cast<int>(BottomMask);
     }
   }
   return sides;
@@ -336,7 +371,9 @@ bool Server::isLockedToScreen() const
 
   // locked if we say we're locked
   if (isLockedToScreenServer()) {
-    LOG((CLOG_NOTE "cursor is locked to screen, check scroll lock key"));
+    if (!m_defaultLockToScreenState) {
+      LOG_INFO("cursor is locked to screen, check scroll lock key");
+    }
     return true;
   }
 
@@ -399,7 +436,7 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
 
   assert(m_active != nullptr);
 
-  LOG((CLOG_INFO "switch from \"%s\" to \"%s\" at %d,%d", getName(m_active).c_str(), getName(dst).c_str(), x, y));
+  LOG_INFO("switch from \"%s\" to \"%s\" at %d,%d", getName(m_active).c_str(), getName(dst).c_str(), x, y);
 
   // stop waiting to switch
   stopSwitch();
@@ -419,7 +456,7 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
     // leave active screen
     if (!m_active->leave()) {
       // cannot leave screen
-      LOG((CLOG_WARN "can't leave screen"));
+      LOG_WARN("can't leave screen");
       return;
     }
 
@@ -466,7 +503,7 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
       }
     }
 
-    Server::SwitchToScreenInfo *info = Server::SwitchToScreenInfo::alloc(m_active->getName());
+    auto *info = new Server::SwitchToScreenInfo(m_active->getName());
     m_events->addEvent(Event(EventTypes::ServerScreenSwitched, this, info));
   } else {
     m_active->mouseMove(x, y);
@@ -488,7 +525,7 @@ void Server::jumpToScreen(BaseClientProxy *newScreen)
   switchScreen(newScreen, x, y, false);
 }
 
-float Server::mapToFraction(const BaseClientProxy *client, EDirection dir, int32_t x, int32_t y) const
+float Server::mapToFraction(const BaseClientProxy *client, Direction dir, int32_t x, int32_t y) const
 {
   int32_t sx;
   int32_t sy;
@@ -496,22 +533,23 @@ float Server::mapToFraction(const BaseClientProxy *client, EDirection dir, int32
   int32_t sh;
   client->getShape(sx, sy, sw, sh);
   switch (dir) {
-  case kLeft:
-  case kRight:
-    return static_cast<float>(y - sy + 0.5f) / static_cast<float>(sh);
+    using enum Direction;
+  case Left:
+  case Right:
+    return (y - sy + 0.5f) / static_cast<float>(sh);
 
-  case kTop:
-  case kBottom:
-    return static_cast<float>(x - sx + 0.5f) / static_cast<float>(sw);
+  case Top:
+  case Bottom:
+    return (x - sx + 0.5f) / static_cast<float>(sw);
 
-  case kNoDirection:
+  case NoDirection:
     assert(0 && "bad direction");
     break;
   }
   return 0.0f;
 }
 
-void Server::mapToPixel(const BaseClientProxy *client, EDirection dir, float f, int32_t &x, int32_t &y) const
+void Server::mapToPixel(const BaseClientProxy *client, Direction dir, float f, int32_t &x, int32_t &y) const
 {
   int32_t sx;
   int32_t sy;
@@ -519,30 +557,31 @@ void Server::mapToPixel(const BaseClientProxy *client, EDirection dir, float f, 
   int32_t sh;
   client->getShape(sx, sy, sw, sh);
   switch (dir) {
-  case kLeft:
-  case kRight:
+    using enum Direction;
+  case Left:
+  case Right:
     y = static_cast<int32_t>(f * sh) + sy;
     break;
 
-  case kTop:
-  case kBottom:
+  case Top:
+  case Bottom:
     x = static_cast<int32_t>(f * sw) + sx;
     break;
 
-  case kNoDirection:
+  case NoDirection:
     assert(0 && "bad direction");
     break;
   }
 }
 
-bool Server::hasAnyNeighbor(const BaseClientProxy *client, EDirection dir) const
+bool Server::hasAnyNeighbor(const BaseClientProxy *client, Direction dir) const
 {
   assert(client != nullptr);
 
   return m_config->hasNeighbor(getName(client), dir);
 }
 
-BaseClientProxy *Server::getNeighbor(const BaseClientProxy *src, EDirection dir, int32_t &x, int32_t &y) const
+BaseClientProxy *Server::getNeighbor(const BaseClientProxy *src, Direction dir, int32_t &x, int32_t &y) const
 {
   // note -- must be locked on entry
 
@@ -551,7 +590,7 @@ BaseClientProxy *Server::getNeighbor(const BaseClientProxy *src, EDirection dir,
   // get source screen name
   std::string srcName = getName(src);
   assert(!srcName.empty());
-  LOG((CLOG_DEBUG2 "find neighbor on %s of \"%s\"", Config::dirName(dir), srcName.c_str()));
+  LOG_VERBOSE("find neighbor on %s of \"%s\"", Config::dirName(dir), srcName.c_str());
 
   // convert position to fraction
   float t = mapToFraction(src, dir, x, y);
@@ -566,20 +605,20 @@ BaseClientProxy *Server::getNeighbor(const BaseClientProxy *src, EDirection dir,
     // progress in this direction.  since we haven't found a
     // connected neighbor we return nullptr.
     if (dstName.empty()) {
-      LOG((CLOG_DEBUG2 "no neighbor on %s of \"%s\"", Config::dirName(dir), srcName.c_str()));
+      LOG_VERBOSE("no neighbor on %s of \"%s\"", Config::dirName(dir), srcName.c_str());
       return nullptr;
     }
 
     // look up neighbor cell.  if the screen is connected and
     // ready then we can stop.
     if (ClientList::const_iterator index = m_clients.find(dstName); index != m_clients.end()) {
-      LOG((CLOG_DEBUG2 "\"%s\" is on %s of \"%s\" at %f", dstName.c_str(), Config::dirName(dir), srcName.c_str(), t));
+      LOG_VERBOSE("\"%s\" is on %s of \"%s\" at %f", dstName.c_str(), Config::dirName(dir), srcName.c_str(), t);
       mapToPixel(index->second, dir, tTmp, x, y);
       return index->second;
     }
 
     // skip over unconnected screen
-    LOG((CLOG_DEBUG2 "ignored \"%s\" on %s of \"%s\"", dstName.c_str(), Config::dirName(dir), srcName.c_str()));
+    LOG_VERBOSE("ignored \"%s\" on %s of \"%s\"", dstName.c_str(), Config::dirName(dir), srcName.c_str());
     srcName = dstName;
 
     // use position on skipped screen
@@ -587,7 +626,7 @@ BaseClientProxy *Server::getNeighbor(const BaseClientProxy *src, EDirection dir,
   }
 }
 
-BaseClientProxy *Server::mapToNeighbor(BaseClientProxy *src, EDirection srcSide, int32_t &x, int32_t &y) const
+BaseClientProxy *Server::mapToNeighbor(BaseClientProxy *src, Direction srcSide, int32_t &x, int32_t &y) const
 {
   // note -- must be locked on entry
 
@@ -613,7 +652,8 @@ BaseClientProxy *Server::mapToNeighbor(BaseClientProxy *src, EDirection srcSide,
   // actual to canonical position on entry to and from canonical to
   // actual on exit from the search.
   switch (srcSide) {
-  case kLeft:
+    using enum Direction;
+  case Left:
     x -= dx;
     while (dst != nullptr) {
       lastGoodScreen = dst;
@@ -622,14 +662,14 @@ BaseClientProxy *Server::mapToNeighbor(BaseClientProxy *src, EDirection srcSide,
       if (x >= 0) {
         break;
       }
-      LOG((CLOG_DEBUG2 "skipping over screen %s", getName(dst).c_str()));
+      LOG_VERBOSE("skipping over screen %s", getName(dst).c_str());
       dst = getNeighbor(lastGoodScreen, srcSide, x, y);
     }
     assert(lastGoodScreen != nullptr);
     x += dx;
     break;
 
-  case kRight:
+  case Right:
     x -= dx;
     while (dst != nullptr) {
       x -= dw;
@@ -638,14 +678,14 @@ BaseClientProxy *Server::mapToNeighbor(BaseClientProxy *src, EDirection srcSide,
       if (x < dw) {
         break;
       }
-      LOG((CLOG_DEBUG2 "skipping over screen %s", getName(dst).c_str()));
+      LOG_VERBOSE("skipping over screen %s", getName(dst).c_str());
       dst = getNeighbor(lastGoodScreen, srcSide, x, y);
     }
     assert(lastGoodScreen != nullptr);
     x += dx;
     break;
 
-  case kTop:
+  case Top:
     y -= dy;
     while (dst != nullptr) {
       lastGoodScreen = dst;
@@ -654,14 +694,14 @@ BaseClientProxy *Server::mapToNeighbor(BaseClientProxy *src, EDirection srcSide,
       if (y >= 0) {
         break;
       }
-      LOG((CLOG_DEBUG2 "skipping over screen %s", getName(dst).c_str()));
+      LOG_VERBOSE("skipping over screen %s", getName(dst).c_str());
       dst = getNeighbor(lastGoodScreen, srcSide, x, y);
     }
     assert(lastGoodScreen != nullptr);
     y += dy;
     break;
 
-  case kBottom:
+  case Bottom:
     y -= dy;
     while (dst != nullptr) {
       y -= dh;
@@ -670,14 +710,14 @@ BaseClientProxy *Server::mapToNeighbor(BaseClientProxy *src, EDirection srcSide,
       if (y < dh) {
         break;
       }
-      LOG((CLOG_DEBUG2 "skipping over screen %s", getName(dst).c_str()));
+      LOG_VERBOSE("skipping over screen %s", getName(dst).c_str());
       dst = getNeighbor(lastGoodScreen, srcSide, x, y);
     }
     assert(lastGoodScreen != nullptr);
     y += dy;
     break;
 
-  case kNoDirection:
+  case NoDirection:
     assert(0 && "bad direction");
     return nullptr;
   }
@@ -695,7 +735,7 @@ BaseClientProxy *Server::mapToNeighbor(BaseClientProxy *src, EDirection srcSide,
   return dst;
 }
 
-void Server::avoidJumpZone(const BaseClientProxy *dst, EDirection dir, int32_t &x, int32_t &y) const
+void Server::avoidJumpZone(const BaseClientProxy *dst, Direction dir, int32_t &x, int32_t &y) const
 {
   // we only need to avoid jump zones on the primary screen
   if (dst != m_primaryClient) {
@@ -715,42 +755,43 @@ void Server::avoidJumpZone(const BaseClientProxy *dst, EDirection dir, int32_t &
   // that doesn't have a neighbor (i.e. an asymmetrical side) then we
   // don't need to move inwards because that side can't provoke a jump.
   switch (dir) {
-  case kLeft:
-    if (!m_config->getNeighbor(dstName, kRight, t, nullptr).empty() && x > dx + dw - 1 - z)
+    using enum Direction;
+  case Left:
+    if (!m_config->getNeighbor(dstName, Right, t, nullptr).empty() && x > dx + dw - 1 - z)
       x = dx + dw - 1 - z;
     break;
 
-  case kRight:
-    if (!m_config->getNeighbor(dstName, kLeft, t, nullptr).empty() && x < dx + z)
+  case Right:
+    if (!m_config->getNeighbor(dstName, Left, t, nullptr).empty() && x < dx + z)
       x = dx + z;
     break;
 
-  case kTop:
-    if (!m_config->getNeighbor(dstName, kBottom, t, nullptr).empty() && y > dy + dh - 1 - z)
+  case Top:
+    if (!m_config->getNeighbor(dstName, Bottom, t, nullptr).empty() && y > dy + dh - 1 - z)
       y = dy + dh - 1 - z;
     break;
 
-  case kBottom:
-    if (!m_config->getNeighbor(dstName, kTop, t, nullptr).empty() && y < dy + z)
+  case Bottom:
+    if (!m_config->getNeighbor(dstName, Top, t, nullptr).empty() && y < dy + z)
       y = dy + z;
     break;
 
-  case kNoDirection:
+  case NoDirection:
     assert(0 && "bad direction");
   }
 }
 
 bool Server::isSwitchOkay(
-    BaseClientProxy *newScreen, EDirection dir, int32_t x, int32_t y, int32_t xActive, int32_t yActive
+    BaseClientProxy *newScreen, Direction dir, int32_t x, int32_t y, int32_t xActive, int32_t yActive
 )
 {
-  LOG((CLOG_DEBUG1 "try to leave \"%s\" on %s", getName(m_active).c_str(), Config::dirName(dir)));
+  LOG_VERBOSE("try to leave \"%s\" on %s", getName(m_active).c_str(), Config::dirName(dir));
 
   // is there a neighbor?
   if (newScreen == nullptr) {
     // there's no neighbor.  we don't want to switch and we don't
     // want to try to switch later.
-    LOG((CLOG_DEBUG1 "no neighbor %s", Config::dirName(dir)));
+    LOG_VERBOSE("no neighbor %s", Config::dirName(dir));
     stopSwitch();
     return false;
   }
@@ -791,10 +832,10 @@ bool Server::isSwitchOkay(
   // are we in a locked corner?  first check if screen has the option set
   // and, if not, check the global options.
   const Config::ScreenOptions *options = m_config->getOptions(getName(m_active));
-  if (options == nullptr || options->count(kOptionScreenSwitchCorners) == 0) {
+  if (options == nullptr || !options->contains(kOptionScreenSwitchCorners)) {
     options = m_config->getOptions("");
   }
-  if (options != nullptr && options->count(kOptionScreenSwitchCorners) > 0) {
+  if (options != nullptr && options->contains(kOptionScreenSwitchCorners)) {
     // get corner mask and size
     Config::ScreenOptions::const_iterator i = options->find(kOptionScreenSwitchCorners);
     auto corners = static_cast<uint32_t>(i->second);
@@ -803,11 +844,10 @@ bool Server::isSwitchOkay(
     if (i != options->end()) {
       size = i->second;
     }
-
     // see if we're in a locked corner
     if ((getCorner(m_active, xActive, yActive, size) & corners) != 0) {
       // yep, no switching
-      LOG((CLOG_DEBUG1 "locked in corner"));
+      LOG_VERBOSE("locked in corner");
       preventSwitch = true;
       stopSwitch();
     }
@@ -815,17 +855,7 @@ bool Server::isSwitchOkay(
 
   // ignore if mouse is locked to screen and don't try to switch later
   if (!preventSwitch && isLockedToScreen()) {
-    LOG((CLOG_DEBUG1 "locked to screen"));
-    preventSwitch = true;
-    stopSwitch();
-  }
-
-  // check for optional needed modifiers
-  if (KeyModifierMask mods = this->m_primaryClient->getToggleMask();
-      !preventSwitch && ((this->m_switchNeedsShift && ((mods & KeyModifierShift) != KeyModifierShift)) ||
-                         (this->m_switchNeedsControl && ((mods & KeyModifierControl) != KeyModifierControl)) ||
-                         (this->m_switchNeedsAlt && ((mods & KeyModifierAlt) != KeyModifierAlt)))) {
-    LOG((CLOG_DEBUG1 "need modifiers to switch"));
+    LOG_VERBOSE("locked to screen");
     preventSwitch = true;
     stopSwitch();
   }
@@ -843,7 +873,7 @@ void Server::stopSwitch()
 {
   if (m_switchScreen != nullptr) {
     m_switchScreen = nullptr;
-    m_switchDir = kNoDirection;
+    m_switchDir = Direction::NoDirection;
     stopSwitchTwoTap();
     stopSwitchWait();
   }
@@ -854,7 +884,7 @@ void Server::startSwitchTwoTap()
   m_switchTwoTapEngaged = true;
   m_switchTwoTapArmed = false;
   m_switchTwoTapTimer.reset();
-  LOG((CLOG_DEBUG1 "waiting for second tap"));
+  LOG_VERBOSE("waiting for second tap");
 }
 
 void Server::armSwitchTwoTap(int32_t x, int32_t y)
@@ -880,19 +910,20 @@ void Server::armSwitchTwoTap(int32_t x, int32_t y)
         // move in the opposite direction that the mouse actually
         // moved.  try to ignore that crap here.
         switch (m_switchDir) {
-        case kLeft:
+          using enum Direction;
+        case Left:
           m_switchTwoTapArmed = (m_xDelta > 0 && m_xDelta2 > 0);
           break;
 
-        case kRight:
+        case Right:
           m_switchTwoTapArmed = (m_xDelta < 0 && m_xDelta2 < 0);
           break;
 
-        case kTop:
+        case Top:
           m_switchTwoTapArmed = (m_yDelta > 0 && m_yDelta2 > 0);
           break;
 
-        case kBottom:
+        case Bottom:
           m_switchTwoTapArmed = (m_yDelta < 0 && m_yDelta2 < 0);
           break;
 
@@ -928,7 +959,7 @@ void Server::startSwitchWait(int32_t x, int32_t y)
   m_switchWaitX = x;
   m_switchWaitY = y;
   m_switchWaitTimer = m_events->newOneShotTimer(m_switchWaitDelay, this);
-  LOG((CLOG_DEBUG1 "waiting to switch"));
+  LOG_VERBOSE("waiting to switch");
 }
 
 void Server::stopSwitchWait()
@@ -978,22 +1009,22 @@ uint32_t Server::getCorner(const BaseClientProxy *client, int32_t x, int32_t y, 
   // if against the left or right then check if y is within size
   if (xSide != 0) {
     if (y < ay + size) {
-      return (xSide < 0) ? kTopLeftMask : kTopRightMask;
+      return (xSide < 0) ? s_topLeftCornerMask : s_topRightCornerMask;
     } else if (y >= ay + ah - size) {
-      return (xSide < 0) ? kBottomLeftMask : kBottomRightMask;
+      return (xSide < 0) ? s_bottomLeftCornerMask : s_bottomRightCornerMask;
     }
   }
 
   // if against the left or right then check if y is within size
   if (ySide != 0) {
     if (x < ax + size) {
-      return (ySide < 0) ? kTopLeftMask : kBottomLeftMask;
+      return (ySide < 0) ? s_topLeftCornerMask : s_bottomLeftCornerMask;
     } else if (x >= ax + aw - size) {
-      return (ySide < 0) ? kTopRightMask : kBottomRightMask;
+      return (ySide < 0) ? s_topRightCornerMask : s_bottomRightCornerMask;
     }
   }
 
-  return kNoCornerMask;
+  return s_noCornerMask;
 }
 
 void Server::stopRelativeMoves()
@@ -1011,7 +1042,7 @@ void Server::stopRelativeMoves()
     m_yDelta = 0;
     m_xDelta2 = 0;
     m_yDelta2 = 0;
-    LOG((CLOG_DEBUG2 "synchronize move on %s by %d,%d", getName(m_active).c_str(), m_x, m_y));
+    LOG_VERBOSE("synchronize move on %s by %d,%d", getName(m_active).c_str(), m_x, m_y);
     m_active->mouseMove(m_x, m_y);
   }
 }
@@ -1054,25 +1085,11 @@ void Server::processOptions()
     return;
   }
 
-  m_switchNeedsShift = false;   // it seems if i don't add these
-  m_switchNeedsControl = false; // lines, the 'reload config' option
-  m_switchNeedsAlt = false;     // doesnt' work correct.
-
   bool newRelativeMoves = m_relativeMoves;
   for (auto [optionId, optionValue] : *options) {
     const OptionID id = optionId;
     const OptionValue value = optionValue;
-    if (id == kOptionProtocol) {
-      using enum ENetworkProtocol;
-      const auto enumValue = static_cast<ENetworkProtocol>(value);
-      if (enumValue == kSynergy) {
-        m_protocol = kSynergy;
-      } else if (enumValue == kBarrier) {
-        m_protocol = kBarrier;
-      } else {
-        throw XInvalidProtocol();
-      }
-    } else if (id == kOptionScreenSwitchDelay) {
+    if (id == kOptionScreenSwitchDelay) {
       m_switchWaitDelay = 1.0e-3 * static_cast<double>(value);
       if (m_switchWaitDelay < 0.0) {
         m_switchWaitDelay = 0.0;
@@ -1084,26 +1101,24 @@ void Server::processOptions()
         m_switchTwoTapDelay = 0.0;
       }
       stopSwitchTwoTap();
-    } else if (id == kOptionScreenSwitchNeedsControl) {
-      m_switchNeedsControl = (value != 0);
-    } else if (id == kOptionScreenSwitchNeedsShift) {
-      m_switchNeedsShift = (value != 0);
-    } else if (id == kOptionScreenSwitchNeedsAlt) {
-      m_switchNeedsAlt = (value != 0);
     } else if (id == kOptionRelativeMouseMoves) {
       newRelativeMoves = (value != 0);
+    } else if (id == kOptionDefaultLockToScreenState) {
+      m_defaultLockToScreenState = (value != 0);
     } else if (id == kOptionDisableLockToScreen) {
       m_disableLockToScreen = (value != 0);
     } else if (id == kOptionClipboardSharing) {
       m_enableClipboard = value;
       if (!m_enableClipboard) {
-        LOG((CLOG_NOTE "clipboard sharing is disabled"));
+        LOG_INFO("clipboard sharing is disabled");
       }
     } else if (id == kOptionClipboardSharingSize) {
       if (value <= 0) {
         m_maximumClipboardSize = 0;
-        LOG((CLOG_NOTE "clipboard sharing is disabled because the "
-                       "maximum shared clipboard size is set to 0"));
+        LOG_INFO(
+            "clipboard sharing is disabled because the "
+            "maximum shared clipboard size is set to 0"
+        );
       } else {
         m_maximumClipboardSize = static_cast<size_t>(value);
       }
@@ -1113,15 +1128,16 @@ void Server::processOptions()
     stopRelativeMoves();
   }
   m_relativeMoves = newRelativeMoves;
+  m_protocol = Settings::networkProtocol();
 }
 
 void Server::handleShapeChanged(BaseClientProxy *client)
 {
-  if (m_clientSet.count(client) == 0) {
+  if (!m_clientSet.contains(client)) {
     return;
   }
 
-  LOG((CLOG_DEBUG "screen \"%s\" shape changed", getName(client).c_str()));
+  LOG_DEBUG("screen \"%s\" shape changed", getName(client).c_str());
 
   // update jump coordinate
   int32_t x;
@@ -1152,7 +1168,7 @@ void Server::handleClipboardGrabbed(const Event &event, BaseClientProxy *grabber
   }
 
   // ignore events from unknown clients
-  if (m_clientSet.count(grabber) == 0) {
+  if (!m_clientSet.contains(grabber)) {
     return;
   }
   const auto *info = static_cast<const IScreen::ClipboardInfo *>(event.getData());
@@ -1161,14 +1177,14 @@ void Server::handleClipboardGrabbed(const Event &event, BaseClientProxy *grabber
   // screen to grab.
   ClipboardInfo &clipboard = m_clipboards[info->m_id];
   if (grabber != m_primaryClient && info->m_sequenceNumber < clipboard.m_clipboardSeqNum) {
-    LOG((CLOG_INFO "ignored screen \"%s\" grab of clipboard %d", getName(grabber).c_str(), info->m_id));
+    LOG_DEBUG("ignored screen \"%s\" grab of clipboard %d", getName(grabber).c_str(), info->m_id);
     return;
   }
 
   // mark screen as owning clipboard
-  LOG(
-      (CLOG_INFO "screen \"%s\" grabbed clipboard %d from \"%s\"", getName(grabber).c_str(), info->m_id,
-       clipboard.m_clipboardOwner.c_str())
+  LOG_DEBUG(
+      "screen \"%s\" grabbed clipboard %d from \"%s\"", getName(grabber).c_str(), info->m_id,
+      clipboard.m_clipboardOwner.c_str()
   );
   clipboard.m_clipboardOwner = getName(grabber);
   clipboard.m_clipboardSeqNum = info->m_sequenceNumber;
@@ -1192,11 +1208,8 @@ void Server::handleClipboardGrabbed(const Event &event, BaseClientProxy *grabber
   }
 
   if (grabber == m_primaryClient && m_active != m_primaryClient) {
-    LOG((CLOG_INFO "clipboard grabbed, but we are already changed active "
-                   "screen. Resend clipboard data"));
-    for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
-      onClipboardChanged(m_primaryClient, id, m_clipboards[id].m_clipboardSeqNum);
-    }
+    LOG_DEBUG("clipboard grabbed while active screen was changed, resending clipboard data");
+    onClipboardChanged(m_primaryClient, info->m_id, clipboard.m_clipboardSeqNum);
   }
 }
 
@@ -1214,13 +1227,13 @@ void Server::handleKeyDownEvent(const Event &event)
 {
   const auto *info = static_cast<IPlatformScreen::KeyInfo *>(event.getData());
   auto lang = AppUtil::instance().getCurrentLanguageCode();
-  onKeyDown(info->m_key, info->m_mask, info->m_button, lang, info->m_screens);
+  onKeyDown(info->m_key, info->m_mask, info->m_button, lang, info->m_screens.c_str());
 }
 
 void Server::handleKeyUpEvent(const Event &event)
 {
   auto *info = static_cast<IPlatformScreen::KeyInfo *>(event.getData());
-  onKeyUp(info->m_key, info->m_mask, info->m_button, info->m_screens);
+  onKeyUp(info->m_key, info->m_mask, info->m_button, info->m_screens.c_str());
 }
 
 void Server::handleKeyRepeatEvent(const Event &event)
@@ -1264,7 +1277,7 @@ void Server::handleSwitchWaitTimeout()
 {
   // ignore if mouse is locked to screen
   if (isLockedToScreen()) {
-    LOG((CLOG_DEBUG1 "locked to screen"));
+    LOG_VERBOSE("locked to screen");
     stopSwitch();
     return;
   }
@@ -1280,13 +1293,18 @@ void Server::handleClientDisconnected(BaseClientProxy *client)
   removeActiveClient(client);
   removeOldClient(client);
 
+  // m_clients always contains the primary (server) screen, so 1 means no remote clients.
+  using enum deskflow::core::ConnectionState;
+  ipcSendConnectionState(m_clients.size() <= 1 ? Listening : Connected);
+  sendConnectedClientsIpc();
+
   delete client;
 }
 
 void Server::handleClientCloseTimeout(BaseClientProxy *client)
 {
   // client took too long to disconnect.  just dump it.
-  LOG((CLOG_NOTE "forced disconnection of client \"%s\"", getName(client).c_str()));
+  LOG_INFO("forced disconnection of client \"%s\"", getName(client).c_str());
   removeOldClient(client);
 
   delete client;
@@ -1294,11 +1312,11 @@ void Server::handleClientCloseTimeout(BaseClientProxy *client)
 
 void Server::handleSwitchToScreenEvent(const Event &event)
 {
-  auto *info = static_cast<SwitchToScreenInfo *>(event.getData());
+  const auto *info = static_cast<SwitchToScreenInfo *>(event.getData());
 
   ClientList::const_iterator index = m_clients.find(info->m_screen);
   if (index == m_clients.end()) {
-    LOG((CLOG_DEBUG1 "screen \"%s\" not active", info->m_screen));
+    LOG_VERBOSE("screen \"%s\" not active", info->m_screen.c_str());
   } else {
     jumpToScreen(index->second);
   }
@@ -1313,15 +1331,50 @@ void Server::handleSwitchInDirectionEvent(const Event &event)
   int32_t y = m_y;
   BaseClientProxy *newScreen = getNeighbor(m_active, info->m_direction, x, y);
   if (newScreen == nullptr) {
-    LOG((CLOG_DEBUG1 "no neighbor %s", Config::dirName(info->m_direction)));
+    LOG_VERBOSE("no neighbor %s", Config::dirName(info->m_direction));
   } else {
     jumpToScreen(newScreen);
   }
 }
 
+void Server::handleToggleScreenEvent(const Event &)
+{
+  // Get the list of connected screens in config order
+  std::vector<std::string> screens;
+  getClients(screens);
+
+  if (screens.size() < 2) {
+    LOG_ERR("not enough screens to toggle");
+    return;
+  }
+
+  // Find the current active screen
+  std::string currentScreen = getName(m_active);
+  auto it = std::ranges::find(screens, currentScreen);
+  if (it == screens.end()) {
+    LOG_ERR("current screen not found in list");
+    return;
+  }
+
+  // Find the next screen
+  auto nextIt = it + 1;
+  if (nextIt == screens.end()) {
+    nextIt = screens.begin();
+  }
+
+  // Find the client for the next screen
+  ClientList::const_iterator clientIt = m_clients.find(*nextIt);
+  if (clientIt == m_clients.end()) {
+    LOG_ERR("next screen not active");
+    return;
+  }
+
+  jumpToScreen(clientIt->second);
+}
+
 void Server::handleKeyboardBroadcastEvent(const Event &event)
 {
-  const auto *info = (KeyboardBroadcastInfo *)event.getData();
+  const auto *info = static_cast<KeyboardBroadcastInfo *>(event.getData());
 
   // choose new state
   bool newState;
@@ -1353,7 +1406,7 @@ void Server::handleKeyboardBroadcastEvent(const Event &event)
 
 void Server::handleLockCursorToScreenEvent(const Event &event)
 {
-  const auto *info = (LockCursorToScreenInfo *)event.getData();
+  const auto *info = static_cast<LockCursorToScreenInfo *>(event.getData());
 
   // choose new state
   bool newState;
@@ -1375,7 +1428,7 @@ void Server::handleLockCursorToScreenEvent(const Event &event)
   // enter new state
   if (newState != m_lockedToScreen) {
     m_lockedToScreen = newState;
-    LOG((CLOG_NOTE "cursor %s current screen", m_lockedToScreen ? "locked to" : "unlocked from"));
+    LOG_INFO("cursor %s current screen", m_lockedToScreen ? "locked to" : "unlocked from");
 
     m_primaryClient->reconfigure(getActivePrimarySides());
     if (!isLockedToScreenServer()) {
@@ -1390,7 +1443,7 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
 
   // ignore update if sequence number is old
   if (seqNum < clipboard.m_clipboardSeqNum) {
-    LOG((CLOG_INFO "ignored screen \"%s\" update of clipboard %d (missequenced)", getName(sender).c_str(), id));
+    LOG_INFO("ignored screen \"%s\" update of clipboard %d (mis-sequenced)", getName(sender).c_str(), id);
     return;
   }
 
@@ -1402,23 +1455,18 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
 
   std::string data = clipboard.m_clipboard.marshall();
   if (data.size() > m_maximumClipboardSize * 1024) {
-    LOG(
-        (CLOG_NOTE "not updating clipboard because it's over the size limit "
-                   "(%i KB) configured by the server",
-         m_maximumClipboardSize)
-    );
+    LOG_WARN("not sending clipboard data, exceeds limit: %i KB", m_maximumClipboardSize);
     return;
   }
 
   // ignore if data hasn't changed
   if (data == clipboard.m_clipboardData) {
-    LOG((CLOG_DEBUG "ignored screen \"%s\" update of clipboard %d (unchanged)", clipboard.m_clipboardOwner.c_str(), id)
-    );
+    LOG_DEBUG("ignored screen \"%s\" update of clipboard %d (unchanged)", clipboard.m_clipboardOwner.c_str(), id);
     return;
   }
 
   // got new data
-  LOG((CLOG_INFO "screen \"%s\" updated clipboard %d", clipboard.m_clipboardOwner.c_str(), id));
+  LOG_INFO("screen \"%s\" updated clipboard %d", clipboard.m_clipboardOwner.c_str(), id);
   clipboard.m_clipboardData = data;
 
   // tell all clients except the sender that the clipboard is dirty
@@ -1433,7 +1481,7 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
 
 void Server::onScreensaver(bool activated)
 {
-  LOG((CLOG_DEBUG "onScreenSaver %s", activated ? "activated" : "deactivated"));
+  LOG_DEBUG("onScreenSaver %s", activated ? "activated" : "deactivated");
 
   if (activated) {
     // save current screen and position
@@ -1486,7 +1534,7 @@ void Server::onScreensaver(bool activated)
 
 void Server::onKeyDown(KeyID id, KeyModifierMask mask, KeyButton button, const std::string &lang, const char *screens)
 {
-  LOG((CLOG_DEBUG1 "onKeyDown id=%d mask=0x%04x button=0x%04x lang=%s", id, mask, button, lang.c_str()));
+  LOG_VERBOSE("onKeyDown id=%d mask=0x%04x button=0x%04x lang=%s", id, mask, button, lang.c_str());
   assert(m_active != nullptr);
 
   // relay
@@ -1509,7 +1557,7 @@ void Server::onKeyDown(KeyID id, KeyModifierMask mask, KeyButton button, const s
 
 void Server::onKeyUp(KeyID id, KeyModifierMask mask, KeyButton button, const char *screens)
 {
-  LOG((CLOG_DEBUG1 "onKeyUp id=%d mask=0x%04x button=0x%04x", id, mask, button));
+  LOG_VERBOSE("onKeyUp id=%d mask=0x%04x button=0x%04x", id, mask, button);
   assert(m_active != nullptr);
 
   // relay
@@ -1533,7 +1581,7 @@ void Server::onKeyUp(KeyID id, KeyModifierMask mask, KeyButton button, const cha
 void Server::onKeyRepeat(KeyID id, KeyModifierMask mask, int32_t count, KeyButton button, const std::string &lang)
 {
   LOG(
-      (CLOG_DEBUG1 "onKeyRepeat id=%d mask=0x%04x count=%d button=0x%04x lang=\"%s\"", id, mask, count, button,
+      (CLOG_VERBOSE "onKeyRepeat id=%d mask=0x%04x count=%d button=0x%04x lang=\"%s\"", id, mask, count, button,
        lang.c_str())
   );
   assert(m_active != nullptr);
@@ -1544,7 +1592,7 @@ void Server::onKeyRepeat(KeyID id, KeyModifierMask mask, int32_t count, KeyButto
 
 void Server::onMouseDown(ButtonID id)
 {
-  LOG((CLOG_DEBUG1 "onMouseDown id=%d", id));
+  LOG_VERBOSE("onMouseDown id=%d", id);
   assert(m_active != nullptr);
 
   // relay
@@ -1553,7 +1601,7 @@ void Server::onMouseDown(ButtonID id)
 
 void Server::onMouseUp(ButtonID id)
 {
-  LOG((CLOG_DEBUG1 "onMouseUp id=%d", id));
+  LOG_VERBOSE("onMouseUp id=%d", id);
   assert(m_active != nullptr);
 
   // relay
@@ -1562,7 +1610,7 @@ void Server::onMouseUp(ButtonID id)
 
 bool Server::onMouseMovePrimary(int32_t x, int32_t y)
 {
-  LOG((CLOG_DEBUG4 "onMouseMovePrimary %d,%d", x, y));
+  LOG_VERBOSE("onMouseMovePrimary %d,%d", x, y);
 
   // mouse move on primary (server's) screen
   if (m_active != m_primaryClient) {
@@ -1607,40 +1655,42 @@ bool Server::onMouseMovePrimary(int32_t x, int32_t y)
   // see if we should change screens
   // when the cursor is in a corner, there may be a screen either
   // horizontally or vertically.  check both directions.
-  EDirection dirh = kNoDirection, dirv = kNoDirection;
+  using enum Direction;
+  auto dirh = NoDirection;
+  auto dirv = NoDirection;
   int32_t xh = x;
   int32_t yv = y;
   if (x < ax + zoneSize) {
     xh -= zoneSize;
-    dirh = kLeft;
+    dirh = Left;
   } else if (x >= ax + aw - zoneSize) {
     xh += zoneSize;
-    dirh = kRight;
+    dirh = Right;
   }
   if (y < ay + zoneSize) {
     yv -= zoneSize;
-    dirv = kTop;
+    dirv = Top;
   } else if (y >= ay + ah - zoneSize) {
     yv += zoneSize;
-    dirv = kBottom;
+    dirv = Bottom;
   }
-  if (dirh == kNoDirection && dirv == kNoDirection) {
+  if (dirh == NoDirection && dirv == NoDirection) {
     // still on local screen
     noSwitch(x, y);
     return false;
   }
 
   // check both horizontally and vertically
-  EDirection dirs[] = {dirh, dirv};
-  int32_t xs[] = {xh, x};
-  int32_t ys[] = {y, yv};
+  std::array<Direction, 2> dirs = {dirh, dirv};
+  std::array<int32_t, 2> xs = {xh, x};
+  std::array<int32_t, 2> ys = {y, yv};
   for (int i = 0; i < 2; ++i) {
-    EDirection dir = dirs[i];
-    if (dir == kNoDirection) {
+    Direction dir = dirs.at(i);
+    if (dir == NoDirection) {
       continue;
     }
-    x = xs[i], y = ys[i];
-
+    x = xs.at(i);
+    y = ys.at(i);
     // get jump destination
     BaseClientProxy *newScreen = mapToNeighbor(m_active, dir, x, y);
 
@@ -1657,21 +1707,19 @@ bool Server::onMouseMovePrimary(int32_t x, int32_t y)
 
 void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
 {
-  LOG((CLOG_DEBUG2 "onMouseMoveSecondary initial %+d,%+d", dx, dy));
-  if (const char *envVal = std::getenv("DESKFLOW_MOUSE_ADJUSTMENT"); envVal) {
+  LOG_VERBOSE("mouse move on secondary: %+d,%+d", dx, dy);
+
+  // TODO: move this to client side and use a qt setting or cli arg instead of env var.
+  const static auto adjustEnv = "DESKFLOW_MOUSE_ADJUSTMENT";
+  if (const char *envVal = std::getenv(adjustEnv); envVal) {
     try {
-      double multiplier = std::stod(envVal);                               // Convert to double
-      auto adjustedDx = static_cast<int32_t>(std::round(dx * multiplier)); // Apply multiplier and round
-      auto adjustedDy = static_cast<int32_t>(std::round(dy * multiplier));
-      LOG((CLOG_DEBUG2 "Adjusted to %+d,%+d using multiplier %.2f", adjustedDx, adjustedDy, multiplier));
-      dx = adjustedDx; // Update dx and dy to adjusted values
-      dy = adjustedDy;
+      double multiplier = std::stod(envVal);
+      dx = static_cast<int32_t>(std::round(dx * multiplier));
+      dy = static_cast<int32_t>(std::round(dy * multiplier));
+      LOG_VERBOSE("adjusted mouse x %.2f: %+d,%+d", multiplier, dx, dy);
     } catch (const std::exception &e) {
-      // Log the error message from the exception
-      LOG((CLOG_ERR "Invalid DESKFLOW_MOUSE_ADJUSTMENT value: %s. Exception: %s", envVal, e.what()));
+      LOG_ERR("invalid %s value: %s", adjustEnv, e.what());
     }
-  } else {
-    LOG((CLOG_DEBUG1 "DESKFLOW_MOUSE_ADJUSTMENT not set, using original values %+d,%+d", dx, dy));
   }
 
   // mouse move on secondary (client's) screen
@@ -1688,7 +1736,7 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
   // program on the secondary screen to warp the mouse on us, so we
   // have no idea where it really is.
   if (m_relativeMoves && isLockedToScreenServer()) {
-    LOG((CLOG_DEBUG2 "relative move on %s by %d,%d", getName(m_active).c_str(), dx, dy));
+    LOG_VERBOSE("relative move on %s by %d,%d", getName(m_active).c_str(), dx, dy);
     m_active->mouseRelativeMove(dx, dy);
     return;
   }
@@ -1734,15 +1782,16 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
       yc = ay + ah - 1;
     }
 
-    EDirection dir;
+    Direction dir;
+    using enum Direction;
     if (m_x < ax) {
-      dir = kLeft;
+      dir = Left;
     } else if (m_x > ax + aw - 1) {
-      dir = kRight;
+      dir = Right;
     } else if (m_y < ay) {
-      dir = kTop;
+      dir = Top;
     } else if (m_y > ay + ah - 1) {
-      dir = kBottom;
+      dir = Bottom;
     } else {
       // we haven't left the screen
       newScreen = m_active;
@@ -1755,19 +1804,19 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
         bool clearWait;
         int32_t zoneSize = m_primaryClient->getJumpZoneSize();
         switch (m_switchDir) {
-        case kLeft:
+        case Left:
           clearWait = (m_x >= ax + zoneSize);
           break;
 
-        case kRight:
+        case Right:
           clearWait = (m_x <= ax + aw - 1 - zoneSize);
           break;
 
-        case kTop:
+        case Top:
           clearWait = (m_y >= ay + zoneSize);
           break;
 
-        case kBottom:
+        case Bottom:
           clearWait = (m_y <= ay + ah - 1 + zoneSize);
           break;
 
@@ -1807,22 +1856,22 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
     m_y = yOld + dy;
     if (m_x < ax) {
       m_x = ax;
-      LOG((CLOG_DEBUG2 "clamp to left of \"%s\"", getName(m_active).c_str()));
+      LOG_VERBOSE("clamp to left of \"%s\"", getName(m_active).c_str());
     } else if (m_x > ax + aw - 1) {
       m_x = ax + aw - 1;
-      LOG((CLOG_DEBUG2 "clamp to right of \"%s\"", getName(m_active).c_str()));
+      LOG_VERBOSE("clamp to right of \"%s\"", getName(m_active).c_str());
     }
     if (m_y < ay) {
       m_y = ay;
-      LOG((CLOG_DEBUG2 "clamp to top of \"%s\"", getName(m_active).c_str()));
+      LOG_VERBOSE("clamp to top of \"%s\"", getName(m_active).c_str());
     } else if (m_y > ay + ah - 1) {
       m_y = ay + ah - 1;
-      LOG((CLOG_DEBUG2 "clamp to bottom of \"%s\"", getName(m_active).c_str()));
+      LOG_VERBOSE("clamp to bottom of \"%s\"", getName(m_active).c_str());
     }
 
     // warp cursor if it moved.
     if (m_x != xOld || m_y != yOld) {
-      LOG((CLOG_DEBUG2 "move on %s to %d,%d", getName(m_active).c_str(), m_x, m_y));
+      LOG_VERBOSE("move on %s to %d,%d", getName(m_active).c_str(), m_x, m_y);
       m_active->mouseMove(m_x, m_y);
     }
   }
@@ -1830,7 +1879,7 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
 
 void Server::onMouseWheel(int32_t xDelta, int32_t yDelta)
 {
-  LOG((CLOG_DEBUG1 "onMouseWheel %+d,%+d", xDelta, yDelta));
+  LOG_VERBOSE("onMouseWheel %+d,%+d", xDelta, yDelta);
   assert(m_active != nullptr);
 
   // relay
@@ -1840,7 +1889,7 @@ void Server::onMouseWheel(int32_t xDelta, int32_t yDelta)
 bool Server::addClient(BaseClientProxy *client)
 {
   std::string name = getName(client);
-  if (m_clients.count(name) != 0) {
+  if (m_clients.contains(name)) {
     return false;
   }
 
@@ -1857,7 +1906,7 @@ bool Server::addClient(BaseClientProxy *client)
 
   // add to list
   m_clientSet.insert(client);
-  m_clients.insert(std::make_pair(name, client));
+  m_clients.try_emplace(name, client);
 
   // initialize client data
   int32_t x;
@@ -1873,6 +1922,7 @@ bool Server::addClient(BaseClientProxy *client)
 
 bool Server::removeClient(BaseClientProxy *client)
 {
+  using enum EventTypes;
   // return false if not in list
   ClientSet::iterator i = m_clientSet.find(client);
   if (i == m_clientSet.end()) {
@@ -1880,9 +1930,9 @@ bool Server::removeClient(BaseClientProxy *client)
   }
 
   // remove event handlers
-  m_events->removeHandler(EventTypes::ScreenShapeChanged, client->getEventTarget());
-  m_events->removeHandler(EventTypes::ClipboardGrabbed, client->getEventTarget());
-  m_events->removeHandler(EventTypes::ClipboardChanged, client->getEventTarget());
+  m_events->removeHandler(ScreenShapeChanged, client->getEventTarget());
+  m_events->removeHandler(ClipboardGrabbed, client->getEventTarget());
+  m_events->removeHandler(ClipboardChanged, client->getEventTarget());
 
   // remove from list
   m_clients.erase(getName(client));
@@ -1904,7 +1954,7 @@ void Server::closeClient(BaseClientProxy *client, const char *msg)
   // note that this method also works on clients that are not in
   // the m_clients list.  adoptClient() may call us with such a
   // client.
-  LOG((CLOG_NOTE "disconnecting client \"%s\"", getName(client).c_str()));
+  LOG_INFO("disconnecting client \"%s\"", getName(client).c_str());
 
   // send message
   // FIXME -- avoid type cast (kinda hard, though)
@@ -1919,7 +1969,7 @@ void Server::closeClient(BaseClientProxy *client, const char *msg)
   // move client to closing list
   removeClient(client);
 
-  m_oldClients.insert(std::make_pair(client, timer));
+  m_oldClients.try_emplace(client, timer);
 
   // if this client is the active screen then we have to
   // jump off of it
@@ -1961,14 +2011,15 @@ void Server::removeActiveClient(BaseClientProxy *client)
 
 void Server::removeOldClient(BaseClientProxy *client)
 {
+  using enum EventTypes;
   OldClients::iterator i = m_oldClients.find(client);
   if (i != m_oldClients.end()) {
-    m_events->removeHandler(EventTypes::ClientProxyDisconnected, client);
-    m_events->removeHandler(EventTypes::Timer, i->second);
+    m_events->removeHandler(ClientProxyDisconnected, client);
+    m_events->removeHandler(Timer, i->second);
     m_events->deleteTimer(i->second);
     m_oldClients.erase(i);
     if (m_clients.size() == 1 && m_oldClients.empty()) {
-      m_events->addEvent(Event(EventTypes::ServerDisconnected, this));
+      m_events->addEvent(Event(ServerDisconnected, this));
     }
   }
 }
@@ -2010,57 +2061,4 @@ void Server::forceLeaveClient(const BaseClientProxy *client)
 
   // tell primary client about the active sides
   m_primaryClient->reconfigure(getActivePrimarySides());
-}
-
-//
-// Server::LockCursorToScreenInfo
-//
-
-Server::LockCursorToScreenInfo *Server::LockCursorToScreenInfo::alloc(State state)
-{
-  auto *info = (LockCursorToScreenInfo *)malloc(sizeof(LockCursorToScreenInfo));
-  info->m_state = state;
-  return info;
-}
-
-//
-// Server::SwitchToScreenInfo
-//
-
-Server::SwitchToScreenInfo *Server::SwitchToScreenInfo::alloc(const std::string &screen)
-{
-  auto *info = (SwitchToScreenInfo *)malloc(sizeof(SwitchToScreenInfo) + screen.size());
-  std::copy(screen.c_str(), screen.c_str() + screen.size() + 1, info->m_screen);
-  return info;
-}
-
-//
-// Server::SwitchInDirectionInfo
-//
-
-Server::SwitchInDirectionInfo *Server::SwitchInDirectionInfo::alloc(EDirection direction)
-{
-  auto *info = (SwitchInDirectionInfo *)malloc(sizeof(SwitchInDirectionInfo));
-  info->m_direction = direction;
-  return info;
-}
-
-//
-// Server::KeyboardBroadcastInfo
-//
-
-Server::KeyboardBroadcastInfo *Server::KeyboardBroadcastInfo::alloc(State state)
-{
-  auto *info = (KeyboardBroadcastInfo *)malloc(sizeof(KeyboardBroadcastInfo));
-  info->m_state = state;
-  info->m_screens[0] = '\0';
-  return info;
-}
-
-Server::KeyboardBroadcastInfo *Server::KeyboardBroadcastInfo::alloc(State state, const std::string &screens)
-{
-  auto *info = (KeyboardBroadcastInfo *)malloc(sizeof(KeyboardBroadcastInfo) + screens.size());
-  info->m_state = state;
-  std::copy(screens.c_str(), screens.c_str() + screens.size() + 1, info->m_screens);
-  return info;
 }

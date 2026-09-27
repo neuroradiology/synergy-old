@@ -1,14 +1,13 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2025 - 2026 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
 
-#include "deskflow/KeyTypes.h"
 #include "deskflow/MouseTypes.h"
 #include "deskflow/OptionTypes.h"
 #include "mt/CondVar.h"
@@ -55,7 +54,7 @@ public:
   updated in a thread attached to the current desk.
   \p hookLibrary must be a handle to the hook library.
   */
-  MSWindowsDesks(bool isPrimary, bool noHooks, const IScreenSaver *screensaver, IEventQueue *events, IJob *updateKeys);
+  MSWindowsDesks(bool isPrimary, bool useHooks, const IScreenSaver *screensaver, IEventQueue *events, IJob *updateKeys);
   ~MSWindowsDesks();
 
   //! @name manipulators
@@ -180,7 +179,7 @@ private:
   class Desk
   {
   public:
-    std::string m_name;
+    std::wstring m_name;
     Thread *m_thread;
     DWORD m_threadID;
     DWORD m_targetID;
@@ -188,26 +187,31 @@ private:
     HWND m_window;
     HWND m_foregroundWindow;
     bool m_lowLevel;
+    bool m_hasRelativeRestorePosition = false;
+    int32_t m_relativeRestoreX = 0;
+    int32_t m_relativeRestoreY = 0;
   };
-  using Desks = std::map<std::string, Desk *>;
+  using Desks = std::map<std::wstring, Desk *>;
 
   // initialization and shutdown operations
   HCURSOR createBlankCursor() const;
   void destroyCursor(HCURSOR cursor) const;
   ATOM createDeskWindowClass(bool isPrimary) const;
   void destroyClass(ATOM windowClass) const;
-  HWND createWindow(ATOM windowClass, const char *name) const;
+  HWND createWindow(ATOM windowClass, const wchar_t *name) const;
   void destroyWindow(HWND) const;
 
   // message handlers
   void deskMouseMove(int32_t x, int32_t y) const;
   void deskMouseRelativeMove(int32_t dx, int32_t dy) const;
+  void saveRelativeRestorePosition(Desk *desk) const;
+  bool restoreRelativeCursorPosition(Desk *desk) const;
   void deskEnter(Desk *desk);
   void deskLeave(Desk *desk, HKL keyLayout);
-  void deskThread(void *vdesk);
+  void deskThread(const void *vdesk);
 
   // desk switch checking and handling
-  Desk *addDesk(const std::string &name, HDESK hdesk);
+  Desk *addDesk(const std::wstring &name, HDESK hdesk);
   void removeDesks();
   void checkDesk();
   bool isDeskAccessible(const Desk *desk) const;
@@ -223,7 +227,7 @@ private:
   // desk API wrappers
   HDESK openInputDesktop();
   void closeDesktop(HDESK);
-  std::string getDesktopName(HDESK);
+  std::wstring getDesktopName(HDESK);
 
   // our desk window procs
   static LRESULT CALLBACK primaryDeskProc(HWND, UINT, WPARAM, LPARAM);
@@ -233,8 +237,8 @@ private:
   // true if screen is being used as a primary screen, false otherwise
   bool m_isPrimary;
 
-  // true if hooks are not to be installed (useful for debugging)
-  bool m_noHooks;
+  // true if hooks are to be installed (when debugging, it can be useful to disable hooks)
+  bool m_useHooks;
 
   // true if mouse has entered the screen
   bool m_isOnScreen;
@@ -264,7 +268,7 @@ private:
 
   // the current desk and it's name
   Desk *m_activeDesk = nullptr;
-  std::string m_activeDeskName;
+  std::wstring m_activeDeskName;
 
   // one desk per desktop and a cond var to communicate with it
   Mutex m_mutex;
@@ -277,6 +281,7 @@ private:
 
   // options
   bool m_leaveForegroundOption;
+  bool m_relativeMouseMoves = false;
 
   IEventQueue *m_events;
 };

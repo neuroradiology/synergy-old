@@ -28,9 +28,10 @@ private Q_SLOTS:
   void has_withNoFormatAdded();
   void getNonEmptyText();
   void isOwnedByDeskflow();
+  void normalisesMalformedMacBitmap();
+  void preservesHealthyMacV5Bitmap();
 
 private:
-  Arch m_arch;
   Log m_log;
   const std::string m_testString = "deskflow test string";
   const std::string m_testString2 = "Another String";

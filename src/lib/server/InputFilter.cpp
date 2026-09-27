@@ -1,7 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2005 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -13,6 +13,7 @@
 #include "server/PrimaryClient.h"
 #include "server/Server.h"
 
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 
@@ -66,22 +67,23 @@ std::string InputFilter::KeystrokeCondition::format() const
   return deskflow::string::sprintf("keystroke(%s)", deskflow::KeyMap::formatKey(m_key, m_mask).c_str());
 }
 
-InputFilter::EFilterStatus InputFilter::KeystrokeCondition::match(const Event &event)
+InputFilter::FilterStatus InputFilter::KeystrokeCondition::match(const Event &event)
 {
-  EFilterStatus status;
+  using enum FilterStatus;
+  FilterStatus status;
 
   // check for hotkey events
   if (EventTypes type = event.getType(); type == EventTypes::PrimaryScreenHotkeyDown) {
-    status = kActivate;
+    status = Activate;
   } else if (type == EventTypes::PrimaryScreenHotkeyUp) {
-    status = kDeactivate;
+    status = Deactivate;
   } else {
-    return kNoMatch;
+    return NoMatch;
   }
 
   // check if it's our hotkey
   if (const auto *kinfo = static_cast<IPlatformScreen::HotKeyInfo *>(event.getData()); kinfo->m_id != m_id) {
-    return kNoMatch;
+    return NoMatch;
   }
 
   return status;
@@ -98,12 +100,12 @@ void InputFilter::KeystrokeCondition::disablePrimary(PrimaryClient *primary)
   m_id = 0;
 }
 
-InputFilter::MouseButtonCondition::MouseButtonCondition(IEventQueue *events, IPlatformScreen::ButtonInfo *info)
-    : m_button(info->m_button),
-      m_mask(info->m_mask),
+InputFilter::MouseButtonCondition::MouseButtonCondition(IEventQueue *events, const IPlatformScreen::ButtonInfo &info)
+    : m_button(info.m_button),
+      m_mask(info.m_mask),
       m_events(events)
 {
-  free(info);
+  // do nothing
 }
 
 InputFilter::MouseButtonCondition::MouseButtonCondition(IEventQueue *events, ButtonID button, KeyModifierMask mask)
@@ -138,27 +140,28 @@ std::string InputFilter::MouseButtonCondition::format() const
   return deskflow::string::sprintf("mousebutton(%s%d)", key.c_str(), m_button);
 }
 
-InputFilter::EFilterStatus InputFilter::MouseButtonCondition::match(const Event &event)
+InputFilter::FilterStatus InputFilter::MouseButtonCondition::match(const Event &event)
 {
   static const KeyModifierMask s_ignoreMask =
       KeyModifierAltGr | KeyModifierCapsLock | KeyModifierNumLock | KeyModifierScrollLock;
 
-  EFilterStatus status;
+  FilterStatus status;
 
+  using enum FilterStatus;
   // check for hotkey events
   if (EventTypes type = event.getType(); type == EventTypes::PrimaryScreenButtonDown) {
-    status = kActivate;
+    status = Activate;
   } else if (type == EventTypes::PrimaryScreenButtonUp) {
-    status = kDeactivate;
+    status = Deactivate;
   } else {
-    return kNoMatch;
+    return NoMatch;
   }
 
   // check if it's the right button and modifiers.  ignore modifiers
   // that cannot be combined with a mouse button.
   if (const auto *minfo = static_cast<IPlatformScreen::ButtonInfo *>(event.getData());
       minfo->m_button != m_button || (minfo->m_mask & ~s_ignoreMask) != m_mask) {
-    return kNoMatch;
+    return NoMatch;
   }
 
   return status;
@@ -181,16 +184,16 @@ std::string InputFilter::ScreenConnectedCondition::format() const
   return deskflow::string::sprintf("connect(%s)", m_screen.c_str());
 }
 
-InputFilter::EFilterStatus InputFilter::ScreenConnectedCondition::match(const Event &event)
+InputFilter::FilterStatus InputFilter::ScreenConnectedCondition::match(const Event &event)
 {
   if (event.getType() == EventTypes::ServerConnected) {
     const auto *info = static_cast<Server::ScreenConnectedInfo *>(event.getData());
     if (m_screen == info->m_screen || m_screen.empty()) {
-      return kActivate;
+      return FilterStatus::Activate;
     }
   }
 
-  return kNoMatch;
+  return FilterStatus::NoMatch;
 }
 
 // -----------------------------------------------------------------------------
@@ -228,11 +231,13 @@ void InputFilter::LockCursorToScreenAction::perform(const Event &event)
   };
 
   // send event
-  Server::LockCursorToScreenInfo *info = Server::LockCursorToScreenInfo::alloc(s_state[m_mode]);
-  m_events->addEvent(Event(EventTypes::ServerLockCursorToScreen, event.getTarget(), info, Event::kDeliverImmediately));
+  auto *info = new Server::LockCursorToScreenInfo(s_state[m_mode]);
+  m_events->addEvent(
+      Event(EventTypes::ServerLockCursorToScreen, event.getTarget(), info, Event::EventFlags::DeliverImmediately)
+  );
 }
 
-InputFilter::RestartServer::RestartServer(IEventQueue *events, Mode mode) : m_mode(mode), m_events(events)
+InputFilter::RestartServer::RestartServer(Mode mode) : m_mode(mode)
 {
   // do nothing
 }
@@ -254,7 +259,7 @@ std::string InputFilter::RestartServer::format() const
   return deskflow::string::sprintf("restartServer(%s)", s_mode[m_mode]);
 }
 
-void InputFilter::RestartServer::perform(const Event &event)
+void InputFilter::RestartServer::perform(const Event &)
 {
   // HACK Super hack we should gracefully exit
   exit(0);
@@ -293,18 +298,20 @@ void InputFilter::SwitchToScreenAction::perform(const Event &event)
   }
 
   // send event
-  Server::SwitchToScreenInfo *info = Server::SwitchToScreenInfo::alloc(screen);
-  m_events->addEvent(Event(EventTypes::ServerSwitchToScreen, event.getTarget(), info, Event::kDeliverImmediately));
+  auto *info = new Server::SwitchToScreenInfo(screen);
+  m_events->addEvent(
+      Event(EventTypes::ServerSwitchToScreen, event.getTarget(), info, Event::EventFlags::DeliverImmediately)
+  );
 }
 
-InputFilter::SwitchInDirectionAction::SwitchInDirectionAction(IEventQueue *events, EDirection direction)
+InputFilter::SwitchInDirectionAction::SwitchInDirectionAction(IEventQueue *events, Direction direction)
     : m_direction(direction),
       m_events(events)
 {
   // do nothing
 }
 
-EDirection InputFilter::SwitchInDirectionAction::getDirection() const
+Direction InputFilter::SwitchInDirectionAction::getDirection() const
 {
   return m_direction;
 }
@@ -318,13 +325,37 @@ std::string InputFilter::SwitchInDirectionAction::format() const
 {
   static const char *s_names[] = {"", "left", "right", "up", "down"};
 
-  return deskflow::string::sprintf("switchInDirection(%s)", s_names[m_direction]);
+  return deskflow::string::sprintf("switchInDirection(%s)", s_names[static_cast<int>(m_direction)]);
 }
 
 void InputFilter::SwitchInDirectionAction::perform(const Event &event)
 {
-  Server::SwitchInDirectionInfo *info = Server::SwitchInDirectionInfo::alloc(m_direction);
-  m_events->addEvent(Event(EventTypes::ServerSwitchInDirection, event.getTarget(), info, Event::kDeliverImmediately));
+  auto *info = new Server::SwitchInDirectionInfo(m_direction);
+  m_events->addEvent(
+      Event(EventTypes::ServerSwitchInDirection, event.getTarget(), info, Event::EventFlags::DeliverImmediately)
+  );
+}
+
+InputFilter::SwitchToNextScreenAction::SwitchToNextScreenAction(IEventQueue *events) : m_events(events)
+{
+  // do nothing
+}
+
+InputFilter::Action *InputFilter::SwitchToNextScreenAction::clone() const
+{
+  return new SwitchToNextScreenAction(*this);
+}
+
+std::string InputFilter::SwitchToNextScreenAction::format() const
+{
+  return "switchToNextScreen()";
+}
+
+void InputFilter::SwitchToNextScreenAction::perform(const Event &event)
+{
+  m_events->addEvent(
+      Event(EventTypes::ServerToggleScreen, event.getTarget(), nullptr, Event::EventFlags::DeliverImmediately)
+  );
 }
 
 InputFilter::KeyboardBroadcastAction::KeyboardBroadcastAction(IEventQueue *events, Mode mode)
@@ -383,8 +414,10 @@ void InputFilter::KeyboardBroadcastAction::perform(const Event &event)
   };
 
   // send event
-  Server::KeyboardBroadcastInfo *info = Server::KeyboardBroadcastInfo::alloc(s_state[m_mode], m_screens);
-  m_events->addEvent(Event(EventTypes::ServerKeyboardBroadcast, event.getTarget(), info, Event::kDeliverImmediately));
+  auto *info = new Server::KeyboardBroadcastInfo(s_state[m_mode], m_screens);
+  m_events->addEvent(
+      Event(EventTypes::ServerKeyboardBroadcast, event.getTarget(), info, Event::EventFlags::DeliverImmediately)
+  );
 }
 
 InputFilter::KeystrokeAction::KeystrokeAction(IEventQueue *events, IPlatformScreen::KeyInfo *info, bool press)
@@ -436,23 +469,22 @@ std::string InputFilter::KeystrokeAction::format() const
     );
   } else {
     return deskflow::string::sprintf(
-        "%s(%s,%.*s)", type, deskflow::KeyMap::formatKey(m_keyInfo->m_key, m_keyInfo->m_mask).c_str(),
-        strnlen(m_keyInfo->m_screens + 1, SIZE_MAX) - 1, m_keyInfo->m_screens + 1
+        "%s(%s,%s)", type, deskflow::KeyMap::formatKey(m_keyInfo->m_key, m_keyInfo->m_mask).c_str(),
+        m_keyInfo->m_screens.c_str()
     );
   }
 }
 
 void InputFilter::KeystrokeAction::perform(const Event &event)
 {
-  EventTypes type = m_press ? EventTypes::KeyStateKeyDown : EventTypes::KeyStateKeyUp;
+  using enum EventTypes;
+  using Flags = Event::EventFlags;
 
-  m_events->addEvent(
-      Event(EventTypes::PrimaryScreenFakeInputBegin, event.getTarget(), nullptr, Event::kDeliverImmediately)
-  );
-  m_events->addEvent(Event(type, event.getTarget(), m_keyInfo, Event::kDeliverImmediately | Event::kDontFreeData));
-  m_events->addEvent(
-      Event(EventTypes::PrimaryScreenFakeInputEnd, event.getTarget(), nullptr, Event::kDeliverImmediately)
-  );
+  EventTypes type = m_press ? KeyStateKeyDown : KeyStateKeyUp;
+
+  m_events->addEvent(Event(PrimaryScreenFakeInputBegin, event.getTarget(), nullptr, Flags::DeliverImmediately));
+  m_events->addEvent(Event(type, event.getTarget(), m_keyInfo, Flags::DeliverImmediately | Flags::DontFreeData));
+  m_events->addEvent(Event(PrimaryScreenFakeInputEnd, event.getTarget(), nullptr, Flags::DeliverImmediately));
 }
 
 const char *InputFilter::KeystrokeAction::formatName() const
@@ -460,7 +492,9 @@ const char *InputFilter::KeystrokeAction::formatName() const
   return (m_press ? "keyDown" : "keyUp");
 }
 
-InputFilter::MouseButtonAction::MouseButtonAction(IEventQueue *events, IPlatformScreen::ButtonInfo *info, bool press)
+InputFilter::MouseButtonAction::MouseButtonAction(
+    IEventQueue *events, const IPlatformScreen::ButtonInfo &info, bool press
+)
     : m_buttonInfo(info),
       m_press(press),
       m_events(events)
@@ -468,12 +502,7 @@ InputFilter::MouseButtonAction::MouseButtonAction(IEventQueue *events, IPlatform
   // do nothing
 }
 
-InputFilter::MouseButtonAction::~MouseButtonAction()
-{
-  free(m_buttonInfo);
-}
-
-const IPlatformScreen::ButtonInfo *InputFilter::MouseButtonAction::getInfo() const
+const IPlatformScreen::ButtonInfo &InputFilter::MouseButtonAction::getInfo() const
 {
   return m_buttonInfo;
 }
@@ -485,32 +514,34 @@ bool InputFilter::MouseButtonAction::isOnPress() const
 
 InputFilter::Action *InputFilter::MouseButtonAction::clone() const
 {
-  IPlatformScreen::ButtonInfo *info = IPrimaryScreen::ButtonInfo::alloc(*m_buttonInfo);
-  return new MouseButtonAction(m_events, info, m_press);
+  return new MouseButtonAction(m_events, m_buttonInfo, m_press);
 }
 
 std::string InputFilter::MouseButtonAction::format() const
 {
   const char *type = formatName();
 
-  std::string key = deskflow::KeyMap::formatKey(kKeyNone, m_buttonInfo->m_mask);
-  return deskflow::string::sprintf("%s(%s%s%d)", type, key.c_str(), key.empty() ? "" : "+", m_buttonInfo->m_button);
+  std::string key = deskflow::KeyMap::formatKey(kKeyNone, m_buttonInfo.m_mask);
+  return deskflow::string::sprintf("%s(%s%s%d)", type, key.c_str(), key.empty() ? "" : "+", m_buttonInfo.m_button);
 }
 
 void InputFilter::MouseButtonAction::perform(const Event &event)
 
 {
   // send modifiers
+  using enum EventTypes;
   IPlatformScreen::KeyInfo *modifierInfo = nullptr;
-  if (m_buttonInfo->m_mask != 0) {
+  if (m_buttonInfo.m_mask != 0) {
     KeyID key = m_press ? kKeySetModifiers : kKeyClearModifiers;
-    modifierInfo = IKeyState::KeyInfo::alloc(key, m_buttonInfo->m_mask, 0, 1);
-    m_events->addEvent(Event(EventTypes::KeyStateKeyDown, event.getTarget(), modifierInfo, Event::kDeliverImmediately));
+    modifierInfo = IKeyState::KeyInfo::alloc(key, m_buttonInfo.m_mask, 0, 1);
+    m_events->addEvent(Event(KeyStateKeyDown, event.getTarget(), modifierInfo, Event::EventFlags::DeliverImmediately));
   }
 
   // send button
-  EventTypes type = m_press ? EventTypes::PrimaryScreenButtonDown : EventTypes::PrimaryScreenButtonUp;
-  m_events->addEvent(Event(type, event.getTarget(), m_buttonInfo, Event::kDeliverImmediately | Event::kDontFreeData));
+  EventTypes type = m_press ? PrimaryScreenButtonDown : PrimaryScreenButtonUp;
+  m_events->addEvent(Event(
+      type, event.getTarget(), &m_buttonInfo, Event::EventFlags::DeliverImmediately | Event::EventFlags::DontFreeData
+  ));
 }
 
 const char *InputFilter::MouseButtonAction::formatName() const
@@ -639,24 +670,25 @@ bool InputFilter::Rule::handleEvent(const Event &event)
   // match
   const ActionList *actions;
   switch (m_condition->match(event)) {
+    using enum FilterStatus;
   default:
     // not handled
     return false;
 
-  case kActivate:
+  case Activate:
     actions = &m_activateActions;
-    LOG((CLOG_DEBUG1 "activate actions"));
+    LOG_VERBOSE("activate actions");
     break;
 
-  case kDeactivate:
+  case Deactivate:
     actions = &m_deactivateActions;
-    LOG((CLOG_DEBUG1 "deactivate actions"));
+    LOG_VERBOSE("deactivate actions");
     break;
   }
 
   // perform actions
   for (auto action : *actions) {
-    LOG((CLOG_DEBUG1 "hotkey: %s", action->format().c_str()));
+    LOG_VERBOSE("hotkey: %s", action->format().c_str());
     action->perform(event);
   }
 
@@ -723,7 +755,7 @@ const InputFilter::Action &InputFilter::Rule::getAction(bool onActivation, uint3
 // -----------------------------------------------------------------------------
 // Input Filter Class
 // -----------------------------------------------------------------------------
-InputFilter::InputFilter(IEventQueue *events) : m_primaryClient(nullptr), m_events(events)
+InputFilter::InputFilter(IEventQueue *events) : m_events(events)
 {
   // do nothing
 }
@@ -759,14 +791,6 @@ void InputFilter::addFilterRule(const Rule &rule)
   }
 }
 
-void InputFilter::removeFilterRule(uint32_t index)
-{
-  if (m_primaryClient != nullptr) {
-    m_ruleList[index].disable(m_primaryClient);
-  }
-  m_ruleList.erase(m_ruleList.begin() + index);
-}
-
 InputFilter::Rule &InputFilter::getRule(uint32_t index)
 {
   return m_ruleList[index];
@@ -778,48 +802,43 @@ void InputFilter::setPrimaryClient(PrimaryClient *client)
     return;
   }
 
+  using enum EventTypes;
   if (m_primaryClient != nullptr) {
     for (auto rule = m_ruleList.begin(); rule != m_ruleList.end(); ++rule) {
       rule->disable(m_primaryClient);
     }
 
-    m_events->removeHandler(EventTypes::KeyStateKeyDown, m_primaryClient->getEventTarget());
-    m_events->removeHandler(EventTypes::KeyStateKeyUp, m_primaryClient->getEventTarget());
-    m_events->removeHandler(EventTypes::KeyStateKeyRepeat, m_primaryClient->getEventTarget());
-    m_events->removeHandler(EventTypes::PrimaryScreenButtonDown, m_primaryClient->getEventTarget());
-    m_events->removeHandler(EventTypes::PrimaryScreenButtonUp, m_primaryClient->getEventTarget());
-    m_events->removeHandler(EventTypes::PrimaryScreenHotkeyDown, m_primaryClient->getEventTarget());
-    m_events->removeHandler(EventTypes::PrimaryScreenHotkeyUp, m_primaryClient->getEventTarget());
-    m_events->removeHandler(EventTypes::ServerConnected, m_primaryClient->getEventTarget());
+    m_events->removeHandler(KeyStateKeyDown, m_primaryClient->getEventTarget());
+    m_events->removeHandler(KeyStateKeyUp, m_primaryClient->getEventTarget());
+    m_events->removeHandler(KeyStateKeyRepeat, m_primaryClient->getEventTarget());
+    m_events->removeHandler(PrimaryScreenButtonDown, m_primaryClient->getEventTarget());
+    m_events->removeHandler(PrimaryScreenButtonUp, m_primaryClient->getEventTarget());
+    m_events->removeHandler(PrimaryScreenHotkeyDown, m_primaryClient->getEventTarget());
+    m_events->removeHandler(PrimaryScreenHotkeyUp, m_primaryClient->getEventTarget());
+    m_events->removeHandler(ServerConnected, m_primaryClient->getEventTarget());
   }
 
   m_primaryClient = client;
 
   if (m_primaryClient != nullptr) {
-    m_events->addHandler(EventTypes::KeyStateKeyDown, m_primaryClient->getEventTarget(), [this](const auto &e) {
+    m_events->addHandler(KeyStateKeyDown, m_primaryClient->getEventTarget(), [this](const auto &e) { handleEvent(e); });
+    m_events->addHandler(KeyStateKeyUp, m_primaryClient->getEventTarget(), [this](const auto &e) { handleEvent(e); });
+    m_events->addHandler(KeyStateKeyRepeat, m_primaryClient->getEventTarget(), [this](const auto &e) {
       handleEvent(e);
     });
-    m_events->addHandler(EventTypes::KeyStateKeyUp, m_primaryClient->getEventTarget(), [this](const auto &e) {
+    m_events->addHandler(PrimaryScreenButtonDown, m_primaryClient->getEventTarget(), [this](const auto &e) {
       handleEvent(e);
     });
-    m_events->addHandler(EventTypes::KeyStateKeyRepeat, m_primaryClient->getEventTarget(), [this](const auto &e) {
+    m_events->addHandler(PrimaryScreenButtonUp, m_primaryClient->getEventTarget(), [this](const auto &e) {
       handleEvent(e);
     });
-    m_events->addHandler(EventTypes::PrimaryScreenButtonDown, m_primaryClient->getEventTarget(), [this](const auto &e) {
+    m_events->addHandler(PrimaryScreenHotkeyDown, m_primaryClient->getEventTarget(), [this](const auto &e) {
       handleEvent(e);
     });
-    m_events->addHandler(EventTypes::PrimaryScreenButtonUp, m_primaryClient->getEventTarget(), [this](const auto &e) {
+    m_events->addHandler(PrimaryScreenHotkeyUp, m_primaryClient->getEventTarget(), [this](const auto &e) {
       handleEvent(e);
     });
-    m_events->addHandler(EventTypes::PrimaryScreenHotkeyDown, m_primaryClient->getEventTarget(), [this](const auto &e) {
-      handleEvent(e);
-    });
-    m_events->addHandler(EventTypes::PrimaryScreenHotkeyUp, m_primaryClient->getEventTarget(), [this](const auto &e) {
-      handleEvent(e);
-    });
-    m_events->addHandler(EventTypes::ServerConnected, m_primaryClient->getEventTarget(), [this](const auto &e) {
-      handleEvent(e);
-    });
+    m_events->addHandler(ServerConnected, m_primaryClient->getEventTarget(), [this](const auto &e) { handleEvent(e); });
 
     for (auto rule = m_ruleList.begin(); rule != m_ruleList.end(); ++rule) {
       rule->enable(m_primaryClient);
@@ -860,21 +879,17 @@ bool InputFilter::operator==(const InputFilter &x) const
   for (auto i = x.m_ruleList.begin(); i != x.m_ruleList.end(); ++i) {
     bList.push_back(i->format());
   }
-  std::partial_sort(aList.begin(), aList.end(), aList.end());
-  std::partial_sort(bList.begin(), bList.end(), bList.end());
+  std::ranges::partial_sort(aList, aList.end());
+  std::ranges::partial_sort(bList, bList.end());
   return (aList == bList);
-}
-
-bool InputFilter::operator!=(const InputFilter &x) const
-{
-  return !operator==(x);
 }
 
 void InputFilter::handleEvent(const Event &event)
 {
   // copy event and adjust target
   Event myEvent(
-      event.getType(), this, event.getData(), event.getFlags() | Event::kDontFreeData | Event::kDeliverImmediately
+      event.getType(), this, event.getData(),
+      event.getFlags() | Event::EventFlags::DontFreeData | Event::EventFlags::DeliverImmediately
   );
 
   // let each rule try to match the event until one does
@@ -886,5 +901,5 @@ void InputFilter::handleEvent(const Event &event)
   }
 
   // not handled so pass through
-  m_events->addEvent(myEvent);
+  m_events->addEvent(std::move(myEvent));
 }

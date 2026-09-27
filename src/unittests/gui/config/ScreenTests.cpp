@@ -1,7 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Chris Rizzitello <sithlord48@gmail.com>
- * SPDX-FileCopyrightText: (C) 2024 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2024 Synergy App Ltd
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
@@ -19,7 +19,8 @@ void ScreenTests::initTestCase()
   if (oldSettings.exists())
     oldSettings.remove();
 
-  Settings::setSettingFile(m_settingsFile);
+  Settings::setSettingsFile(m_settingsFile);
+  Settings::setStateFile(m_stateFile);
 }
 
 void ScreenTests::basicFunctionality()

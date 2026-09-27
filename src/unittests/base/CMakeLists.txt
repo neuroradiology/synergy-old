@@ -1,17 +1,9 @@
-# SPDX-FileCopyrightText: 2025 Deskflow Developers
+# SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
 # SPDX-License-Identifier: MIT
 
 if(WIN32)
   set(extra_libs version)
 endif()
-
-create_test(
-  NAME PathTests
-  DEPENDS base
-  LIBS arch
-  SOURCE PathTests.cpp
-  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/base"
-)
 
 create_test(
   NAME StringTests
@@ -30,10 +22,33 @@ create_test(
 )
 
 create_test(
-  NAME XBaseTests
+  NAME LogTests
   DEPENDS base
-  LIBS arch
-  SOURCE XBaseTests.cpp
+  LIBS arch ${extra_libs}
+  SOURCE LogTests.cpp
   WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/base"
 )
 
+create_test(
+  NAME FileLogOutputterTests
+  DEPENDS base
+  LIBS arch ${extra_libs}
+  SOURCE FileLogOutputterTests.cpp
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/base"
+)
+
+create_test(
+  NAME BaseExceptionTests
+  DEPENDS base
+  LIBS arch
+  SOURCE BaseExceptionTests.cpp
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/base"
+)
+
+create_test(
+  NAME EventQueueTests
+  DEPENDS base
+  LIBS arch mt ${extra_libs}
+  SOURCE EventQueueTests.cpp
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/base"
+)

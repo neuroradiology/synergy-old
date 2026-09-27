@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -8,6 +8,7 @@
 #pragma once
 
 #include "arch/IArchNetwork.h"
+#include "base/Event.h"
 #include "io/StreamBuffer.h"
 #include "mt/CondVar.h"
 #include "mt/Mutex.h"
@@ -28,7 +29,7 @@ class TCPSocket : public IDataSocket
 public:
   TCPSocket(
       IEventQueue *events, SocketMultiplexer *socketMultiplexer,
-      IArchNetwork::EAddressFamily family = IArchNetwork::kINET
+      IArchNetwork::AddressFamily family = IArchNetwork::AddressFamily::INet
   );
   TCPSocket(IEventQueue *events, SocketMultiplexer *socketMultiplexer, ArchSocket socket);
   TCPSocket(TCPSocket const &) = delete;
@@ -59,11 +60,11 @@ public:
   virtual ISocketMultiplexerJob *newJob();
 
 protected:
-  enum EJobResult
+  enum class JobResult
   {
-    kBreak = -1, //!< Break the Job chain
-    kRetry,      //!< Retry the same job
-    kNew         //!< Require a new job
+    Break = -1, //!< Break the Job chain
+    Retry,      //!< Retry the same job
+    New         //!< Require a new job
   };
 
   ArchSocket getSocket()
@@ -74,18 +75,45 @@ protected:
   {
     return m_events;
   }
-  virtual EJobResult doRead();
-  virtual EJobResult doWrite();
+  virtual JobResult doRead();
+  virtual JobResult doWrite();
 
   void setJob(ISocketMultiplexerJob *);
+
+  bool isConnected() const
+  {
+    return m_connected;
+  }
+
+  void setConnected(bool connected)
+  {
+    if (m_connected == connected)
+      return;
+    m_connected = connected;
+  }
 
   bool isReadable() const
   {
     return m_readable;
   }
+
+  void setReadable(bool readable)
+  {
+    if (m_readable == readable)
+      return;
+    m_readable = readable;
+  }
+
   bool isWritable() const
   {
     return m_writable;
+  }
+
+  void setWritable(bool canWrite)
+  {
+    if (canWrite == m_writable)
+      return;
+    m_writable = canWrite;
   }
 
   Mutex &getMutex()
@@ -95,6 +123,9 @@ protected:
 
   void sendEvent(EventTypes);
   void discardWrittenData(int bytesWrote);
+
+  StreamBuffer m_inputBuffer;
+  StreamBuffer m_outputBuffer;
 
 private:
   void init();
@@ -108,17 +139,12 @@ private:
   ISocketMultiplexerJob *serviceConnecting(ISocketMultiplexerJob *, bool, bool, bool);
   ISocketMultiplexerJob *serviceConnected(ISocketMultiplexerJob *, bool, bool, bool);
 
-protected:
   bool m_readable;
   bool m_writable;
   bool m_connected;
-  IEventQueue *m_events;
-  StreamBuffer m_inputBuffer;
-  StreamBuffer m_outputBuffer;
-
-private:
   Mutex m_mutex;
   ArchSocket m_socket;
+  IEventQueue *m_events;
   CondVar<bool> m_flushed;
   SocketMultiplexer *m_socketMultiplexer;
 };

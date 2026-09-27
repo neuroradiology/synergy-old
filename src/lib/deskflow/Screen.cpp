@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2003 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -9,10 +9,37 @@
 #include "base/IEventQueue.h"
 #include "base/Log.h"
 #include "deskflow/IPlatformScreen.h"
-#include "deskflow/ProtocolTypes.h"
-#include "server/ClientProxy.h"
+
+#include <QProcess>
+
+#ifdef Q_OS_WIN
+#include "arch/win32/ArchMiscWindows.h"
+#include "platform/MSWindowsProcess.h"
+#endif
 
 namespace deskflow {
+
+namespace {
+
+bool runScreenCommand(const QString &commandLine)
+{
+#ifdef Q_OS_WIN
+  using deskflow::platform::MSWindowsProcess;
+  if (ArchMiscWindows::isProcessElevated()) {
+    LOG_DEBUG("current process is elevated, starting detached process as session user");
+    return MSWindowsProcess::startDetachedAsSessionUser(commandLine.toStdWString());
+  }
+#endif
+
+  auto args = QProcess::splitCommand(commandLine);
+  if (args.isEmpty()) {
+    return false;
+  }
+  const auto program = args.takeFirst();
+  return QProcess::startDetached(program, args);
+}
+
+} // namespace
 
 //
 // Screen
@@ -29,7 +56,7 @@ Screen::Screen(IPlatformScreen *platformScreen, IEventQueue *events)
   // reset options
   resetOptions();
 
-  LOG((CLOG_DEBUG "opened display"));
+  LOG_DEBUG("opened display");
 }
 
 Screen::~Screen()
@@ -51,20 +78,20 @@ Screen::~Screen()
   // Perhaps it indicates that the cursor is still being controlled on the
   // client while it's shutting down? i.e. the screen is entered and is not the
   // server, or the screen is not entered and is the server.
-  if (m_entered == m_isPrimary) {
+  if (m_entered != m_isPrimary) {
     LOG(
         (CLOG_DEBUG "current screen: entered=%s, primary=%s", //
          m_entered ? "yes" : "no", m_isPrimary ? "yes" : "no")
     );
     if (m_isPrimary) {
-      LOG((CLOG_WARN "current primary screen is not entered on shutdown"));
+      LOG_WARN("current primary screen is not entered on shutdown");
     } else {
-      LOG((CLOG_WARN "current secondary screen is entered on shutdown"));
+      LOG_WARN("current secondary screen is entered on shutdown");
     }
   }
 
   delete m_screen;
-  LOG((CLOG_DEBUG "closed display"));
+  LOG_DEBUG("closed display");
 }
 
 void Screen::enable()
@@ -106,7 +133,7 @@ void Screen::disable()
 
 void Screen::enter(KeyModifierMask toggleMask)
 {
-  LOG((CLOG_INFO "entering screen"));
+  LOG_INFO("entering screen");
 
   if (m_entered) {
     LOG_WARN("screen already entered");
@@ -121,11 +148,18 @@ void Screen::enter(KeyModifierMask toggleMask)
   } else {
     enterSecondary(toggleMask);
   }
+
+  if (Settings::value(Settings::Core::EnableEnterCommand).toBool()) {
+    const auto commandLine = Settings::value(Settings::Core::ScreenEnterCommand).toString();
+    LOG_DEBUG("running screen enter command: %s", qPrintable(commandLine));
+    if (!runScreenCommand(commandLine))
+      LOG_ERR("failed to run screen enter command");
+  }
 }
 
 bool Screen::leave()
 {
-  LOG((CLOG_INFO "leaving screen"));
+  LOG_INFO("leaving screen");
 
   if (!m_entered) {
     LOG_WARN("screen already left");
@@ -142,6 +176,12 @@ bool Screen::leave()
   }
 
   m_screen->leave();
+  if (Settings::value(Settings::Core::EnableExitCommand).toBool()) {
+    const auto commandLine = Settings::value(Settings::Core::ScreenExitCommand).toString();
+    LOG_DEBUG("running screen exit command: %s", qPrintable(commandLine));
+    if (!runScreenCommand(commandLine))
+      LOG_ERR("failed to run screen exit command");
+  }
 
   // make sure our idea of clipboard ownership is correct
   m_screen->checkClipboards();
@@ -183,7 +223,7 @@ void Screen::keyDown(KeyID id, KeyModifierMask mask, KeyButton button, const std
 {
   // check for ctrl+alt+del emulation
   if (id == kKeyDelete && (mask & (KeyModifierControl | KeyModifierAlt)) == (KeyModifierControl | KeyModifierAlt)) {
-    LOG((CLOG_DEBUG "emulating ctrl+alt+del press"));
+    LOG_DEBUG("emulating ctrl+alt+del press");
     if (m_screen->fakeCtrlAltDel()) {
       return;
     }
@@ -227,7 +267,7 @@ void Screen::mouseRelativeMove(int32_t dx, int32_t dy) const
 void Screen::mouseWheel(int32_t xDelta, int32_t yDelta) const
 {
   assert(!m_isPrimary);
-  m_screen->fakeMouseWheel(xDelta, yDelta);
+  m_screen->fakeMouseWheel({xDelta, yDelta});
 }
 
 void Screen::resetOptions()
@@ -241,6 +281,11 @@ void Screen::resetOptions()
 
 void Screen::setOptions(const OptionsList &options)
 {
+  if (options.size() % 2 != 0) {
+    LOG_ERR("options are the incorrect size, can not process them");
+    return;
+  }
+
   // update options
   for (uint32_t i = 0, n = (uint32_t)options.size(); i < n; i += 2) {
     if (options[i] == kOptionHalfDuplexCapsLock) {
@@ -249,21 +294,21 @@ void Screen::setOptions(const OptionsList &options)
       } else {
         m_halfDuplex &= ~KeyModifierCapsLock;
       }
-      LOG((CLOG_DEBUG1 "half-duplex caps-lock %s", ((m_halfDuplex & KeyModifierCapsLock) != 0) ? "on" : "off"));
+      LOG_VERBOSE("half-duplex caps-lock %s", ((m_halfDuplex & KeyModifierCapsLock) != 0) ? "on" : "off");
     } else if (options[i] == kOptionHalfDuplexNumLock) {
       if (options[i + 1] != 0) {
         m_halfDuplex |= KeyModifierNumLock;
       } else {
         m_halfDuplex &= ~KeyModifierNumLock;
       }
-      LOG((CLOG_DEBUG1 "half-duplex num-lock %s", ((m_halfDuplex & KeyModifierNumLock) != 0) ? "on" : "off"));
+      LOG_VERBOSE("half-duplex num-lock %s", ((m_halfDuplex & KeyModifierNumLock) != 0) ? "on" : "off");
     } else if (options[i] == kOptionHalfDuplexScrollLock) {
       if (options[i + 1] != 0) {
         m_halfDuplex |= KeyModifierScrollLock;
       } else {
         m_halfDuplex &= ~KeyModifierScrollLock;
       }
-      LOG((CLOG_DEBUG1 "half-duplex scroll-lock %s", ((m_halfDuplex & KeyModifierScrollLock) != 0) ? "on" : "off"));
+      LOG_VERBOSE("half-duplex scroll-lock %s", ((m_halfDuplex & KeyModifierScrollLock) != 0) ? "on" : "off");
     }
   }
 
@@ -313,7 +358,7 @@ bool Screen::isOnScreen() const
 bool Screen::isLockedToScreen() const
 {
   if (uint32_t buttonID = 0; m_screen->isAnyMouseButtonDown(buttonID)) {
-    LOG((CLOG_DEBUG "locked by mouse buttonID: %d", buttonID));
+    LOG_DEBUG("locked by mouse buttonID: %d", buttonID);
     return true;
   }
   // not locked

@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2008 Volker Lanz <vl@fidra.de>
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -79,9 +79,11 @@ protected:
   void addScreen(const Screen &newScreen);
 
 private:
+  static constexpr int kMaxGridSize = 100;
+
   ScreenList &m_Screens;
-  const int m_NumColumns;
-  const int m_NumRows;
+  int m_NumColumns;
+  int m_NumRows;
 
   static const QString m_MimeType;
 };

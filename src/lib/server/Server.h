@@ -1,7 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
- * SPDX-FileCopyrightText: (C) 2012 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -9,19 +9,16 @@
 #pragma once
 
 #include "base/Event.h"
-#include "base/EventTypes.h"
 #include "base/Stopwatch.h"
+#include "common/NetworkProtocol.h"
 #include "deskflow/Clipboard.h"
 #include "deskflow/ClipboardTypes.h"
-#include "deskflow/INode.h"
 #include "deskflow/KeyTypes.h"
 #include "deskflow/MouseTypes.h"
-#include "deskflow/OptionTypes.h"
-#include "deskflow/ServerArgs.h"
 #include "server/Config.h"
 
+#include <climits>
 #include <map>
-#include <memory>
 #include <set>
 #include <vector>
 
@@ -40,13 +37,13 @@ class ClientListener;
 /*!
 This class implements the top-level server algorithms for deskflow.
 */
-class Server : public INode
+class Server
 {
   using ServerConfig = deskflow::server::Config;
 
 public:
   //! Lock cursor to screen data
-  class LockCursorToScreenInfo
+  class LockCursorToScreenInfo : public EventData
   {
   public:
     enum State
@@ -56,31 +53,42 @@ public:
       kToggle
     };
 
-    static LockCursorToScreenInfo *alloc(State state = kToggle);
+    explicit LockCursorToScreenInfo(State state = kToggle) : m_state(state)
+    {
+      // do nothing
+    }
+    ~LockCursorToScreenInfo() override = default; // do nothing
 
   public:
     State m_state;
   };
 
   //! Switch to screen data
-  class SwitchToScreenInfo
+  class SwitchToScreenInfo : public EventData
   {
   public:
-    static SwitchToScreenInfo *alloc(const std::string &screen);
+    explicit SwitchToScreenInfo(const std::string &screen) : m_screen(screen)
+    {
+      // do nothing
+    }
+    ~SwitchToScreenInfo() override = default; // do nothing
 
   public:
-    // this is a C-string;  this type is a variable size structure
-    char m_screen[1];
+    std::string m_screen;
   };
 
   //! Switch in direction data
-  class SwitchInDirectionInfo
+  class SwitchInDirectionInfo : public EventData
   {
   public:
-    static SwitchInDirectionInfo *alloc(EDirection direction);
+    explicit SwitchInDirectionInfo(Direction direction) : m_direction(direction)
+    {
+      // do nothing
+    }
+    ~SwitchInDirectionInfo() override = default; // do nothing
 
   public:
-    EDirection m_direction;
+    Direction m_direction;
   };
 
   //! Screen connected data
@@ -97,7 +105,7 @@ public:
   };
 
   //! Keyboard broadcast data
-  class KeyboardBroadcastInfo
+  class KeyboardBroadcastInfo : public EventData
   {
   public:
     enum State
@@ -107,12 +115,19 @@ public:
       kToggle
     };
 
-    static KeyboardBroadcastInfo *alloc(State state = kToggle);
-    static KeyboardBroadcastInfo *alloc(State state, const std::string &screens);
+    explicit KeyboardBroadcastInfo(State state = kToggle) : m_state(state)
+    {
+      // do nothing
+    }
+    KeyboardBroadcastInfo(State state, const std::string &screens) : m_state(state), m_screens(screens)
+    {
+      // do nothing
+    }
+    ~KeyboardBroadcastInfo() override = default; // do nothing
 
   public:
     State m_state;
-    char m_screens[1];
+    std::string m_screens;
   };
 
   /*!
@@ -120,13 +135,10 @@ public:
   client (local screen) \p primaryClient.  The client retains
   ownership of \p primaryClient.
   */
-  Server(
-      ServerConfig &config, PrimaryClient *primaryClient, deskflow::Screen *screen, IEventQueue *events,
-      deskflow::ServerArgs const &args
-  );
+  Server(ServerConfig &config, PrimaryClient *primaryClient, deskflow::Screen *screen, IEventQueue *events);
   Server(Server const &) = delete;
   Server(Server &&) = delete;
-  ~Server() override;
+  ~Server();
 
   Server &operator=(Server const &) = delete;
   Server &operator=(Server &&) = delete;
@@ -185,6 +197,8 @@ public:
   Set the \c list to the names of the currently connected clients.
   */
   void getClients(std::vector<std::string> &list) const;
+  void sendConnectedClientsIpc() const;
+  size_t getMaximumClipboardSizeBytes() const;
 
   //@}
 
@@ -215,35 +229,35 @@ private:
 
   // convert pixel position to fraction, using x or y depending on the
   // direction.
-  float mapToFraction(const BaseClientProxy *, EDirection, int32_t x, int32_t y) const;
+  float mapToFraction(const BaseClientProxy *, Direction, int32_t x, int32_t y) const;
 
   // convert fraction to pixel position, writing only x or y depending
   // on the direction.
-  void mapToPixel(const BaseClientProxy *, EDirection, float f, int32_t &x, int32_t &y) const;
+  void mapToPixel(const BaseClientProxy *, Direction, float f, int32_t &x, int32_t &y) const;
 
   // returns true if the client has a neighbor anywhere along the edge
   // indicated by the direction.
-  bool hasAnyNeighbor(const BaseClientProxy *, EDirection) const;
+  bool hasAnyNeighbor(const BaseClientProxy *, Direction) const;
 
   // lookup neighboring screen, mapping the coordinate independent of
   // the direction to the neighbor's coordinate space.
-  BaseClientProxy *getNeighbor(const BaseClientProxy *, EDirection, int32_t &x, int32_t &y) const;
+  BaseClientProxy *getNeighbor(const BaseClientProxy *, Direction, int32_t &x, int32_t &y) const;
 
   // lookup neighboring screen.  given a position relative to the
   // source screen, find the screen we should move onto and where.
   // if the position is sufficiently far from the source then we
   // cross multiple screens.  if there is no suitable screen then
   // return nullptr and x,y are not modified.
-  BaseClientProxy *mapToNeighbor(BaseClientProxy *, EDirection, int32_t &x, int32_t &y) const;
+  BaseClientProxy *mapToNeighbor(BaseClientProxy *, Direction, int32_t &x, int32_t &y) const;
 
   // adjusts x and y or neither to avoid ending up in a jump zone
   // after entering the client in the given direction.
-  void avoidJumpZone(const BaseClientProxy *, EDirection, int32_t &x, int32_t &y) const;
+  void avoidJumpZone(const BaseClientProxy *, Direction, int32_t &x, int32_t &y) const;
 
   // test if a switch is permitted.  this includes testing user
   // options like switch delay and tracking any state required to
   // implement them.  returns true iff a switch is permitted.
-  bool isSwitchOkay(BaseClientProxy *dst, EDirection, int32_t x, int32_t y, int32_t xActive, int32_t yActive);
+  bool isSwitchOkay(BaseClientProxy *dst, Direction, int32_t x, int32_t y, int32_t xActive, int32_t yActive);
 
   // update switch state due to a mouse move at \p x, \p y that
   // doesn't switch screens.
@@ -306,6 +320,7 @@ private:
   void handleClientCloseTimeout(BaseClientProxy *client);
   void handleSwitchToScreenEvent(const Event &event);
   void handleSwitchInDirectionEvent(const Event &event);
+  void handleToggleScreenEvent(const Event &);
   void handleKeyboardBroadcastEvent(const Event &event);
   void handleLockCursorToScreenEvent(const Event &event);
 
@@ -356,12 +371,40 @@ private:
     std::string m_clipboardOwner;
     uint32_t m_clipboardSeqNum = 0;
   };
+  // Order suggested by clang
 
-  // used in hello message sent to the client
-  ENetworkProtocol m_protocol;
+  // the Primary Screen Client
+  PrimaryClient *m_primaryClient = nullptr;
 
-  // the primary screen client
-  PrimaryClient *m_primaryClient;
+  // the client with focus
+  BaseClientProxy *m_active = nullptr;
+
+  // current configuration
+  ServerConfig *m_config = nullptr;
+
+  // input filter (from m_config);
+  InputFilter *m_inputFilter = nullptr;
+
+  // state saved when screen saver activates
+  BaseClientProxy *m_activeSaver = nullptr;
+
+  BaseClientProxy *m_switchScreen = nullptr;
+  double m_switchWaitDelay = 0.0;
+  EventQueueTimer *m_switchWaitTimer = nullptr;
+
+  // delay for double-tap screen switching
+  double m_switchTwoTapDelay = 0.0;
+
+  // server screen
+  deskflow::Screen *m_screen;
+
+  IEventQueue *m_events = nullptr;
+  size_t m_maximumClipboardSize = INT_MAX;
+  ClientListener *m_clientListener = nullptr;
+  Stopwatch m_switchTwoTapTimer;
+
+  // Name of screen broadcasting the keyboard events
+  std::string m_keyboardBroadcastingScreens;
 
   // all clients (including the primary client) indexed by name
   using ClientList = std::map<std::string, BaseClientProxy *>;
@@ -373,8 +416,11 @@ private:
   using OldClients = std::map<BaseClientProxy *, EventQueueTimer *>;
   OldClients m_oldClients;
 
-  // the client with focus
-  BaseClientProxy *m_active;
+  // clipboard cache
+  ClipboardInfo m_clipboards[kClipboardEnd];
+
+  // used in hello message sent to the client
+  NetworkProtocol m_protocol = NetworkProtocol::Barrier;
 
   // the sequence number of enter messages
   uint32_t m_seqNum = 0;
@@ -393,42 +439,21 @@ private:
   int32_t m_xDelta2 = 0;
   int32_t m_yDelta2 = 0;
 
-  // current configuration
-  ServerConfig *m_config;
-
-  // input filter (from m_config);
-  InputFilter *m_inputFilter;
-
-  // clipboard cache
-  ClipboardInfo m_clipboards[kClipboardEnd];
-
-  // state saved when screen saver activates
-  BaseClientProxy *m_activeSaver = nullptr;
   int32_t m_xSaver;
   int32_t m_ySaver;
 
-  // common state for screen switch tests.  all tests are always
-  // trying to reach the same screen in the same direction.
-  EDirection m_switchDir = EDirection::kNoDirection;
-  BaseClientProxy *m_switchScreen = nullptr;
-
   // state for delayed screen switching
-  double m_switchWaitDelay = 0.0;
-  EventQueueTimer *m_switchWaitTimer = nullptr;
   int32_t m_switchWaitX;
   int32_t m_switchWaitY;
 
-  // state for double-tap screen switching
-  double m_switchTwoTapDelay = 0.0;
-  Stopwatch m_switchTwoTapTimer;
-  bool m_switchTwoTapEngaged = false;
-  bool m_switchTwoTapArmed = false;
   int32_t m_switchTwoTapZone = 3;
 
-  // modifiers needed before switching
-  bool m_switchNeedsShift = false;
-  bool m_switchNeedsControl = false;
-  bool m_switchNeedsAlt = false;
+  // common state for screen switch tests.  all tests are always
+  // trying to reach the same screen in the same direction.
+  Direction m_switchDir = Direction::NoDirection;
+
+  bool m_switchTwoTapEngaged = false;
+  bool m_switchTwoTapArmed = false;
 
   // relative mouse move option
   bool m_relativeMoves = false;
@@ -436,20 +461,11 @@ private:
   // flag whether or not we have broadcasting enabled and the screens to
   // which we should send broadcasted keys.
   bool m_keyboardBroadcasting = false;
-  std::string m_keyboardBroadcastingScreens;
 
   // screen locking (former scroll lock)
   bool m_lockedToScreen = false;
 
-  // server screen
-  deskflow::Screen *m_screen;
-
-  IEventQueue *m_events;
-
+  bool m_defaultLockToScreenState = false;
   bool m_disableLockToScreen = false;
   bool m_enableClipboard = true;
-  size_t m_maximumClipboardSize = INT_MAX;
-
-  ClientListener *m_clientListener;
-  deskflow::ServerArgs m_args;
 };

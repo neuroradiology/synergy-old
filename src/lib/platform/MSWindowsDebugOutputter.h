@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2012 Nick Bolton
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -21,9 +21,8 @@ public:
   ~MSWindowsDebugOutputter() override = default;
 
   // ILogOutputter overrides
-  void open(const char *title) override;
+  void open(const QString &title) override;
   void close() override;
-  void show(bool showIfEmpty) override;
-  bool write(ELevel level, const char *message) override;
+  bool write(LogLevel::Level level, const QString &message) override;
   void flush();
 };

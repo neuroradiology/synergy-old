@@ -1,16 +1,14 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2026 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
 
-#include "deskflow/ClientArgs.h"
 #include "deskflow/IPlatformScreen.h"
-
-#include <stdexcept>
 
 //! Base screen implementation
 /*!
@@ -21,9 +19,7 @@ subclasses to implement the rest.
 class PlatformScreen : public IPlatformScreen
 {
 public:
-  PlatformScreen(
-      IEventQueue *events, deskflow::ClientScrollDirection scrollDirection = deskflow::ClientScrollDirection::SERVER
-  );
+  explicit PlatformScreen(IEventQueue *events);
   ~PlatformScreen() override = default;
 
   // IScreen overrides
@@ -34,6 +30,7 @@ public:
 
   // IPrimaryScreen overrides
   void reconfigure(uint32_t activeSides) override = 0;
+  uint32_t activeSides() override = 0;
   void warpCursor(int32_t x, int32_t y) override = 0;
   uint32_t registerHotKey(KeyID key, KeyModifierMask mask) override = 0;
   void unregisterHotKey(uint32_t id) override = 0;
@@ -47,7 +44,7 @@ public:
   void fakeMouseButton(ButtonID id, bool press) override = 0;
   void fakeMouseMove(int32_t x, int32_t y) override = 0;
   void fakeMouseRelativeMove(int32_t dx, int32_t dy) const override = 0;
-  void fakeMouseWheel(int32_t xDelta, int32_t yDelta) const override = 0;
+  void fakeMouseWheel(ScrollDelta delta) const override = 0;
 
   // IKeyState overrides
   void updateKeyMap() override;
@@ -63,6 +60,7 @@ public:
   KeyModifierMask pollActiveModifiers() const override;
   int32_t pollActiveGroup() const override;
   void pollPressedKeys(KeyButtonSet &pressedKeys) const override;
+  void clearStaleModifiers() override;
 
   // IPlatformScreen overrides
   void enable() override = 0;
@@ -99,17 +97,10 @@ protected:
   void handleSystemEvent(const Event &event) override = 0;
 
   /*!
-   * \brief mapClientScrollDirection
-   * Convert scroll according to client scroll directio
-   * \return converted value according to the client scroll direction
+  Converts a sides mask (e.g. LeftMask | RightMask) to a string representation (e.g. "LR").
    */
-  virtual int32_t mapClientScrollDirection(int32_t) const;
+  static std::string sidesMaskToString(uint32_t sides);
 
-private:
-  /*!
-   * \brief m_clientScrollDirection
-   * This member contains client scroll direction.
-   * This member is used only on client side.
-   */
-  deskflow::ClientScrollDirection m_clientScrollDirection = deskflow::ClientScrollDirection::SERVER;
+  // Delta for a "click"
+  static const auto s_scrollDelta = 120;
 };

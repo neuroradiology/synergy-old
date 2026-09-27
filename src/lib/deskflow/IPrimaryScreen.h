@@ -1,15 +1,13 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2003 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
 
-#include "base/Event.h"
-#include "base/EventTypes.h"
-#include "common/IInterface.h"
 #include "deskflow/KeyTypes.h"
 #include "deskflow/MouseTypes.h"
 
@@ -18,13 +16,18 @@
 This interface defines the methods common to all platform dependent
 primary screen implementations.
 */
-class IPrimaryScreen : public IInterface
+class IPrimaryScreen
 {
 public:
+  virtual ~IPrimaryScreen() = default;
   //! Button event data
   class ButtonInfo
   {
   public:
+    ButtonInfo(ButtonID button, KeyModifierMask mask) : m_button{button}, m_mask{mask}
+    {
+      // do nothing
+    }
     static ButtonInfo *alloc(ButtonID, KeyModifierMask);
     static ButtonInfo *alloc(const ButtonInfo &);
 
@@ -79,11 +82,17 @@ public:
   //! Update configuration
   /*!
   This is called when the configuration has changed.  \c activeSides
-  is a bitmask of EDirectionMask indicating which sides of the
+  is a bitmask of DirectionMask indicating which sides of the
   primary screen are linked to clients.  Override to handle the
   possible change in jump zones.
   */
   virtual void reconfigure(uint32_t activeSides) = 0;
+
+  /**
+   * @brief activeSides
+   * @return a bitmask of DirectionMask indicating which sides of the primary screen are linked to clients
+   */
+  virtual uint32_t activeSides() = 0;
 
   //! Warp cursor
   /*!

@@ -1,15 +1,16 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
 
-#include "base/EventTypes.h"
 #include "io/IStream.h"
 #include "net/ISocket.h"
+
+#include <string>
 
 //! Data stream socket interface
 /*!
@@ -29,7 +30,7 @@ public:
     std::string m_what;
   };
 
-  explicit IDataSocket(const IEventQueue *events)
+  explicit IDataSocket([[maybe_unused]] const IEventQueue *events)
   {
     // do nothing
   }
@@ -49,21 +50,8 @@ public:
   //@}
 
   // ISocket overrides
-  // close() and getEventTarget() aren't pure to work around a bug
-  // in VC++6.  it claims the methods are unused locals and warns
-  // that it's removing them.  it's presumably tickled by inheriting
-  // methods with identical signatures from both superclasses.
-  void bind(const NetworkAddress &) override = 0;
   void close() override;
   void *getEventTarget() const override;
 
-  // IStream overrides
-  uint32_t read(void *buffer, uint32_t n) override = 0;
-  void write(const void *buffer, uint32_t n) override = 0;
-  void flush() override = 0;
-  void shutdownInput() override = 0;
-  void shutdownOutput() override = 0;
-  bool isReady() const override = 0;
-  uint32_t getSize() const override = 0;
   virtual bool isFatal() const = 0;
 };

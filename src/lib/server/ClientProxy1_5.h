@@ -1,14 +1,12 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2013 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2013 - 2016 Synergy App Ltd
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
 
 #include "server/ClientProxy1_4.h"
-
-#include <vector>
 
 class Server;
 class IEventQueue;
@@ -30,7 +28,4 @@ public:
   bool parseMessage(const uint8_t *code) override;
   void fileChunkReceived() const;
   void dragInfoReceived() const;
-
-private:
-  IEventQueue *m_events;
 };

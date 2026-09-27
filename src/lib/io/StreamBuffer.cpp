@@ -1,12 +1,13 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #include "io/StreamBuffer.h"
-#include "common/Common.h"
+
+#include <assert.h>
 
 //
 // StreamBuffer
@@ -90,7 +91,7 @@ void StreamBuffer::write(const void *vdata, uint32_t n)
     }
   }
   if (scan == m_chunks.end()) {
-    scan = m_chunks.insert(scan, Chunk());
+    scan = m_chunks.emplace(scan, Chunk());
   }
 
   // append data in chunks
@@ -109,7 +110,7 @@ void StreamBuffer::write(const void *vdata, uint32_t n)
     // append another empty chunk if we're not done yet
     if (n > 0) {
       ++scan;
-      scan = m_chunks.insert(scan, Chunk());
+      scan = m_chunks.emplace(scan, Chunk());
     }
   }
 }

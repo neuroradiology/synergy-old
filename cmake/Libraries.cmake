@@ -1,5 +1,5 @@
-# SPDX-FileCopyrightText: 2024 - 2025 Deskflow Developers
-# SPDX-FileCopyrightText: 2024 Symless Ltd
+# SPDX-FileCopyrightText: (C) 2024 - 2026 Deskflow Developers
+# SPDX-FileCopyrightText: (C) 2024 Symless Ltd
 # SPDX-License-Identifier: MIT
 
 macro(configure_libs)
@@ -19,49 +19,19 @@ macro(configure_libs)
     )
   endif()
 
-  find_package(Qt6 ${REQUIRED_QT_VERSION} REQUIRED COMPONENTS Core Widgets Network)
-  if(UNIX AND NOT APPLE)
-      find_package(Qt6 ${REQUIRED_QT_VERSION} REQUIRED COMPONENTS DBus Xml)
+  # Check if <format> header is available
+  check_cxx_source_compiles("
+    #include <format>
+    int main() {
+        char buffer[100];
+        std::format_to_n(buffer, 100, \"test {}\", 42);
+        return 0;
+    }
+    " HAVE_FORMAT)
+
+  if(HAVE_FORMAT)
+    add_definitions(-DHAVE_FORMAT)
   endif()
-
-  # Define the location of Qt deployment tool
-  if(WIN32)
-    if (CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT VCPKG_INSTALL_DIR STREQUAL "")
-      find_program(DEPLOYQT windeployqt.debug.bat)
-    else()
-      find_program(DEPLOYQT windeployqt)
-    endif()
-  elseif(APPLE)
-      find_program(DEPLOYQT macdeployqt)
-  endif()
-
-  set(CMAKE_AUTOMOC ON)
-  set(CMAKE_AUTOUIC ON)
-  set(CMAKE_AUTORCC ON)
-
-  message(STATUS "Qt version: ${Qt6_VERSION}")
-
-  option(ENABLE_COVERAGE "Enable test coverage" OFF)
-  if(ENABLE_COVERAGE)
-    message(STATUS "Enabling code coverage")
-    include(cmake/CodeCoverage.cmake)
-    append_coverage_compiler_flags()
-    set(test_exclude subprojects/* build/* src/unittests/*)
-    set(test_src ${PROJECT_SOURCE_DIR}/src)
-
-    # Apparently solves the bug in gcov where it returns negative counts and confuses gcovr.
-    # > Got negative hit value in gcov line 'branch  2 taken -1' caused by a bug in gcov tool
-    # Bug report: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=68080
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-update=atomic")
-
-    setup_target_for_coverage_gcovr_xml(
-      NAME coverage-legacytests
-      EXECUTABLE legacytests
-      BASE_DIRECTORY ${test_src}
-      EXCLUDE ${test_exclude}
-    )
-  endif()
-
 endmacro()
 
 #
@@ -81,12 +51,12 @@ macro(configure_unix_libs)
   include(CheckIncludeFileCXX)
   include(CheckSymbolExists)
   include(CheckCSourceCompiles)
+  include(CheckCXXSourceCompiles)
 
   check_include_files(sys/socket.h HAVE_SYS_SOCKET_H)
   if (NOT HAVE_SYS_SOCKET_H)
     message(FATAL_ERROR "Missing header: sys/socket.h")
   endif()
-
 
   check_include_files(unistd.h HAVE_UNISTD_H)
   if (NOT HAVE_UNISTD_H)
@@ -94,30 +64,8 @@ macro(configure_unix_libs)
   endif()
 
   check_function_exists(sigwait HAVE_POSIX_SIGWAIT)
-  check_function_exists(inet_aton HAVE_INET_ATON)
-
-  # For some reason, the check_function_exists macro doesn't detect the
-  # inet_aton on some pure Unix platforms (e.g. sunos5). So we need to do a more
-  # detailed check and also include some extra libs.
-  if(NOT HAVE_INET_ATON)
-    set(CMAKE_REQUIRED_LIBRARIES nsl)
-
-    check_c_source_compiles(
-      "#include <arpa/inet.h>\n int main() { inet_aton (0, 0); }"
-      HAVE_INET_ATON_ADV)
-
-    set(CMAKE_REQUIRED_LIBRARIES)
-
-    if(HAVE_INET_ATON_ADV)
-      # Override the previous fail.
-      set(HAVE_INET_ATON 1)
-
-      # Assume that both nsl and socket will be needed, it seems safe to add
-      # socket on the back of nsl, since socket only ever needed when nsl is
-      # needed.
-      list(APPEND libs nsl socket)
-    endif()
-
+  if (NOT HAVE_POSIX_SIGWAIT)
+    message(FATAL_ERROR "Missing posix sigwait")
   endif()
 
   # pthread is used on both Linux and Mac
@@ -129,7 +77,6 @@ macro(configure_unix_libs)
   endif()
 
   if(APPLE)
-    set(CMAKE_CXX_FLAGS "--sysroot ${CMAKE_OSX_SYSROOT} ${CMAKE_CXX_FLAGS} -DGTEST_USE_OWN_TR1_TUPLE=1")
     find_library(lib_ScreenSaver ScreenSaver)
     find_library(lib_IOKit IOKit)
     find_library(lib_ApplicationServices ApplicationServices)
@@ -140,33 +87,26 @@ macro(configure_unix_libs)
       ${lib_ScreenSaver} ${lib_IOKit} ${lib_ApplicationServices}
       ${lib_Foundation} ${lib_Carbon} ${lib_UserNotifications}
     )
-
-    add_definitions(-DWINAPI_CARBON=1 -D_THREAD_SAFE)
   else()
 
-    configure_xorg_libs()
+    if (BUILD_X11_SUPPORT)
+      configure_xorg_libs()
+    endif()
 
     include(FindPkgConfig)
     find_package(PkgConfig)
     if(PKG_CONFIG_FOUND)
       pkg_check_modules(LIBXKBCOMMON REQUIRED xkbcommon)
-      pkg_check_modules(GLIB2 REQUIRED glib-2.0)
-      find_library(LIBM m)
-      include_directories(${LIBXKBCOMMON_INCLUDE_DIRS} ${GLIB2_INCLUDE_DIRS}
-                          ${LIBM_INCLUDE_DIRS})
+      message(STATUS "xkbcommon version: ${LIBXKBCOMMON_VERSION}")
+      include_directories(${LIBXKBCOMMON_INCLUDE_DIRS})
+
+      pkg_check_modules(LIBXKBREGISTRY REQUIRED xkbregistry)
+      message(STATUS "xkbregistry version: ${LIBXKBREGISTRY_VERSION}")
+      include_directories(${LIBXKBREGISTRY_INCLUDE_DIRS})
     else()
       message(WARNING "pkg-config not found, skipping wayland libraries")
     endif()
   endif()
-
-  # Unix only: For config.h, save the results based on a template (config.h.in).
-  # Note that this won't work on Windows because filenames are not case sensitive,
-  # and we have header files named "Config.h" (upper case 'C').
-  configure_file(${CMAKE_SOURCE_DIR}/src/lib/Config.h.in
-                 ${CMAKE_BINARY_DIR}/src/lib/Config.h @ONLY)
-
-  add_definitions(-DSYSAPI_UNIX=1 -DHAVE_CONFIG_H)
-
 endmacro()
 
 #

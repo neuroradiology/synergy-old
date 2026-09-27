@@ -1,18 +1,18 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
- * SPDX-FileCopyrightText: (C) 2015 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2015 - 2016 Synergy App Ltd
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #include "SecureSocket.h"
 #include "SecureUtils.h"
 
-#include "arch/XArch.h"
+#include "arch/ArchException.h"
+#include "base/IEventQueue.h"
 #include "base/Log.h"
-#include "base/Path.h"
-#include "base/String.h"
 #include "common/Settings.h"
+#include "deskflow/ipc/CoreIpc.h"
 #include "mt/Lock.h"
 #include "net/FingerprintDatabase.h"
 #include "net/TCPSocket.h"
@@ -21,27 +21,17 @@
 
 #include <cstdlib>
 #include <cstring>
-#include <fstream>
 #include <iterator>
 #include <memory>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
-#include <sstream>
 
 //
 // SecureSocket
 //
-
-#define MAX_ERROR_SIZE 65535
-
-static const std::size_t MAX_INPUT_BUFFER_SIZE = 1024 * 1024;
+static const std::size_t s_maxInputBufferSize = 1024 * 1024;
 
 static const float s_retryDelay = 0.01f;
-
-enum
-{
-  kMsgSize = 128
-};
 
 struct Ssl
 {
@@ -55,7 +45,7 @@ static int verifyIgnoreCertCallback(X509_STORE_CTX *, void *)
 }
 
 SecureSocket::SecureSocket(
-    IEventQueue *events, SocketMultiplexer *socketMultiplexer, IArchNetwork::EAddressFamily family,
+    IEventQueue *events, SocketMultiplexer *socketMultiplexer, IArchNetwork::AddressFamily family,
     SecurityLevel securityLevel
 )
     : TCPSocket(events, socketMultiplexer, family),
@@ -76,6 +66,7 @@ SecureSocket::SecureSocket(
 SecureSocket::~SecureSocket()
 {
   freeSSL();
+  free(m_writeStaticBuffer);
 }
 
 void SecureSocket::close()
@@ -86,7 +77,7 @@ void SecureSocket::close()
 
 void SecureSocket::connect(const NetworkAddress &addr)
 {
-  m_events->addHandler(EventTypes::DataSocketConnected, getEventTarget(), [this](const auto &e) {
+  getEvents()->addHandler(EventTypes::DataSocketConnected, getEventTarget(), [this](const auto &e) {
     handleTCPConnected(e);
   });
   TCPSocket::connect(addr);
@@ -95,8 +86,15 @@ void SecureSocket::connect(const NetworkAddress &addr)
 ISocketMultiplexerJob *SecureSocket::newJob()
 {
   // after TCP connection is established, SecureSocket will pick up
-  // connected event and do secureConnect
-  if (m_connected && !m_secureReady) {
+  // connected event and do secureConnect. However, we must ensure
+  // that the multiplexer has a job to actually detect that connection.
+  if (isConnected() && !m_secureReady) {
+    if (m_ssl && m_ssl->m_ssl) {
+      // we are in the middle of a secure handshake
+      return new TSocketMultiplexerMethodJob<SecureSocket>(
+          this, &SecureSocket::serviceConnect, getSocket(), isReadable(), isWritable()
+      );
+    }
     return nullptr;
   }
 
@@ -117,22 +115,24 @@ void SecureSocket::secureAccept()
   ));
 }
 
-TCPSocket::EJobResult SecureSocket::doRead()
+TCPSocket::JobResult SecureSocket::doRead()
 {
+  using enum JobResult;
   static uint8_t buffer[4096];
-  memset(buffer, 0, sizeof(buffer));
+  static const auto bufferSize = std::size(buffer);
+  memset(buffer, 0, bufferSize);
   int bytesRead = 0;
   int status = 0;
 
   if (isSecureReady()) {
-    status = secureRead(buffer, sizeof(buffer), bytesRead);
+    status = secureRead(buffer, bufferSize, bytesRead);
     if (status < 0) {
-      return kBreak;
+      return Break;
     } else if (status == 0) {
-      return kNew;
+      return New;
     }
   } else {
-    return kRetry;
+    return Retry;
   }
 
   if (bytesRead > 0) {
@@ -142,13 +142,13 @@ TCPSocket::EJobResult SecureSocket::doRead()
     do {
       m_inputBuffer.write(buffer, bytesRead);
 
-      if (m_inputBuffer.getSize() > MAX_INPUT_BUFFER_SIZE) {
+      if (m_inputBuffer.getSize() > s_maxInputBufferSize) {
         break;
       }
 
-      status = secureRead(buffer, sizeof(buffer), bytesRead);
+      status = secureRead(buffer, bufferSize, bytesRead);
       if (status < 0) {
-        return kBreak;
+        return Break;
       }
     } while (bytesRead > 0 || status > 0);
 
@@ -161,68 +161,64 @@ TCPSocket::EJobResult SecureSocket::doRead()
     // has therefore shutdown but don't flush our buffer
     // since there's still data to be read.
     sendEvent(EventTypes::StreamInputShutdown);
-    if (!m_writable && m_inputBuffer.getSize() == 0) {
+    if (!isWritable() && m_inputBuffer.getSize() == 0) {
       sendEvent(EventTypes::SocketDisconnected);
-      m_connected = false;
+      setConnected(false);
     }
-    m_readable = false;
-    return kNew;
+    setReadable(false);
+    return New;
   }
 
-  return kRetry;
+  return Retry;
 }
 
-TCPSocket::EJobResult SecureSocket::doWrite()
+TCPSocket::JobResult SecureSocket::doWrite()
 {
-  static bool s_retry = false;
-  static int s_retrySize = 0;
-  static int s_staticBufferSize = 0;
-  static void *s_staticBuffer = nullptr;
+  using enum JobResult;
 
   // write data
   int bufferSize = 0;
   int bytesWrote = 0;
   int status = 0;
 
-  if (s_retry) {
-    bufferSize = s_retrySize;
+  if (m_writeRetry) {
+    bufferSize = m_writeRetrySize;
   } else {
     bufferSize = m_outputBuffer.getSize();
     if (bufferSize != 0) {
-      if (bufferSize > s_staticBufferSize) {
-        s_staticBuffer = realloc(s_staticBuffer, bufferSize);
-        s_staticBufferSize = bufferSize;
+      if (bufferSize > m_writeStaticBufferSize) {
+        m_writeStaticBuffer = realloc(m_writeStaticBuffer, bufferSize);
+        m_writeStaticBufferSize = bufferSize;
       }
-      memcpy(s_staticBuffer, m_outputBuffer.peek(bufferSize), bufferSize);
+      memcpy(m_writeStaticBuffer, m_outputBuffer.peek(bufferSize), bufferSize);
     }
   }
 
   if (bufferSize == 0) {
-    return kRetry;
+    return Retry;
   }
 
   if (isSecureReady()) {
-    status = secureWrite(s_staticBuffer, bufferSize, bytesWrote);
+    status = secureWrite(m_writeStaticBuffer, bufferSize, bytesWrote);
     if (status > 0) {
-      s_retry = false;
-      bufferSize = 0;
+      m_writeRetry = false;
     } else if (status < 0) {
-      return kBreak;
+      return Break;
     } else if (status == 0) {
-      s_retry = true;
-      s_retrySize = bufferSize;
-      return kNew;
+      m_writeRetry = true;
+      m_writeRetrySize = bufferSize;
+      return New;
     }
   } else {
-    return kRetry;
+    return Retry;
   }
 
   if (bytesWrote > 0) {
     discardWrittenData(bytesWrote);
-    return kNew;
+    return New;
   }
 
-  return kRetry;
+  return Retry;
 }
 
 int SecureSocket::secureRead(void *buffer, int size, int &read)
@@ -230,10 +226,10 @@ int SecureSocket::secureRead(void *buffer, int size, int &read)
   std::scoped_lock ssl_lock{ssl_mutex_};
 
   if (m_ssl->m_ssl != nullptr) {
-    LOG((CLOG_DEBUG2 "reading secure socket"));
+    LOG_VERBOSE("reading secure socket");
     read = SSL_read(m_ssl->m_ssl, buffer, size);
 
-    static int retry;
+    int retry = 0;
 
     // Check result will cleanup the connection in the case of a fatal
     checkResult(read, retry);
@@ -257,11 +253,11 @@ int SecureSocket::secureWrite(const void *buffer, int size, int &wrote)
   std::scoped_lock ssl_lock{ssl_mutex_};
 
   if (m_ssl->m_ssl != nullptr) {
-    LOG((CLOG_DEBUG2 "writing secure socket: %p", this));
+    LOG_VERBOSE("writing secure socket: %p", this);
 
     wrote = SSL_write(m_ssl->m_ssl, buffer, size);
 
-    static int retry;
+    int retry = 0;
 
     // Check result will cleanup the connection in the case of a fatal
     checkResult(wrote, retry);
@@ -294,41 +290,35 @@ void SecureSocket::initSsl(bool server)
   initContext(server);
 }
 
-bool SecureSocket::loadCertificates(const std::string &filename)
+bool SecureSocket::loadCertificate(const QString &filename)
 {
   std::scoped_lock ssl_lock{ssl_mutex_};
 
-  if (filename.empty()) {
+  if (filename.isEmpty()) {
     SslLogger::logError("tls certificate is not specified");
     return false;
-  } else {
-    std::ifstream file(deskflow::filesystem::path(filename));
-    bool exist = file.good();
-    file.close();
-
-    if (!exist) {
-      std::string errorMsg("tls certificate doesn't exist: ");
-      errorMsg.append(filename);
-      SslLogger::logError(errorMsg.c_str());
-      return false;
-    }
   }
 
-  int r = 0;
-  r = SSL_CTX_use_certificate_file(m_ssl->m_context, filename.c_str(), SSL_FILETYPE_PEM);
-  if (r <= 0) {
+  if (!QFile::exists(filename)) {
+    std::string errorMsg("tls certificate doesn't exist: ");
+    errorMsg.append(filename.toStdString());
+    SslLogger::logError(errorMsg);
+    return false;
+  }
+
+  const auto fName = filename.toStdString();
+
+  if (SSL_CTX_use_certificate_file(m_ssl->m_context, fName.c_str(), SSL_FILETYPE_PEM) <= 0) {
     SslLogger::logError("could not use tls certificate");
     return false;
   }
 
-  r = SSL_CTX_use_PrivateKey_file(m_ssl->m_context, filename.c_str(), SSL_FILETYPE_PEM);
-  if (r <= 0) {
+  if (SSL_CTX_use_PrivateKey_file(m_ssl->m_context, fName.c_str(), SSL_FILETYPE_PEM) <= 0) {
     SslLogger::logError("could not use tls private key");
     return false;
   }
 
-  r = SSL_CTX_check_private_key(m_ssl->m_context);
-  if (!r) {
+  if (!SSL_CTX_check_private_key(m_ssl->m_context)) {
     SslLogger::logError("could not verify tls private key");
     return false;
   }
@@ -361,7 +351,10 @@ void SecureSocket::initContext(bool server)
 
   // Prevent the usage of of all version prior to TLSv1.2 as they are known to
   // be vulnerable
-  SSL_CTX_set_options(m_ssl->m_context, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1);
+  SSL_CTX_set_options(
+      m_ssl->m_context,
+      SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1 | SSL_OP_IGNORE_UNEXPECTED_EOF
+  );
 
   if (m_ssl->m_context == nullptr) {
     SslLogger::logError();
@@ -396,6 +389,7 @@ void SecureSocket::freeSSL()
   setJob(nullptr);
   if (m_ssl) {
     if (m_ssl->m_ssl != nullptr) {
+      SSL_set_quiet_shutdown(m_ssl->m_ssl, 1);
       SSL_shutdown(m_ssl->m_ssl);
 
       SSL_free(m_ssl->m_ssl);
@@ -418,7 +412,7 @@ int SecureSocket::secureAccept(int socket)
   // set connection socket to SSL state
   SSL_set_fd(m_ssl->m_ssl, socket);
 
-  LOG((CLOG_DEBUG2 "accepting secure socket"));
+  LOG_VERBOSE("accepting secure socket");
   int r = SSL_accept(m_ssl->m_ssl);
 
   static int retry;
@@ -426,13 +420,12 @@ int SecureSocket::secureAccept(int socket)
   checkResult(r, retry);
 
   if (isFatal()) {
-    // tell user and sleep so the socket isn't hammered.
-    LOG((CLOG_ERR "failed to accept secure socket"));
-    LOG((CLOG_WARN "client connection may not be secure"));
+    // Never block here; this thread services every connected socket.
+    // Historically a 1s sleep let any failed handshake DoS all clients.
+    LOG_ERR("failed to accept secure socket");
     m_secureReady = false;
-    Arch::sleep(1);
     retry = 0;
-    return -1; // Failed, error out
+    return -1; // Fail
   }
 
   // If not fatal and no retry, state is good
@@ -443,7 +436,7 @@ int SecureSocket::secureAccept(int socket)
       return -1; // Fail
     }
     m_secureReady = true;
-    LOG((CLOG_INFO "accepted secure socket"));
+    LOG_INFO("accepted secure socket");
     SslLogger::logSecureCipherInfo(m_ssl->m_ssl);
     SslLogger::logSecureConnectInfo(m_ssl->m_ssl);
     return 1;
@@ -451,24 +444,20 @@ int SecureSocket::secureAccept(int socket)
 
   // If not fatal and retry is set, not ready, and return retry
   if (retry > 0) {
-    LOG((CLOG_DEBUG2 "retry accepting secure socket"));
+    LOG_VERBOSE("retry accepting secure socket");
     m_secureReady = false;
-    Arch::sleep(s_retryDelay);
     return 0;
   }
 
   // no good state exists here
-  LOG((CLOG_ERR "unexpected state attempting to accept connection"));
-  return -1;
+  LOG_ERR("unexpected state attempting to accept connection");
+  return -1; // Fail
 }
 
 int SecureSocket::secureConnect(int socket)
 {
-
-  std::string certDir = Settings::value(Settings::Security::Certificate).toString().toStdString();
-
-  if (!loadCertificates(certDir)) {
-    LOG((CLOG_ERR "could not load client certificates"));
+  if (!loadCertificate(Settings::value(Settings::Security::Certificate).toString())) {
+    LOG_ERR("could not load client certificates");
     disconnect();
     return -1;
   }
@@ -480,11 +469,8 @@ int SecureSocket::secureConnect(int socket)
   // attach the socket descriptor
   SSL_set_fd(m_ssl->m_ssl, socket);
 
-  LOG((CLOG_DEBUG2 "connecting secure socket"));
+  LOG_VERBOSE("connecting secure socket");
 
-  // TODO: S1-1766, enable hostname verification.
-  // the cert will need to be installed in the trusted store on the client.
-  // we'll probably need to find a way of securely transferring the cert.
   int r = SSL_connect(m_ssl->m_ssl);
 
   static int retry;
@@ -492,16 +478,15 @@ int SecureSocket::secureConnect(int socket)
   checkResult(r, retry);
 
   if (isFatal()) {
-    LOG((CLOG_ERR "failed to connect secure socket"));
+    LOG_ERR("failed to connect secure socket");
     retry = 0;
     return -1;
   }
 
   // If we should retry, not ready and return 0
   if (retry > 0) {
-    LOG((CLOG_DEBUG2 "retry connect secure socket"));
+    LOG_VERBOSE("retry connect secure socket");
     m_secureReady = false;
-    Arch::sleep(s_retryDelay);
     return 0;
   }
 
@@ -509,17 +494,17 @@ int SecureSocket::secureConnect(int socket)
   // No error, set ready, process and return ok
   m_secureReady = true;
   if (verifyCertFingerprint(Settings::tlsTrustedServersDb())) {
-    LOG((CLOG_INFO "connected to secure socket"));
+    LOG_INFO("connected to secure socket");
     if (!showCertificate()) {
       disconnect();
       return -1; // Cert fail, error
     }
   } else {
-    LOG((CLOG_ERR "failed to verify server certificate fingerprint"));
+    LOG_ERR("failed to verify server certificate fingerprint");
     disconnect();
     return -1; // Fingerprint failed, error
   }
-  LOG((CLOG_DEBUG2 "connected secure socket"));
+  LOG_VERBOSE("connected secure socket");
   SslLogger::logSecureCipherInfo(m_ssl->m_ssl);
   SslLogger::logSecureConnectInfo(m_ssl->m_ssl);
   return 1;
@@ -534,7 +519,7 @@ bool SecureSocket::showCertificate() const
   cert = SSL_get_peer_certificate(m_ssl->m_ssl);
   if (cert != nullptr) {
     line = X509_NAME_oneline(X509_get_subject_name(cert), nullptr, 0);
-    LOG((CLOG_INFO "server tls certificate info: %s", line));
+    LOG_INFO("server tls certificate info: %s", line);
     OPENSSL_free(line);
     X509_free(cert);
   } else {
@@ -549,10 +534,7 @@ void SecureSocket::checkResult(int status, int &retry)
 {
   // ssl errors are a little quirky. the "want" errors are normal and
   // should result in a retry.
-
-  int errorCode = SSL_get_error(m_ssl->m_ssl, status);
-
-  switch (errorCode) {
+  switch (auto errorCode = SSL_get_error(m_ssl->m_ssl, status); errorCode) {
   case SSL_ERROR_NONE:
     retry = 0;
     // operation completed
@@ -561,44 +543,44 @@ void SecureSocket::checkResult(int status, int &retry)
   case SSL_ERROR_ZERO_RETURN:
     // connection closed
     isFatal(true);
-    LOG((CLOG_DEBUG "tls connection closed"));
+    LOG_DEBUG("tls connection closed");
     break;
 
   case SSL_ERROR_WANT_READ:
+    setReadable(true);
     retry++;
-    LOG((CLOG_DEBUG2 "want to read, error=%d, attempt=%d", errorCode, retry));
+    LOG_VERBOSE("want to read, error=%d, attempt=%d", errorCode, retry);
     break;
 
   case SSL_ERROR_WANT_WRITE:
-    // Need to make sure the socket is known to be writable so the impending
-    // select action actually triggers on a write. This isn't necessary for
-    // m_readable because the socket logic is always readable
-    m_writable = true;
+    // SSL_write() bypasses writeSocket(), so reset the poll hint ourselves.
+    ARCH->resetPollWriteOnSocket(getSocket());
+    setWritable(true);
     retry++;
-    LOG((CLOG_DEBUG2 "want to write, error=%d, attempt=%d", errorCode, retry));
+    LOG_VERBOSE("want to write, error=%d, attempt=%d", errorCode, retry);
     break;
 
   case SSL_ERROR_WANT_CONNECT:
     retry++;
-    LOG((CLOG_DEBUG2 "want to connect, error=%d, attempt=%d", errorCode, retry));
+    LOG_VERBOSE("want to connect, error=%d, attempt=%d", errorCode, retry);
     break;
 
   case SSL_ERROR_WANT_ACCEPT:
     retry++;
-    LOG((CLOG_DEBUG2 "want to accept, error=%d, attempt=%d", errorCode, retry));
+    LOG_VERBOSE("want to accept, error=%d, attempt=%d", errorCode, retry);
     break;
 
   case SSL_ERROR_SYSCALL:
-    LOG((CLOG_ERR "tls error occurred (system call failure)"));
+    LOG_ERR("tls error occurred (system call failure)");
     if (ERR_peek_error() == 0) {
       if (status == 0) {
-        LOG((CLOG_ERR "eof violates tls protocol"));
+        LOG_ERR("eof violates tls protocol");
       } else if (status == -1) {
         // underlying socket I/O reproted an error
         try {
           ARCH->throwErrorOnSocket(getSocket());
-        } catch (XArchNetwork &e) {
-          LOG((CLOG_ERR "%s", e.what()));
+        } catch (ArchNetworkException &e) {
+          LOG_ERR("%s", e.what());
         }
       }
     }
@@ -607,12 +589,12 @@ void SecureSocket::checkResult(int status, int &retry)
     break;
 
   case SSL_ERROR_SSL:
-    LOG((CLOG_ERR "tls error occurred (generic failure)"));
+    LOG_ERR("tls error occurred (generic failure)");
     isFatal(true);
     break;
 
   default:
-    LOG((CLOG_ERR "tls error occurred (unknown failure)"));
+    LOG_ERR("tls error occurred (unknown failure)");
     isFatal(true);
     break;
   }
@@ -626,15 +608,15 @@ void SecureSocket::checkResult(int status, int &retry)
 
 void SecureSocket::disconnect()
 {
-  sendEvent(EventTypes::SocketStopRetry);
-  sendEvent(EventTypes::SocketDisconnected);
-  sendEvent(EventTypes::StreamInputShutdown);
+  using enum EventTypes;
+  sendEvent(SocketDisconnected);
+  sendEvent(StreamInputShutdown);
 }
 
 bool SecureSocket::verifyCertFingerprint(const QString &FingerprintDatabasePath) const
 {
   const auto cert = SSL_get_peer_certificate(m_ssl->m_ssl);
-  const auto sha256 = deskflow::sslCertFingerprint(cert, Fingerprint::Type::SHA256);
+  const auto sha256 = deskflow::sslCertFingerprint(cert, QCryptographicHash::Sha256);
 
   if (cert)
     X509_free(cert);
@@ -642,8 +624,9 @@ bool SecureSocket::verifyCertFingerprint(const QString &FingerprintDatabasePath)
   if (!sha256.isValid())
     return false;
 
-  // Gui Must Parse this line, DO NOT CHANGE
-  LOG((CLOG_NOTE "peer fingerprint: %s", deskflow::formatSSLFingerprint(sha256.data, false).toStdString().c_str()));
+  const auto fingerprint = deskflow::formatSSLFingerprint(sha256.data, false);
+  LOG_DEBUG("peer fingerprint: %s", qPrintable(fingerprint));
+  ipcSendToClient("peerFingerprint", fingerprint);
 
   QFile file(FingerprintDatabasePath);
 
@@ -653,31 +636,35 @@ bool SecureSocket::verifyCertFingerprint(const QString &FingerprintDatabasePath)
 
   const auto &path = FingerprintDatabasePath;
   if (file.exists() && emptyDB) {
-    LOG((CLOG_ERR "failed to open trusted fingerprints file: %s", path.toStdString().c_str()));
+    LOG_ERR("failed to open trusted fingerprints file: %s", qPrintable(path));
     return false;
   }
 
   if (!emptyDB) {
-    LOG((CLOG_DEBUG "read %d fingerprint(s) from file: %s", db.fingerprints().size(), path.toStdString().c_str()));
+    LOG_DEBUG("read %d fingerprint(s) from file: %s", db.fingerprints().size(), qPrintable(path));
   }
 
   if (!db.isTrusted(sha256)) {
-    LOG((CLOG_WARN "fingerprint does not match trusted fingerprint"));
+    LOG_WARN("fingerprint does not match trusted fingerprint");
     return false;
   }
 
-  LOG((CLOG_DEBUG "fingerprint matches trusted fingerprint"));
+  LOG_DEBUG("fingerprint matches trusted fingerprint");
   return true;
 }
 
-ISocketMultiplexerJob *SecureSocket::serviceConnect(ISocketMultiplexerJob *job, bool, bool write, bool error)
+ISocketMultiplexerJob *SecureSocket::serviceConnect(ISocketMultiplexerJob *const, bool, bool, bool)
 {
   Lock lock(&getMutex());
 
+  // reset flags so checkResult can set them based on what SSL needs
+  setReadable(false);
+  setWritable(false);
+
   int status = 0;
-#ifdef SYSAPI_WIN32
+#if defined(Q_OS_WIN)
   status = secureConnect(static_cast<int>(getSocket()->m_socket));
-#elif SYSAPI_UNIX
+#else
   status = secureConnect(getSocket()->m_fd);
 #endif
 
@@ -688,38 +675,56 @@ ISocketMultiplexerJob *SecureSocket::serviceConnect(ISocketMultiplexerJob *job, 
 
   // If status > 0, success
   if (status > 0) {
+    setReadable(true);
+    setWritable(true);
     sendEvent(EventTypes::DataSocketSecureConnected);
     return newJob();
   }
 
-  // Retry case
+  // Retry case. Ensure we poll for what we need.
+  // If checkResult didn't set anything, default to what we were doing.
+  if (!isReadable() && !isWritable()) {
+    setWritable(true);
+  }
+
   return new TSocketMultiplexerMethodJob<SecureSocket>(
       this, &SecureSocket::serviceConnect, getSocket(), isReadable(), isWritable()
   );
 }
 
-ISocketMultiplexerJob *SecureSocket::serviceAccept(ISocketMultiplexerJob *job, bool, bool write, bool error)
+ISocketMultiplexerJob *SecureSocket::serviceAccept(ISocketMultiplexerJob *const, bool, bool, bool)
 {
   Lock lock(&getMutex());
 
+  // reset flags so checkResult can set them based on what SSL needs
+  setReadable(false);
+  setWritable(false);
+
   int status = 0;
-#ifdef SYSAPI_WIN32
+#if defined(Q_OS_WIN)
   status = secureAccept(static_cast<int>(getSocket()->m_socket));
-#elif SYSAPI_UNIX
+#else
   status = secureAccept(getSocket()->m_fd);
 #endif
   // If status < 0, error happened
   if (status < 0) {
+    sendEvent(EventTypes::ClientListenerDisconnectedOnAccept);
     return nullptr;
   }
 
   // If status > 0, success
   if (status > 0) {
+    setReadable(true);
+    setWritable(true);
     sendEvent(EventTypes::ClientListenerAccepted);
     return newJob();
   }
 
-  // Retry case
+  // Retry case. Ensure we poll for what we need.
+  if (!isReadable() && !isWritable()) {
+    setReadable(true);
+  }
+
   return new TSocketMultiplexerMethodJob<SecureSocket>(
       this, &SecureSocket::serviceAccept, getSocket(), isReadable(), isWritable()
   );
@@ -728,7 +733,7 @@ ISocketMultiplexerJob *SecureSocket::serviceAccept(ISocketMultiplexerJob *job, b
 void SecureSocket::handleTCPConnected(const Event &)
 {
   if (getSocket() == nullptr) {
-    LOG((CLOG_DEBUG "disregarding stale connect event"));
+    LOG_DEBUG("disregarding stale connect event");
     return;
   }
   secureConnect();

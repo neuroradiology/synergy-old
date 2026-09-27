@@ -1,21 +1,22 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
 
-#include "arch/Arch.h"
-#include "deskflow/ClientArgs.h"
 #include "deskflow/KeyMap.h"
 #include "deskflow/PlatformScreen.h"
-#include "platform/XWindowsPowerManager.h"
+#include "platform/XDGPowerManager.h"
+#include "platform/XWindowsConfig.h"
 
 #include <set>
 #include <vector>
+
+#include <QString>
 
 #include <X11/Xlib.h>
 
@@ -27,10 +28,7 @@ class XWindowsScreenSaver;
 class XWindowsScreen : public PlatformScreen
 {
 public:
-  XWindowsScreen(
-      const char *displayName, bool isPrimary, int mouseScrollDelta, IEventQueue *events,
-      deskflow::ClientScrollDirection m_clientScrollDirection = deskflow::ClientScrollDirection::SERVER
-  );
+  XWindowsScreen(const char *displayName, bool isPrimary, IEventQueue *events);
   ~XWindowsScreen() override;
 
   //! @name manipulators
@@ -46,6 +44,7 @@ public:
 
   // IPrimaryScreen overrides
   void reconfigure(uint32_t activeSides) override;
+  uint32_t activeSides() override;
   void warpCursor(int32_t x, int32_t y) override;
   uint32_t registerHotKey(KeyID key, KeyModifierMask mask) override;
   void unregisterHotKey(uint32_t id) override;
@@ -59,7 +58,7 @@ public:
   void fakeMouseButton(ButtonID id, bool press) override;
   void fakeMouseMove(int32_t x, int32_t y) override;
   void fakeMouseRelativeMove(int32_t dx, int32_t dy) const override;
-  void fakeMouseWheel(int32_t xDelta, int32_t yDelta) const override;
+  void fakeMouseWheel(ScrollDelta delta) const override;
 
   // IPlatformScreen overrides
   void enable() override;
@@ -166,7 +165,6 @@ private:
 
   // true if screen is being used as a primary screen, false otherwise
   bool m_isPrimary;
-  int m_mouseScrollDelta;
 
   Display *m_display = nullptr;
   Window m_root = None;
@@ -175,6 +173,7 @@ private:
   // true if mouse has entered the screen
   bool m_isOnScreen;
 
+  uint32_t m_activeSides = 0;
   // screen shape stuff
   int32_t m_x = 0;
   int32_t m_y = 0;
@@ -229,7 +228,7 @@ private:
 
   // stuff to work around lost focus issues on certain systems
   // (ie: a MythTV front-end).
-  bool m_preserveFocus = false;
+  bool m_weakFocus = false;
 
   // XKB extension stuff
   bool m_xkb = false;
@@ -247,5 +246,5 @@ private:
   // pointer to (singleton) screen.  this is only needed by
   // ioErrorHandler().
   static XWindowsScreen *s_screen;
-  XWindowsPowerManager m_powerManager;
+  [[no_unique_address]] XDGPowerManager m_powerManager;
 };

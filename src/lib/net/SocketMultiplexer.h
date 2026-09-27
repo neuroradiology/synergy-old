@@ -1,13 +1,11 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
-
-#include "arch/IArchNetwork.h"
 
 #include <list>
 #include <map>
@@ -60,7 +58,7 @@ private:
   // and m_update while m_pollable and m_polling are true.  all other
   // threads must only modify these when m_pollable and m_polling are
   // false.  only the service thread sets m_polling.
-  void serviceThread(void *);
+  [[noreturn]] void serviceThread(const void *);
 
   // create, iterate, and destroy a cursor.  a cursor is used to
   // safely iterate through the job list while other threads modify

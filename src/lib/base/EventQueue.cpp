@@ -1,7 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2025 - 2026 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -9,15 +9,21 @@
 #include "base/EventQueue.h"
 
 #include "arch/Arch.h"
+#include "base/EventQueueTimer.h"
 #include "base/Log.h"
 #include "base/SimpleEventQueueBuffer.h"
+#include "common/ExitCodes.h"
 #include "mt/Lock.h"
 #include "mt/Mutex.h"
 
 #include <stdexcept>
 
+#if defined(__APPLE__)
+#include "base/OSXAutoReleasePool.h"
+#endif
+
 // interrupt handler.  this just adds a quit event to the queue.
-static void interrupt(Arch::ESignal, void *data)
+static void interrupt(Arch::ThreadSignal, void *data)
 {
   auto *events = static_cast<EventQueue *>(data);
   events->addEvent(Event(EventTypes::Quit));
@@ -29,8 +35,8 @@ static void interrupt(Arch::ESignal, void *data)
 
 EventQueue::EventQueue() : m_readyMutex(new Mutex), m_readyCondVar(new CondVar<bool>(m_readyMutex, false))
 {
-  ARCH->setSignalHandler(Arch::kINTERRUPT, &interrupt, this);
-  ARCH->setSignalHandler(Arch::kTERMINATE, &interrupt, this);
+  ARCH->setSignalHandler(Arch::ThreadSignal::Interrupt, &interrupt, this);
+  ARCH->setSignalHandler(Arch::ThreadSignal::Terminate, &interrupt, this);
   m_buffer = std::make_unique<SimpleEventQueueBuffer>();
 }
 
@@ -39,11 +45,11 @@ EventQueue::~EventQueue()
   delete m_readyCondVar;
   delete m_readyMutex;
 
-  ARCH->setSignalHandler(Arch::kINTERRUPT, nullptr, nullptr);
-  ARCH->setSignalHandler(Arch::kTERMINATE, nullptr, nullptr);
+  ARCH->setSignalHandler(Arch::ThreadSignal::Interrupt, nullptr, nullptr);
+  ARCH->setSignalHandler(Arch::ThreadSignal::Terminate, nullptr, nullptr);
 }
 
-void EventQueue::loop()
+int EventQueue::loop()
 {
   m_buffer->init();
   {
@@ -51,11 +57,11 @@ void EventQueue::loop()
     *m_readyCondVar = true;
     m_readyCondVar->signal();
   }
-  LOG((CLOG_DEBUG "event queue is ready"));
+  LOG_DEBUG("event queue is ready");
   while (!m_pending.empty()) {
-    LOG((CLOG_DEBUG "add pending events to buffer"));
-    const Event &event = m_pending.front();
-    addEventToBuffer(event);
+    LOG_DEBUG("add pending events to buffer");
+    Event &event = m_pending.front();
+    addEventToBuffer(std::move(event));
     m_pending.pop();
   }
 
@@ -66,18 +72,23 @@ void EventQueue::loop()
     Event::deleteData(event);
     getEvent(event);
   }
+  int exitCode = s_exitSuccess;
+  if (auto *exitEvent = dynamic_cast<ExitEventData *>(event.getDataObject()); exitEvent != nullptr) {
+    exitCode = exitEvent->exitCode();
+  }
+  return exitCode;
 }
 
 void EventQueue::adoptBuffer(IEventQueueBuffer *buffer)
 {
   std::scoped_lock lock{m_mutex};
 
-  LOG((CLOG_DEBUG "adopting new buffer"));
+  LOG_DEBUG("adopting new buffer");
 
   if (m_events.size() != 0) {
     // this can come as a nasty surprise to programmers expecting
     // their events to be raised, only to have them deleted.
-    LOG((CLOG_DEBUG "discarding %d event(s)", m_events.size()));
+    LOG_DEBUG("discarding %d event(s)", m_events.size());
   }
 
   // discard old buffer and old events
@@ -126,7 +137,8 @@ bool EventQueue::processEvent(Event &event, double timeout, Stopwatch &timer)
   uint32_t dataID;
   IEventQueueBuffer::Type type = m_buffer->getEvent(event, dataID);
   switch (type) {
-  case IEventQueueBuffer::kNone:
+    using enum IEventQueueBuffer::Type;
+  case Unknown:
     if (timeout < 0.0 || timeout <= timer.getTime()) {
       // don't want to fail if client isn't expecting that
       // so if getEvent() fails with an infinite timeout
@@ -135,10 +147,10 @@ bool EventQueue::processEvent(Event &event, double timeout, Stopwatch &timer)
     }
     return false;
 
-  case IEventQueueBuffer::kSystem:
+  case System:
     return true;
 
-  case IEventQueueBuffer::kUser: {
+  case User: {
     std::scoped_lock lock{m_mutex};
     event = removeEvent(dataID);
     return true;
@@ -158,19 +170,26 @@ bool EventQueue::getEvent(Event &event, double timeout)
 
 bool EventQueue::dispatchEvent(const Event &event)
 {
-  void *target = event.getTarget();
-  if (const auto *type_handler = getHandler(event.getType(), target); type_handler) {
-    (*type_handler)(event);
-    return true;
-  }
-  if (const auto *any_handler = getHandler(EventTypes::Unknown, target); any_handler) {
-    (*any_handler)(event);
-    return true;
-  }
-  return false;
+#if defined(__APPLE__)
+  auto dispatch = [&] {
+#endif
+    void *target = event.getTarget();
+    if (auto typeHandler = getHandler(event.getType(), target); typeHandler.has_value()) {
+      (*typeHandler)(event);
+      return true;
+    }
+    if (auto anyHandler = getHandler(EventTypes::Unknown, target); anyHandler.has_value()) {
+      (*anyHandler)(event);
+      return true;
+    }
+    return false;
+#if defined(__APPLE__)
+  };
+  return deskflow::runInAutoReleasePool(dispatch);
+#endif
 }
 
-void EventQueue::addEvent(const Event &event)
+void EventQueue::addEvent(Event &&event)
 {
   // discard bogus event types
   switch (event.getType()) {
@@ -183,28 +202,28 @@ void EventQueue::addEvent(const Event &event)
     break;
   }
 
-  if ((event.getFlags() & Event::kDeliverImmediately) != 0) {
+  if ((event.getFlags() & Event::EventFlags::DeliverImmediately) != 0) {
     dispatchEvent(event);
     Event::deleteData(event);
   } else if (!(*m_readyCondVar)) {
-    m_pending.push(event);
+    m_pending.push(std::move(event));
   } else {
-    addEventToBuffer(event);
+    addEventToBuffer(std::move(event));
   }
 }
 
-void EventQueue::addEventToBuffer(const Event &event)
+void EventQueue::addEventToBuffer(Event &&event)
 {
   std::scoped_lock lock{m_mutex};
 
   // store the event's data locally
-  auto eventID = saveEvent(event);
+  auto eventID = saveEvent(std::move(event));
 
   // add it
   if (!m_buffer->addEvent(eventID)) {
     // failed to send event
-    removeEvent(eventID);
-    Event::deleteData(event);
+    auto removedEvent = removeEvent(eventID);
+    Event::deleteData(removedEvent);
   }
 }
 
@@ -212,7 +231,7 @@ EventQueueTimer *EventQueue::newTimer(double duration, void *target)
 {
   assert(duration > 0.0);
 
-  EventQueueTimer *timer = m_buffer->newTimer(duration, false);
+  auto timer = new EventQueueTimer;
   if (target == nullptr) {
     target = timer;
   }
@@ -229,7 +248,7 @@ EventQueueTimer *EventQueue::newOneShotTimer(double duration, void *target)
 {
   assert(duration > 0.0);
 
-  EventQueueTimer *timer = m_buffer->newTimer(duration, true);
+  auto timer = new EventQueueTimer;
   if (target == nullptr) {
     target = timer;
   }
@@ -254,7 +273,7 @@ void EventQueue::deleteTimer(EventQueueTimer *timer)
   if (Timers::iterator index = m_timers.find(timer); index != m_timers.end()) {
     m_timers.erase(index);
   }
-  m_buffer->deleteTimer(timer);
+  delete timer;
 }
 
 void EventQueue::addHandler(EventTypes type, void *target, const EventHandler &handler)
@@ -269,9 +288,11 @@ void EventQueue::removeHandler(EventTypes type, void *target)
   HandlerTable::iterator index = m_handlers.find(target);
   if (index != m_handlers.end()) {
     TypeHandlerTable &typeHandlers = index->second;
-    TypeHandlerTable::iterator index2 = typeHandlers.find(type);
-    if (index2 != typeHandlers.end()) {
+    if (auto index2 = typeHandlers.find(type); index2 != typeHandlers.end()) {
       typeHandlers.erase(index2);
+    }
+    if (typeHandlers.empty()) {
+      m_handlers.erase(index);
     }
   }
 }
@@ -281,29 +302,24 @@ void EventQueue::removeHandlers(void *target)
   std::scoped_lock lock{m_mutex};
   HandlerTable::iterator index = m_handlers.find(target);
   if (index != m_handlers.end()) {
-    index->second.clear();
+    m_handlers.erase(index);
   }
 }
 
-bool EventQueue::isEmpty() const
-{
-  return (m_buffer->isEmpty() && getNextTimerTimeout() != 0.0);
-}
-
-const EventQueue::EventHandler *EventQueue::getHandler(EventTypes type, void *target) const
+std::optional<EventQueue::EventHandler> EventQueue::getHandler(EventTypes type, void *target) const
 {
   std::scoped_lock lock{m_mutex};
   if (HandlerTable::const_iterator index = m_handlers.find(target); index != m_handlers.end()) {
     const TypeHandlerTable &typeHandlers = index->second;
     TypeHandlerTable::const_iterator index2 = typeHandlers.find(type);
     if (index2 != typeHandlers.end()) {
-      return &index2->second;
+      return index2->second;
     }
   }
-  return nullptr;
+  return std::nullopt;
 }
 
-uint32_t EventQueue::saveEvent(const Event &event)
+uint32_t EventQueue::saveEvent(Event &&event)
 {
   // choose id
   uint32_t id;
@@ -317,7 +333,7 @@ uint32_t EventQueue::saveEvent(const Event &event)
   }
 
   // save data
-  m_events[id] = event;
+  m_events[id] = std::move(event);
   return id;
 }
 
@@ -330,7 +346,7 @@ Event EventQueue::removeEvent(uint32_t eventID)
   }
 
   // get data
-  Event event = index->second;
+  Event event = std::move(index->second);
   m_events.erase(index);
 
   // save old id for reuse
@@ -463,9 +479,4 @@ void EventQueue::Timer::fillEvent(TimerEvent &event) const
   if (m_time <= 0.0) {
     event.m_count = static_cast<uint32_t>((m_timeout - m_time) / m_timeout);
   }
-}
-
-bool EventQueue::Timer::operator<(const Timer &t) const
-{
-  return m_time < t.m_time;
 }

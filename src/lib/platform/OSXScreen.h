@@ -1,14 +1,13 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
 
-#include "base/EventTypes.h"
 #include "deskflow/PlatformScreen.h"
 #include "platform/OSXClipboard.h"
 #include "platform/OSXPowerManager.h"
@@ -22,6 +21,7 @@
 #include <bitset>
 #include <map>
 #include <memory>
+#include <thread>
 #include <vector>
 
 extern "C"
@@ -44,10 +44,7 @@ class Mutex;
 class OSXScreen : public PlatformScreen
 {
 public:
-  OSXScreen(
-      IEventQueue *events, bool isPrimary, bool enableLangSync = false,
-      deskflow::ClientScrollDirection scrollDirection = deskflow::ClientScrollDirection::SERVER
-  );
+  OSXScreen(IEventQueue *events, bool isPrimary, bool enableLangSync = false);
 
   virtual ~OSXScreen();
 
@@ -64,6 +61,7 @@ public:
 
   // IPrimaryScreen overrides
   void reconfigure(uint32_t activeSides) override;
+  uint32_t activeSides() override;
   void warpCursor(int32_t x, int32_t y) override;
   uint32_t registerHotKey(KeyID key, KeyModifierMask mask) override;
   void unregisterHotKey(uint32_t id) override;
@@ -77,7 +75,7 @@ public:
   void fakeMouseButton(ButtonID id, bool press) override;
   void fakeMouseMove(int32_t x, int32_t y) override;
   void fakeMouseRelativeMove(int32_t dx, int32_t dy) const override;
-  void fakeMouseWheel(int32_t xDelta, int32_t yDelta) const override;
+  void fakeMouseWheel(ScrollDelta delta) const override;
 
   // IPlatformScreen overrides
   void enable() override;
@@ -114,7 +112,7 @@ private:
   void sendClipboardEvent(EventTypes type, ClipboardID id) const;
 
   // message handlers
-  bool onMouseMove(CGFloat mx, CGFloat my);
+  bool onMouseMove(CGEventRef event);
   // mouse button handler.  pressed is true if this is a mousedown
   // event, false if it is a mouseup event.  macButton is the index
   // of the button pressed using the mac button mapping.
@@ -142,9 +140,6 @@ private:
   // map mac scroll wheel value to a deskflow scroll wheel value
   int32_t mapScrollWheelToDeskflow(int32_t) const;
 
-  // map deskflow scroll wheel value to a mac scroll wheel value
-  int32_t mapScrollWheelFromDeskflow(int32_t) const;
-
   // get the current scroll wheel speed
   double getScrollSpeed() const;
 
@@ -155,12 +150,14 @@ private:
   static pascal OSStatus userSwitchCallback(EventHandlerCallRef nextHandler, EventRef theEvent, void *inUserData);
 
   // sleep / wakeup support
-  void watchSystemPowerThread(void *);
+  void watchSystemPowerThread(const void *);
   static void testCanceled(CFRunLoopTimerRef timer, void *info);
   static void powerChangeCallback(void *refcon, io_service_t service, natural_t messageType, void *messageArgument);
   void handlePowerChangeRequest(natural_t messageType, void *messageArgument);
 
   void handleConfirmSleep(const Event &event);
+
+  bool checkAXPermissions();
 
   // global hotkey operating mode
   static bool isGlobalHotKeyOperatingModeAvailable();
@@ -229,6 +226,7 @@ private:
   // the display
   CGDirectDisplayID m_displayID;
 
+  uint32_t m_activeSides = 0;
   // screen shape stuff
   int32_t m_x, m_y;
   int32_t m_w, m_h;
@@ -237,6 +235,9 @@ private:
   // mouse state
   mutable int32_t m_xCursor, m_yCursor;
   mutable bool m_cursorPosValid;
+
+  // mouse event number (needed for macOS 27)
+  uint32_t m_mouseEventNumber = 0;
 
   /* FIXME: this data structure is explicitly marked mutable due
      to a need to track the state of buttons since the remote
@@ -264,6 +265,8 @@ private:
   // clipboard stuff
   bool m_ownClipboard;
   EventQueueTimer *m_clipboardTimer;
+
+  EventQueueTimer *m_axTimer;
 
   // window object that gets user input events when the server
   // has focus.
@@ -297,6 +300,8 @@ private:
   // Quartz input event support
   CFMachPortRef m_eventTapPort;
   CFRunLoopSourceRef m_eventTapRLSR;
+  std::thread m_eventTapThread;
+  CFRunLoopRef m_eventTapRunLoop = nullptr;
 
   // for double click coalescing.
   double m_lastClickTime;

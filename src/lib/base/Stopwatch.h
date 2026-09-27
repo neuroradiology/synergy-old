@@ -1,13 +1,11 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
-
-#include "common/Common.h"
 
 //! A timer class
 /*!
@@ -66,8 +64,6 @@ public:
   returns zero if the trigger is set).
   */
   double getTime();
-  //! Same as getTime()
-  operator double();
   //@}
   //! @name accessors
   //@{
@@ -85,8 +81,6 @@ public:
   stopwatch to start and will not clear the trigger.
   */
   double getTime() const;
-  //! Same as getTime() const
-  operator double() const;
   //@}
 
 private:

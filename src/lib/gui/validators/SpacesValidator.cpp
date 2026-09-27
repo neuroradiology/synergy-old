@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2021 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2021 Synergy App Ltd
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
@@ -15,7 +15,7 @@ SpacesValidator::SpacesValidator(const QString &message) : IStringValidator(mess
 
 bool SpacesValidator::validate(const QString &input) const
 {
-  return !input.contains(' ');
+  return !input.contains(QChar::Space);
 }
 
 } // namespace validators

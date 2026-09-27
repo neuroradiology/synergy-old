@@ -1,7 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2025 - 2026 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2012 - 2016, 2026 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -11,49 +11,57 @@
 #include "arch/Arch.h"
 #include "base/IEventQueue.h"
 #include "base/Log.h"
-#include "base/TMethodJob.h"
 #include "client/ServerProxy.h"
-#include "deskflow/AppUtil.h"
+#include "client/ServerProxy1_7.h"
+#include "client/ServerProxy1_8.h"
+#include "common/NetworkProtocol.h"
+#include "common/Settings.h"
+#include "deskflow/Clipboard.h"
+#include "deskflow/DeskflowException.h"
 #include "deskflow/IPlatformScreen.h"
 #include "deskflow/PacketStreamFilter.h"
 #include "deskflow/ProtocolTypes.h"
 #include "deskflow/ProtocolUtil.h"
 #include "deskflow/Screen.h"
 #include "deskflow/StreamChunker.h"
-#include "deskflow/XDeskflow.h"
-#include "mt/Thread.h"
+#include "deskflow/ipc/CoreIpc.h"
 #include "net/IDataSocket.h"
 #include "net/ISocketFactory.h"
 #include "net/SecureSocket.h"
 #include "net/TCPSocket.h"
 
-#include <algorithm>
-#include <climits>
+#include <QMetaEnum>
+
 #include <cstdlib>
 #include <cstring>
-#include <fstream>
-#include <iterator>
-#include <memory>
-#include <sstream>
-#include <stdexcept>
-
-using namespace deskflow::client;
 
 //
 // Client
 //
 
+Client::DisconnectRequest::DisconnectRequest(Kind kind, const char *message)
+    : m_kind(kind),
+      m_message(message != nullptr ? message : "")
+{
+}
+
+Client::DisconnectRequest::DisconnectRequest(deskflow::core::ConnectionRefusal reason, const char *message)
+    : m_kind(Kind::Refuse),
+      m_refusalReason(reason),
+      m_message(message != nullptr ? message : "")
+{
+}
+
 Client::Client(
     IEventQueue *events, const std::string &name, const NetworkAddress &address, ISocketFactory *socketFactory,
-    deskflow::Screen *screen, deskflow::ClientArgs const &args
+    deskflow::Screen *screen
 )
     : m_name(name),
       m_serverAddress(address),
       m_socketFactory(socketFactory),
       m_screen(screen),
       m_events(events),
-      m_useSecureNetwork(args.m_enableCrypto),
-      m_args(args)
+      m_useSecureNetwork(Settings::value(Settings::Security::TlsEnabled).toBool())
 {
   assert(m_socketFactory != nullptr);
   assert(m_screen != nullptr);
@@ -61,19 +69,6 @@ Client::Client(
   // register suspend/resume event handlers
   m_events->addHandler(EventTypes::ScreenSuspend, getEventTarget(), [this](const auto &) { handleSuspend(); });
   m_events->addHandler(EventTypes::ScreenResume, getEventTarget(), [this](const auto &) { handleResume(); });
-
-  m_pHelloBack = std::make_unique<HelloBack>(std::make_shared<HelloBack::Deps>(
-      [this]() {
-        sendConnectionFailedEvent("got invalid hello message from server");
-        cleanupTimer();
-        cleanupConnection();
-      },
-      [this](int major, int minor) {
-        sendConnectionFailedEvent(XIncompatibleClient(major, minor).what());
-        cleanupTimer();
-        cleanupConnection();
-      }
-  ));
 }
 
 Client::~Client()
@@ -86,6 +81,11 @@ Client::~Client()
   cleanupConnecting();
   cleanupConnection();
   delete m_socketFactory;
+}
+
+void Client::setServerAddress(const NetworkAddress &address)
+{
+  m_serverAddress = address;
 }
 
 void Client::connect(size_t addressIndex)
@@ -111,10 +111,11 @@ void Client::connect(size_t addressIndex)
     // m_serverAddress will be null if the hostname address is not reolved
     if (m_serverAddress.getAddress() != nullptr) {
       // to help users troubleshoot, show server host name (issue: 60)
-      LOG(
-          (CLOG_NOTE "connecting to '%s': %s:%i", m_serverAddress.getHostname().c_str(),
-           ARCH->addrToString(m_serverAddress.getAddress()).c_str(), m_serverAddress.getPort())
+      LOG_DEBUG(
+          "connecting to '%s': %s:%i", m_serverAddress.getHostname().c_str(),
+          ARCH->addrToString(m_serverAddress.getAddress()).c_str(), m_serverAddress.getPort()
       );
+      ipcSendConnectionState(deskflow::core::ConnectionState::Connecting);
     }
 
     // create the socket
@@ -125,15 +126,15 @@ void Client::connect(size_t addressIndex)
     m_stream = new PacketStreamFilter(m_events, socket, true);
 
     // connect
-    LOG((CLOG_DEBUG1 "connecting to server"));
+    LOG_VERBOSE("connecting to server");
     setupConnecting();
     setupTimer();
     socket->connect(m_serverAddress);
-  } catch (XBase &e) {
+  } catch (BaseException &e) {
     cleanupTimer();
     cleanupConnecting();
     cleanupStream();
-    LOG((CLOG_DEBUG1 "connection failed"));
+    LOG_VERBOSE("connection failed");
     sendConnectionFailedEvent(e.what());
     return;
   }
@@ -146,19 +147,22 @@ void Client::disconnect(const char *msg)
   if (msg) {
     sendConnectionFailedEvent(msg);
   } else {
-    sendEvent(EventTypes::ClientDisconnected, nullptr);
+    sendEvent(EventTypes::ClientDisconnected);
   }
 }
 
-void Client::refuseConnection(const char *msg)
+void Client::refuseConnection(deskflow::core::ConnectionRefusal reason, const char *msg)
 {
+  const auto metaEnum = QMetaEnum::fromType<deskflow::core::ConnectionRefusal>();
+  ipcSendToClient("connectionRefused", metaEnum.valueToKey(static_cast<int>(reason)));
+
   cleanup();
 
   if (msg) {
     auto info = new FailInfo(msg);
     info->m_retry = true;
-    Event event(EventTypes::ClientConnectionRefused, getEventTarget(), info, Event::kDontFreeData);
-    m_events->addEvent(event);
+    Event event(EventTypes::ClientConnectionRefused, getEventTarget(), info, Event::EventFlags::DontFreeData);
+    m_events->addEvent(std::move(event));
   }
 }
 
@@ -166,7 +170,10 @@ void Client::handshakeComplete()
 {
   m_ready = true;
   m_screen->enable();
-  sendEvent(EventTypes::ClientConnected, nullptr);
+  if (m_relativeMouseMoves && !m_hasRelativeRestorePosition) {
+    saveRelativeRestorePosition();
+  }
+  sendEvent(EventTypes::ClientConnected);
 }
 
 bool Client::isConnected() const
@@ -182,6 +189,11 @@ bool Client::isConnecting() const
 NetworkAddress Client::getServerAddress() const
 {
   return m_serverAddress;
+}
+
+size_t Client::getMaximumClipboardReceiveSizeBytes() const
+{
+  return m_maximumClipboardSize * 1024;
 }
 
 void *Client::getEventTarget() const
@@ -207,12 +219,20 @@ void Client::getCursorPos(int32_t &x, int32_t &y) const
 void Client::enter(int32_t xAbs, int32_t yAbs, uint32_t, KeyModifierMask mask, bool)
 {
   m_active = true;
+  if (m_relativeMouseMoves && m_hasRelativeRestorePosition) {
+    xAbs = m_relativeRestoreX;
+    yAbs = m_relativeRestoreY;
+    LOG_VERBOSE("using relative restore position: %d,%d", xAbs, yAbs);
+  }
   m_screen->mouseMove(xAbs, yAbs);
   m_screen->enter(mask);
 }
 
 bool Client::leave()
 {
+  if (m_relativeMouseMoves) {
+    saveRelativeRestorePosition();
+  }
   m_active = false;
 
   m_screen->leave();
@@ -295,18 +315,25 @@ void Client::screensaver(bool activate)
 
 void Client::resetOptions()
 {
+  m_relativeMouseMoves = false;
+  m_hasRelativeRestorePosition = false;
   m_screen->resetOptions();
 }
 
 void Client::setOptions(const OptionsList &options)
 {
+  if (options.size() % 2 != 0) {
+    LOG_ERR("options are the incorrect size, can not process them");
+    return;
+  }
+
   for (auto index = options.begin(); index != options.end(); ++index) {
     const OptionID id = *index;
     if (id == kOptionClipboardSharing) {
       index++;
       if (index != options.end()) {
         if (!*index) {
-          LOG((CLOG_NOTE "clipboard sharing disabled by server"));
+          LOG_INFO("clipboard sharing disabled by server");
         }
         m_enableClipboard = *index;
       }
@@ -315,16 +342,30 @@ void Client::setOptions(const OptionsList &options)
       if (index != options.end()) {
         m_maximumClipboardSize = *index;
       }
+    } else if (id == kOptionRelativeMouseMoves) {
+      index++;
+      if (index != options.end()) {
+        m_relativeMouseMoves = (*index != 0);
+        if (m_relativeMouseMoves && m_ready && !m_hasRelativeRestorePosition) {
+          saveRelativeRestorePosition();
+        }
+      }
     }
   }
 
   if (m_enableClipboard && !m_maximumClipboardSize) {
     m_enableClipboard = false;
-    LOG((CLOG_NOTE "clipboard sharing is disabled because the server "
-                   "set the maximum clipboard size to 0"));
+    LOG_INFO("clipboard sharing is disabled because the server set the maximum clipboard size to 0");
   }
 
   m_screen->setOptions(options);
+}
+
+void Client::saveRelativeRestorePosition()
+{
+  m_screen->getCursorPos(m_relativeRestoreX, m_relativeRestoreY);
+  m_hasRelativeRestorePosition = true;
+  LOG_VERBOSE("saved relative restore position: %d,%d", m_relativeRestoreX, m_relativeRestoreY);
 }
 
 std::string Client::getName() const
@@ -353,11 +394,7 @@ void Client::sendClipboard(ClipboardID id)
     // marshall the data
     std::string data = clipboard.marshall();
     if (data.size() >= m_maximumClipboardSize * 1024) {
-      LOG(
-          (CLOG_NOTE "skipping clipboard transfer because the clipboard"
-                     " contents exceeds the %i MB size limit set by the server",
-           m_maximumClipboardSize / 1024)
-      );
+      LOG_WARN("not sending clipboard data, exceeds limit: %zu KB", m_maximumClipboardSize);
       return;
     }
 
@@ -372,24 +409,24 @@ void Client::sendClipboard(ClipboardID id)
   }
 }
 
-void Client::sendEvent(EventTypes type, void *data)
+void Client::sendEvent(EventTypes type)
 {
-  m_events->addEvent(Event(type, getEventTarget(), data));
+  m_events->addEvent(Event(type, getEventTarget()));
 }
 
 void Client::sendConnectionFailedEvent(const char *msg)
 {
   auto *info = new FailInfo(msg);
   info->m_retry = true;
-  Event event(EventTypes::ClientConnectionFailed, getEventTarget(), info, Event::kDontFreeData);
-  m_events->addEvent(event);
+  Event event(EventTypes::ClientConnectionFailed, getEventTarget(), info, Event::EventFlags::DontFreeData);
+  m_events->addEvent(std::move(event));
 }
 
 void Client::setupConnecting()
 {
   assert(m_stream != nullptr);
 
-  if (m_args.m_enableCrypto) {
+  if (Settings::value(Settings::Security::TlsEnabled).toBool()) {
     m_events->addHandler(EventTypes::DataSocketSecureConnected, m_stream->getEventTarget(), [this](const auto &) {
       handleConnected();
     });
@@ -407,6 +444,9 @@ void Client::setupConnection()
 {
   assert(m_stream != nullptr);
 
+  m_events->addHandler(EventTypes::ClientDisconnectRequested, m_stream->getEventTarget(), [this](const auto &e) {
+    handleDisconnectRequested(e);
+  });
   m_events->addHandler(EventTypes::SocketDisconnected, m_stream->getEventTarget(), [this](const auto &) {
     handleDisconnected();
   });
@@ -422,23 +462,40 @@ void Client::setupConnection()
   m_events->addHandler(EventTypes::StreamOutputShutdown, m_stream->getEventTarget(), [this](const auto &) {
     handleDisconnected();
   });
-  m_events->addHandler(EventTypes::SocketStopRetry, m_stream->getEventTarget(), [this](const auto &) {
-    m_args.m_restartable = false;
-  });
 }
 
-void Client::setupScreen()
+bool Client::setupScreen(int16_t protocolMinor)
 {
   assert(m_server == nullptr);
 
   m_ready = false;
-  m_server = new ServerProxy(this, m_stream, m_events);
-  m_events->addHandler(EventTypes::ScreenShapeChanged, getEventTarget(), [this](const auto &) {
-    handleShapeChanged();
-  });
-  m_events->addHandler(EventTypes::ClipboardGrabbed, getEventTarget(), [this](const auto &e) {
-    handleClipboardGrabbed(e);
-  });
+
+  // only 1.6 and later have a proxy: the clipboard, mouse wheel and key message formats
+  // differ below that, and nothing older (synergy 1.4 and earlier) still needs supporting.
+  // a version with no case is refused by the hello handler.
+  switch (protocolMinor) {
+  case 6:
+    m_server = new ServerProxy(this, m_stream, m_events);
+    break;
+  case 7:
+    m_server = new ServerProxy1_7(this, m_stream, m_events);
+    break;
+  case 8:
+    m_server = new ServerProxy1_8(this, m_stream, m_events);
+    break;
+  default:
+    break;
+  }
+
+  if (m_server != nullptr) {
+    m_events->addHandler(EventTypes::ScreenShapeChanged, getEventTarget(), [this](const auto &) {
+      handleShapeChanged();
+    });
+    m_events->addHandler(EventTypes::ClipboardGrabbed, getEventTarget(), [this](const auto &e) {
+      handleClipboardGrabbed(e);
+    });
+  }
+  return m_server != nullptr;
 }
 
 void Client::setupTimer()
@@ -461,6 +518,7 @@ void Client::cleanupConnecting()
 {
   if (m_stream != nullptr) {
     m_events->removeHandler(EventTypes::DataSocketConnected, m_stream->getEventTarget());
+    m_events->removeHandler(EventTypes::DataSocketSecureConnected, m_stream->getEventTarget());
     m_events->removeHandler(EventTypes::DataSocketConnectionFailed, m_stream->getEventTarget());
   }
 }
@@ -468,12 +526,13 @@ void Client::cleanupConnecting()
 void Client::cleanupConnection()
 {
   if (m_stream != nullptr) {
-    m_events->removeHandler(EventTypes::StreamInputReady, m_stream->getEventTarget());
-    m_events->removeHandler(EventTypes::StreamOutputError, m_stream->getEventTarget());
-    m_events->removeHandler(EventTypes::StreamInputShutdown, m_stream->getEventTarget());
-    m_events->removeHandler(EventTypes::StreamOutputShutdown, m_stream->getEventTarget());
-    m_events->removeHandler(EventTypes::SocketDisconnected, m_stream->getEventTarget());
-    m_events->removeHandler(EventTypes::SocketStopRetry, m_stream->getEventTarget());
+    using enum EventTypes;
+    m_events->removeHandler(StreamInputReady, m_stream->getEventTarget());
+    m_events->removeHandler(StreamOutputError, m_stream->getEventTarget());
+    m_events->removeHandler(StreamInputShutdown, m_stream->getEventTarget());
+    m_events->removeHandler(StreamOutputShutdown, m_stream->getEventTarget());
+    m_events->removeHandler(SocketDisconnected, m_stream->getEventTarget());
+    m_events->removeHandler(ClientDisconnectRequested, m_stream->getEventTarget());
     cleanupStream();
   }
 }
@@ -509,7 +568,7 @@ void Client::cleanupStream()
 
 void Client::handleConnected()
 {
-  LOG((CLOG_DEBUG1 "connected, waiting for hello"));
+  LOG_VERBOSE("connected, waiting for hello");
   cleanupConnecting();
   setupConnection();
 
@@ -528,7 +587,7 @@ void Client::handleConnectionFailed(const Event &event)
   cleanupTimer();
   cleanupConnecting();
   cleanupStream();
-  LOG((CLOG_DEBUG1 "connection failed"));
+  LOG_VERBOSE("connection failed");
   sendConnectionFailedEvent(info->m_what.c_str());
   delete info;
 }
@@ -539,7 +598,7 @@ void Client::handleConnectTimeout()
   cleanupConnecting();
   cleanupConnection();
   cleanupStream();
-  LOG((CLOG_DEBUG1 "connection timed out"));
+  LOG_VERBOSE("connection timed out");
   sendConnectionFailedEvent("Timed out");
 }
 
@@ -548,8 +607,8 @@ void Client::handleOutputError()
   cleanupTimer();
   cleanupScreen();
   cleanupConnection();
-  LOG((CLOG_WARN "error sending to server"));
-  sendEvent(EventTypes::ClientDisconnected, nullptr);
+  LOG_WARN("error sending to server");
+  sendEvent(EventTypes::ClientDisconnected);
 }
 
 void Client::handleDisconnected()
@@ -557,13 +616,28 @@ void Client::handleDisconnected()
   cleanupTimer();
   cleanupScreen();
   cleanupConnection();
-  LOG((CLOG_DEBUG1 "disconnected"));
-  sendEvent(EventTypes::ClientDisconnected, nullptr);
+  LOG_VERBOSE("disconnected");
+  sendEvent(EventTypes::ClientDisconnected);
+}
+
+void Client::handleDisconnectRequested(const Event &event)
+{
+  const auto *request = static_cast<const DisconnectRequest *>(event.getDataObject());
+  if (request == nullptr) {
+    disconnect(nullptr);
+    return;
+  }
+
+  if (request->kind() == DisconnectRequest::Kind::Refuse) {
+    refuseConnection(request->refusalReason(), request->message());
+  } else {
+    disconnect(request->message());
+  }
 }
 
 void Client::handleShapeChanged()
 {
-  LOG((CLOG_DEBUG "resolution changed"));
+  LOG_DEBUG("resolution changed");
   m_server->onInfoChanged();
 }
 
@@ -592,10 +666,61 @@ void Client::handleClipboardGrabbed(const Event &event)
 
 void Client::handleHello()
 {
-  m_pHelloBack->handleHello(m_stream, m_name);
+  int16_t serverMajor;
+  int16_t serverMinor;
+
+  // as luck would have it, both "Synergy" and "Barrier" are 7 chars,
+  // so we eat 7 chars and then test for either protocol name.
+  // we cannot re-use `readf` to check for various hello messages,
+  // as `readf` eats bytes (advances the stream position reference).
+  std::string protocolName;
+  ProtocolUtil::readf(m_stream, kMsgHello, &protocolName, &serverMajor, &serverMinor);
+
+  if (const auto proto = networkProtocolFromString(QString::fromStdString(protocolName));
+      proto == NetworkProtocol::Unknown) {
+    LOG_WARN("hello back received with protocol: '%s'", protocolName.c_str());
+    sendConnectionFailedEvent("got invalid hello message from server");
+    cleanupTimer();
+    cleanupConnection();
+    return;
+  }
+
+  if (serverMajor != kProtocolMajorVersion) {
+    LOG_WARN("server protocol version not compatible: %d.%d", serverMajor, serverMinor);
+    sendConnectionFailedEvent(IncompatibleClientException(serverMajor, serverMinor).what());
+    cleanupTimer();
+    cleanupConnection();
+    return;
+  }
+
+  int16_t helloBackMinor = kProtocolMinorVersion;
+  if (serverMinor < kProtocolMinorVersion) {
+    helloBackMinor = serverMinor;
+    LOG_INFO(
+        "downgrading client protocol version from %d.%d to %d.%d", //
+        kProtocolMajorVersion, kProtocolMinorVersion, kProtocolMajorVersion, helloBackMinor
+    );
+  }
+
+  // no proxy speaks the negotiated version, so hang up as incompatible rather than
+  // talk a version the client does not implement, the same rule the server applies
+  // when it picks a client proxy
+  if (!setupScreen(helloBackMinor)) {
+    LOG_WARN("server protocol version not supported: %d.%d", serverMajor, serverMinor);
+    sendConnectionFailedEvent(IncompatibleClientException(serverMajor, serverMinor).what());
+    cleanupTimer();
+    cleanupConnection();
+    return;
+  }
+
+  LOG_DEBUG("saying hello back with version %s %d.%d", protocolName.c_str(), kProtocolMajorVersion, helloBackMinor);
+
+  // dynamically build write format for hello back since `ProtocolUtil::writef`
+  // doesn't support formatting fixed length strings yet.
+  std::string helloBackMessage = protocolName + kMsgHelloBackArgs;
+  ProtocolUtil::writef(m_stream, helloBackMessage.c_str(), kProtocolMajorVersion, helloBackMinor, &m_name);
 
   // now connected but waiting to complete handshake
-  setupScreen();
   cleanupTimer();
 
   // make sure we process any remaining messages later.  we won't
@@ -609,7 +734,7 @@ void Client::handleHello()
 void Client::handleSuspend()
 {
   if (!m_suspended) {
-    LOG((CLOG_INFO "suspend"));
+    LOG_INFO("suspend");
     m_suspended = true;
     bool wasConnected = isConnected();
     disconnect(nullptr);
@@ -620,7 +745,7 @@ void Client::handleSuspend()
 void Client::handleResume()
 {
   if (m_suspended) {
-    LOG((CLOG_INFO "resume"));
+    LOG_INFO("resume");
     m_suspended = false;
     if (m_connectOnResume) {
       m_connectOnResume = false;
@@ -631,17 +756,14 @@ void Client::handleResume()
 
 void Client::bindNetworkInterface(IDataSocket *socket) const
 {
-  try {
-    if (!m_args.m_deskflowAddress.empty()) {
-      LOG((CLOG_DEBUG1 "bind to network interface: %s", m_args.m_deskflowAddress.c_str()));
+  const auto address = Settings::value(Settings::Core::Interface).toString();
+  if (address.isEmpty())
+    return;
 
-      NetworkAddress bindAddress(m_args.m_deskflowAddress);
-      bindAddress.resolve();
+  LOG_DEBUG("bind to network interface: %s", qPrintable(address));
 
-      socket->bind(bindAddress);
-    }
-  } catch (XBase &e) {
-    LOG((CLOG_WARN "%s", e.what()));
-    LOG((CLOG_WARN "operating system will select network interface automatically"));
-  }
+  NetworkAddress bindAddress(address.toStdString());
+  bindAddress.resolve();
+
+  socket->bind(bindAddress);
 }

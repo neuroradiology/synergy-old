@@ -1,7 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -98,6 +98,6 @@ private:
   ClientInfo m_info;
   double m_heartbeatAlarm;
   EventQueueTimer *m_heartbeatTimer = nullptr;
-  MessageParser m_parser;
+  MessageParser m_parser = &ClientProxy1_0::parseHandshakeMessage;
   IEventQueue *m_events;
 };

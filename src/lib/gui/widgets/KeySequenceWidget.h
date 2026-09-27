@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2008 Volker Lanz <vl@fidra.de>
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -9,14 +9,14 @@
 
 #include <QPushButton>
 
-#include "KeySequence.h"
+#include "common/KeySequence.h"
 
 class KeySequenceWidget : public QPushButton
 {
   Q_OBJECT
 
 public:
-  KeySequenceWidget(QWidget *parent, const KeySequence &seq = KeySequence());
+  explicit KeySequenceWidget(QWidget *parent, const KeySequence &seq = KeySequence());
 
 Q_SIGNALS:
   void keySequenceChanged();

@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2024 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2024 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2022 Red Hat, Inc.
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -9,6 +9,8 @@
 
 #include "deskflow/KeyState.h"
 #include "platform/EiScreen.h"
+
+#include <xkbcommon/xkbcommon.h>
 
 struct xkb_context;
 struct xkb_keymap;
@@ -32,7 +34,9 @@ public:
   std::int32_t pollActiveGroup() const override;
   void pollPressedKeys(KeyButtonSet &pressedKeys) const override;
   KeyID mapKeyFromKeyval(std::uint32_t keyval) const;
-  void updateXkbState(std::uint32_t keyval, bool is_pressed);
+  void updateXkbState(std::uint32_t keyval, bool isPressed);
+  void updateLockedModifiers(xkb_mod_mask_t lockedMods);
+  void clearStaleModifiers() override;
 
 protected:
   // KeyState overrides
@@ -40,7 +44,7 @@ protected:
   void fakeKey(const Keystroke &keystroke) override;
 
 private:
-  std::uint32_t convertModMask(std::uint32_t xkb_mask) const;
+  std::uint32_t convertModMask(xkb_mod_mask_t xkbModMaskIn, bool mapMod2ToNumLock = false) const;
   void assignGeneratedModifiers(std::uint32_t keycode, KeyMap::KeyItem &item);
 
   EiScreen *m_screen = nullptr;

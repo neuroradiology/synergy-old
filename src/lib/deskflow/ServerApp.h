@@ -1,7 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
- * SPDX-FileCopyrightText: (C) 2012 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -10,23 +10,20 @@
 
 #include "arch/Arch.h"
 #include "arch/IArchMultithread.h"
-#include "base/EventTypes.h"
-#include "base/String.h"
-#include "common/Constants.h"
 #include "deskflow/App.h"
 #include "net/NetworkAddress.h"
 #include "server/Config.h"
 
 #include <memory>
 
-enum EServerState
+enum class ServerState
 {
-  kUninitialized,
-  kInitializing,
-  kInitializingToStart,
-  kInitialized,
-  kStarting,
-  kStarted
+  Uninitialized,
+  Initializing,
+  InitializingToStart,
+  Initialized,
+  Starting,
+  Started
 };
 
 class Server;
@@ -48,34 +45,22 @@ class ServerApp : public App
   using ServerConfig = deskflow::server::Config;
 
 public:
-  explicit ServerApp(IEventQueue *events);
+  explicit ServerApp(IEventQueue *events, const QString &processName = QString());
   ~ServerApp() override = default;
 
   //
   // IApp overrides
   //
 
-  void parseArgs(int argc, const char *const *argv) override;
-  void help() override;
+  void parseArgs() override;
   const char *daemonName() const override;
-  const char *daemonInfo() const override;
   void loadConfig() override;
-  bool loadConfig(const std::string &pathname) override;
+  bool loadConfig(const QString &filename) override;
   deskflow::Screen *createScreen() override;
   int mainLoop() override;
-  int runInner(int argc, char **argv, StartupFunc startup) override;
-  int standardStartup(int argc, char **argv) override;
-  int foregroundStartup(int argc, char **argv) override;
+  int runInner(StartupFunc startup) override;
+  int start() override;
   void startNode() override;
-
-  //
-  // App overrides
-  //
-
-  std::string configSection() const override
-  {
-    return "server";
-  }
 
   //
   // Regular functions
@@ -87,8 +72,6 @@ public:
   void handleClientConnected(const Event &e, ClientListener *listener);
   void closeServer(Server *server);
   void stopRetryTimer();
-  void updateStatus() const;
-  void updateStatus(const std::string_view &msg) const;
   void closeClientListener(ClientListener *listen);
   void stopServer();
   void closePrimaryClient(PrimaryClient *primaryClient);
@@ -98,7 +81,6 @@ public:
   void retryHandler();
   deskflow::Screen *openServerScreen();
   PrimaryClient *openPrimaryClient(const std::string &name, deskflow::Screen *screen);
-  void handleScreenError();
   void handleSuspend();
   void handleResume();
   ClientListener *openClientListener(const NetworkAddress &address);
@@ -109,16 +91,11 @@ public:
     return m_server;
   }
 
-  deskflow::ServerArgs &args() const
-  {
-    return (deskflow::ServerArgs &)argsBase();
-  }
-
   //
   // Static functions
   //
 
-  static void reloadSignalHandler(Arch::ESignal, void *);
+  static void reloadSignalHandler(Arch::ThreadSignal, void *);
   static ServerApp &instance()
   {
     return (ServerApp &)App::instance();
@@ -129,11 +106,14 @@ private:
   std::unique_ptr<ISocketFactory> getSocketFactory() const;
   NetworkAddress getAddress(const NetworkAddress &address) const;
 
+  bool m_suspended = false;
   Server *m_server = nullptr;
-  EServerState m_serverState = EServerState::kUninitialized;
+  ServerState m_serverState = ServerState::Uninitialized;
   deskflow::Screen *m_serverScreen = nullptr;
   PrimaryClient *m_primaryClient = nullptr;
   ClientListener *m_listener = nullptr;
   EventQueueTimer *m_timer = nullptr;
   NetworkAddress *m_deskflowAddress = nullptr;
+  std::string m_name;
+  std::shared_ptr<deskflow::server::Config> m_config;
 };

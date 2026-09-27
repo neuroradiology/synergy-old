@@ -1,7 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Chris Rizzitello <sithlord48@gmail.com>
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2011 Nick Bolton
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -19,7 +19,7 @@
 void OSXKeyStateTests::initTestCase()
 {
   m_arch.init();
-  m_log.setFilter(kDEBUG2);
+  m_log.setFilter(LogLevel::Level::Verbose);
 }
 
 void OSXKeyStateTests::mapModifiersFromOSX_OSXMask()
@@ -123,7 +123,7 @@ bool OSXKeyStateTests::isKeyPressed(const OSXKeyState &keyState, KeyButton butto
 
   IKeyState::KeyButtonSet::const_iterator it;
   for (it = pressed.begin(); it != pressed.end(); ++it) {
-    LOG((CLOG_DEBUG "checking key %d", *it));
+    LOG_DEBUG("checking key %d", *it);
     if (*it == button) {
       return true;
     }

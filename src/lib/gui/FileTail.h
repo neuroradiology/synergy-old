@@ -1,6 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2025 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2026 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2025 Synergy App Ltd
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
@@ -18,7 +19,8 @@ class FileTail : public QObject
   Q_OBJECT
 
 public:
-  FileTail(const QString &filePath, QObject *parent = nullptr);
+  explicit FileTail(const QString &filePath, QObject *parent = nullptr);
+  void setWatchedFile(const QString &filePath);
 
 Q_SIGNALS:
   void newLine(const QString &line);

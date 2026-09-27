@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2025 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2025 Synergy App Ltd
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
@@ -20,7 +20,7 @@ const auto kDefaultShutdownTimeout = 10;
 class MSWindowsProcess
 {
 public:
-  explicit MSWindowsProcess(const std::string &command, HANDLE stdOutput = nullptr, HANDLE stdError = nullptr);
+  explicit MSWindowsProcess(const std::wstring &command, HANDLE stdOutput = nullptr, HANDLE stdError = nullptr);
   ~MSWindowsProcess();
 
   BOOL startInForeground();
@@ -28,8 +28,8 @@ public:
   void shutdown(int timeout = kDefaultShutdownTimeout);
   DWORD waitForExit();
   void createPipes();
-  std::string readStdOutput();
-  std::string readStdError();
+  std::wstring readStdOutput();
+  std::wstring readStdError();
 
   PROCESS_INFORMATION info() const
   {
@@ -38,12 +38,16 @@ public:
 
   static void shutdown(HANDLE handle, DWORD pid, int timeout = kDefaultShutdownTimeout);
 
+  /// Launch @p command as a detached process under the active console user's token, so the
+  /// child does not inherit the caller's (SYSTEM) privileges.
+  static bool startDetachedAsSessionUser(const std::wstring &command);
+
 private:
   void setStartupInfo(STARTUPINFO &si);
 
-  static std::string readOutput(HANDLE handle);
+  static std::wstring readOutput(HANDLE handle);
 
-  std::string m_command;
+  std::wstring m_command;
   HANDLE m_stdOutput;
   HANDLE m_stdError;
   HANDLE m_outputPipe = nullptr;

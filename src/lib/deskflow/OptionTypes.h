@@ -1,14 +1,14 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2026 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
 
-#include "base/EventTypes.h"
-
+#include <cstdint>
 #include <vector>
 
 //! Option ID
@@ -45,57 +45,27 @@ static const OptionID kOptionModifierMapForAltGr = OPTION_CODE("MMFG");
 static const OptionID kOptionModifierMapForMeta = OPTION_CODE("MMFM");
 static const OptionID kOptionModifierMapForSuper = OPTION_CODE("MMFR");
 static const OptionID kOptionHeartbeat = OPTION_CODE("HART");
-static const OptionID kOptionProtocol = OPTION_CODE("PROT");
 static const OptionID kOptionScreenSwitchCorners = OPTION_CODE("SSCM");
 static const OptionID kOptionScreenSwitchCornerSize = OPTION_CODE("SSCS");
 static const OptionID kOptionScreenSwitchDelay = OPTION_CODE("SSWT");
 static const OptionID kOptionScreenSwitchTwoTap = OPTION_CODE("SSTT");
-static const OptionID kOptionScreenSwitchNeedsShift = OPTION_CODE("SSNS");
-static const OptionID kOptionScreenSwitchNeedsControl = OPTION_CODE("SSNC");
-static const OptionID kOptionScreenSwitchNeedsAlt = OPTION_CODE("SSNA");
 static const OptionID kOptionXTestXineramaUnaware = OPTION_CODE("XTXU");
-static const OptionID kOptionScreenPreserveFocus = OPTION_CODE("SFOC");
+static const OptionID kOptionScreenX11WeakFocus = OPTION_CODE("SFOC");
 static const OptionID kOptionRelativeMouseMoves = OPTION_CODE("MDLT");
 static const OptionID kOptionWin32KeepForeground = OPTION_CODE("_KFW");
+static const OptionID kOptionDefaultLockToScreenState = OPTION_CODE("LTSS");
 static const OptionID kOptionDisableLockToScreen = OPTION_CODE("DLTS");
 static const OptionID kOptionClipboardSharing = OPTION_CODE("CLPS");
 static const OptionID kOptionClipboardSharingSize = OPTION_CODE("CLSZ");
 //@}
 
-//! @name Screen switch corner enumeration
-//@{
-enum EScreenSwitchCorners
-{
-  kNoCorner,
-  kTopLeft,
-  kTopRight,
-  kBottomLeft,
-  kBottomRight,
-  kFirstCorner = kTopLeft,
-  kLastCorner = kBottomRight
-};
-//@}
-
 //! @name Screen switch corner masks
 //@{
-enum EScreenSwitchCornerMasks
-{
-  kNoCornerMask = 0,
-  kTopLeftMask = 1 << (kTopLeft - kFirstCorner),
-  kTopRightMask = 1 << (kTopRight - kFirstCorner),
-  kBottomLeftMask = 1 << (kBottomLeft - kFirstCorner),
-  kBottomRightMask = 1 << (kBottomRight - kFirstCorner),
-  kAllCornersMask = kTopLeftMask | kTopRightMask | kBottomLeftMask | kBottomRightMask
-};
-//@}
-
-//! @name Network protocol
-//@{
-enum class ENetworkProtocol
-{
-  kSynergy,
-  kBarrier
-};
+inline static const auto s_noCornerMask = 0;
+inline static const auto s_topLeftCornerMask = 1 << 0;
+inline static const auto s_topRightCornerMask = 1 << 1;
+inline static const auto s_bottomLeftCornerMask = 1 << 2;
+inline static const auto s_bottomRightCornerMask = 1 << 3;
 //@}
 
 #undef OPTION_CODE

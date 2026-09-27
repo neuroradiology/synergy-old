@@ -1,6 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2026 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -58,7 +59,7 @@ public:
   void init() override;
 
   // IArchNetwork overrides
-  ArchSocket newSocket(EAddressFamily, ESocketType) override;
+  ArchSocket newSocket(AddressFamily, SocketType) override;
   ArchSocket copySocket(ArchSocket s) override;
   void closeSocket(ArchSocket s) override;
   void closeSocketForRead(ArchSocket s) override;
@@ -71,17 +72,18 @@ public:
   void unblockPollSocket(ArchThread thread) override;
   size_t readSocket(ArchSocket s, void *buf, size_t len) override;
   size_t writeSocket(ArchSocket s, const void *buf, size_t len) override;
+  void resetPollWriteOnSocket(ArchSocket s) override;
   void throwErrorOnSocket(ArchSocket) override;
   bool setNoDelayOnSocket(ArchSocket, bool noDelay) override;
+  void setKeepAliveOnSocket(ArchSocket, bool keepAlive) override;
   bool setReuseAddrOnSocket(ArchSocket, bool reuse) override;
-  std::string getHostName() override;
-  ArchNetAddress newAnyAddr(EAddressFamily) override;
+  ArchNetAddress newAnyAddr(AddressFamily) override;
   ArchNetAddress copyAddr(ArchNetAddress) override;
   std::vector<ArchNetAddress> nameToAddr(const std::string &) override;
   void closeAddr(ArchNetAddress) override;
   std::string addrToName(ArchNetAddress) override;
   std::string addrToString(ArchNetAddress) override;
-  EAddressFamily getAddrFamily(ArchNetAddress) override;
+  AddressFamily getAddrFamily(ArchNetAddress) override;
   void setAddrPort(ArchNetAddress, int port) override;
   int getAddrPort(ArchNetAddress) override;
   bool isAnyAddr(ArchNetAddress) override;
@@ -92,10 +94,9 @@ private:
 
   void setBlockingOnSocket(SOCKET, bool blocking);
 
-  void throwError(int);
-  void throwNameError(int);
+  [[noreturn]] void throwError(int) const override;
+  [[noreturn]] void throwNameError(int) const override;
 
-private:
   using EventList = std::list<WSAEVENT>;
 
   std::mutex m_mutex;

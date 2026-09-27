@@ -8,27 +8,27 @@
 #include "SecureUtils.h"
 
 #include "base/FinalAction.h"
-#include "base/String.h"
-#include "io/Filesystem.h"
 
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 
+#include <QFile>
 #include <algorithm>
+#include <filesystem>
 #include <stdexcept>
 
 namespace deskflow {
 
 namespace {
 
-const EVP_MD *digestForType(Fingerprint::Type type)
+const EVP_MD *digestForType(QCryptographicHash::Algorithm type)
 {
   switch (type) {
-  case Fingerprint::Type::SHA1:
+  case QCryptographicHash::Sha1:
     return EVP_sha1();
-  case Fingerprint::Type::SHA256:
+  case QCryptographicHash::Sha256:
     return EVP_sha256();
   default:
     break;
@@ -46,7 +46,7 @@ QString formatSSLFingerprint(const QByteArray &fingerprint, bool enableSeparator
     return fingerprint.toHex().toUpper();
 }
 
-Fingerprint sslCertFingerprint(const X509 *cert, Fingerprint::Type type)
+Fingerprint sslCertFingerprint(const X509 *cert, QCryptographicHash::Algorithm type)
 {
   if (!cert) {
     throw std::runtime_error("certificate is null");
@@ -63,34 +63,15 @@ Fingerprint sslCertFingerprint(const X509 *cert, Fingerprint::Type type)
   return {type, digestArray};
 }
 
-Fingerprint pemFileCertFingerprint(const std::string &path, Fingerprint::Type type)
-{
-  auto fp = fopenUtf8Path(path, "r");
-  if (!fp) {
-    throw std::runtime_error("could not open certificate path");
-  }
-  auto fileClose = finally([fp]() { std::fclose(fp); });
-
-  X509 *cert = PEM_read_X509(fp, nullptr, nullptr, nullptr);
-  if (!cert) {
-    throw std::runtime_error("certificate could not be parsed");
-  }
-  auto certFree = finally([cert]() { X509_free(cert); });
-
-  return sslCertFingerprint(cert, type);
-}
-
-void generatePemSelfSignedCert(const std::string &path, int keyLength)
+void generatePemSelfSignedCert(const QString &path, int keyLength)
 {
   auto expirationDays = 365;
 
-  auto *privateKey = EVP_PKEY_new();
+  auto *privateKey = EVP_RSA_gen(keyLength);
   if (!privateKey) {
-    throw std::runtime_error("could not allocate private key for certificate");
+    throw std::runtime_error("failed to generate a " + std::to_string(keyLength) + "bit key for certificate");
   }
   auto privateKeyFree = finally([privateKey]() { EVP_PKEY_free(privateKey); });
-
-  privateKey = EVP_RSA_gen(keyLength);
 
   auto *cert = X509_new();
   if (!cert) {
@@ -103,13 +84,25 @@ void generatePemSelfSignedCert(const std::string &path, int keyLength)
   X509_gmtime_adj(X509_get_notAfter(cert), expirationDays * 24 * 3600);
   X509_set_pubkey(cert, privateKey);
 
-  auto *name = X509_get_subject_name(cert);
+  auto *name = X509_NAME_new();
+  if (!name) {
+    throw std::runtime_error("could not allocate subject name");
+  }
   X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, reinterpret_cast<const unsigned char *>("Deskflow"), -1, -1, 0);
+  X509_set_subject_name(cert, name);
   X509_set_issuer_name(cert, name);
+  X509_NAME_free(name);
 
   X509_sign(cert, privateKey, EVP_sha256());
+  const QFile file(path);
+  const std::filesystem::path fsPath = file.filesystemFileName();
 
-  auto fp = fopenUtf8Path(path.c_str(), "w");
+#if defined(Q_OS_WIN)
+  auto fp = _wfopen(fsPath.native().c_str(), L"w");
+#else
+  auto fp = std::fopen(fsPath.native().c_str(), "w");
+#endif
+
   if (!fp) {
     throw std::runtime_error("could not open certificate output path");
   }
@@ -119,53 +112,26 @@ void generatePemSelfSignedCert(const std::string &path, int keyLength)
   PEM_write_X509(fp, cert);
 }
 
-int getCertLength(const std::string &path)
-{
-  auto fp = fopenUtf8Path(path.c_str(), "r");
-  if (!fp) {
-    throw std::runtime_error("could not open certificate output path");
-    return -1;
-  }
-
-  EVP_PKEY *privateKey = PEM_read_PrivateKey(fp, nullptr, nullptr, nullptr);
-
-  fclose(fp);
-
-  if (!privateKey) {
-    throw std::runtime_error("could not open certificate");
-    return -1;
-  }
-
-  if (EVP_PKEY_base_id(privateKey) != EVP_PKEY_RSA) {
-    throw std::runtime_error("not an RSA key");
-    return -1;
-  }
-  int size = EVP_PKEY_get_bits(privateKey);
-
-  EVP_PKEY_free(privateKey);
-
-  return size;
-}
-
 QString formatSSLFingerprintColumns(const QByteArray &fingerprint)
 {
-  auto kmaxColumns = 24;
+  auto kMaxColumns = 24;
 
   QString hex = fingerprint.toHex(':').toUpper();
   if (hex.isEmpty()) {
     return hex;
   }
 
-  QString formatedString;
+  QString formattedString;
   while (!hex.isEmpty()) {
-    formatedString.append(hex.mid(0, kmaxColumns));
-    hex.remove(0, kmaxColumns);
-    if (formatedString.endsWith(':'))
-      formatedString.removeLast();
-    formatedString.append('\n');
+    const auto take = std::min<size_t>(kMaxColumns, hex.size());
+    formattedString.append(hex.first(take));
+    hex.remove(0, take);
+    if (formattedString.endsWith(QLatin1Char(':')))
+      formattedString.removeLast();
+    formattedString.append(QLatin1Char('\n'));
   }
-  formatedString.removeLast();
-  return formatedString;
+  formattedString.removeLast();
+  return formattedString;
 }
 
 /*
@@ -200,7 +166,7 @@ QString generateFingerprintArt(const QByteArray &rawDigest)
   const auto baseSize = 8;
   const auto rows = (baseSize + 1);
   const auto columns = (baseSize * 2 + 1);
-  const QString characterPool = " .o+=*BOX@%&#/^SE";
+  const auto characterPool = QStringLiteral(" .o+=*BOX@%&#/^SE");
   const std::size_t len = characterPool.length() - 1;
 
   std::uint8_t field[columns][rows];
@@ -233,17 +199,17 @@ QString generateFingerprintArt(const QByteArray &rawDigest)
 
   QString result;
   result.reserve((columns + 3) * (rows + 2));
-  result.append("╔═════════════════╗\n");
+  result.append(QStringLiteral("╔═════════════════╗\n"));
 
   /* output content */
   for (y = 0; y < rows; y++) {
-    result.append("║");
+    result.append(QStringLiteral("║"));
     for (x = 0; x < columns; x++)
       result.append(characterPool.at(std::min<int>(field[x][y], len)));
-    result.append("║\n");
+    result.append(QStringLiteral("║\n"));
   }
 
-  result.append("╚═════════════════╝");
+  result.append(QStringLiteral("╚═════════════════╝"));
   return result;
 }
 

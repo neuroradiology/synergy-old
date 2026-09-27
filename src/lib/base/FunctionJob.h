@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -17,7 +17,7 @@ class FunctionJob : public IJob
 {
 public:
   //! run() invokes \c func(arg)
-  FunctionJob(void (*func)(void *), void *arg = nullptr);
+  explicit FunctionJob(void (*func)(void *), void *arg = nullptr);
   ~FunctionJob() override = default;
 
   // IJob overrides

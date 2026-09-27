@@ -1,15 +1,15 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
 
-#include "common/IInterface.h"
+#include <cstdint>
 #include <string>
-
 #include <vector>
 
 class ArchThreadImpl;
@@ -49,22 +49,23 @@ using ArchNetAddress = ArchNetAddressImpl *;
 This interface defines the networking operations required by
 deskflow.  Each architecture must implement this interface.
 */
-class IArchNetwork : public IInterface
+class IArchNetwork
 {
 public:
+  virtual ~IArchNetwork() = default;
   //! Supported address families
-  enum EAddressFamily
+  enum class AddressFamily : uint8_t
   {
-    kUNKNOWN,
-    kINET,
-    kINET6,
+    Unknown,
+    INet,
+    INet6
   };
 
   //! Supported socket types
-  enum ESocketType
+  enum class SocketType : uint8_t
   {
-    kDGRAM,
-    kSTREAM
+    DataGram,
+    Stream
   };
 
   //! Events for \c poll()
@@ -72,12 +73,12 @@ public:
   Events for \c poll() are bitmasks and can be combined using the
   bitwise operators.
   */
-  enum
+  struct PollEventMask
   {
-    kPOLLIN = 1,  //!< Socket is readable
-    kPOLLOUT = 2, //!< Socket is writable
-    kPOLLERR = 4, //!< The socket is in an error state
-    kPOLLNVAL = 8 //!< The socket is invalid
+    inline static const int In = 1;      //!< Socket is readable
+    inline static const int Out = 2;     //!< Socket is writable
+    inline static const int Error = 4;   //!< The socket is in an error state
+    inline static const int Invalid = 8; //!< The socket is invalid
   };
 
   //! A socket query for \c poll()
@@ -89,8 +90,7 @@ public:
 
     //! The events to query for
     /*!
-    The events to query for can be any combination of kPOLLIN and
-    kPOLLOUT.
+    The events to query for can be any combination of PollEventMask::In and PollEventMask::Out.
     */
     unsigned short m_events;
 
@@ -105,7 +105,7 @@ public:
   /*!
   The socket is an opaque data type.
   */
-  virtual ArchSocket newSocket(EAddressFamily, ESocketType) = 0;
+  virtual ArchSocket newSocket(AddressFamily, SocketType) = 0;
 
   //! Copy a socket object
   /*!
@@ -175,9 +175,9 @@ public:
   and/or writable (or indefinitely if \c timeout < 0).  Returns the
   number of sockets that were readable (if readability was being
   queried) or writable (if writablility was being queried) and sets
-  the \c m_revents members of the entries.  \c kPOLLERR and \c kPOLLNVAL
+  the \c m_revents members of the entries.  \c PollEventMask::Error and \c PollEventMask::Invalid
   are set in \c m_revents as appropriate.  If a socket indicates
-  \c kPOLLERR then \c throwErrorOnSocket() can be used to determine
+  \c PollEventMask::Error then \c throwErrorOnSocket() can be used to determine
   the type of error.  Returns 0 immediately regardless of the \c timeout
   if no valid sockets are selected for testing.
 
@@ -211,10 +211,20 @@ public:
   */
   virtual size_t writeSocket(ArchSocket s, const void *buf, size_t len) = 0;
 
+  //! Reset the writable poll hint for a socket
+  /*!
+  Tells pollSocket() to wait for a fresh writable notification instead of
+  assuming the socket is still writable. Needed by callers that write to a
+  socket without going through writeSocket(), e.g. OpenSSL's SSL_write().
+  */
+  virtual void resetPollWriteOnSocket(ArchSocket)
+  {
+  }
+
   //! Check error on socket
   /*!
   If the socket \c s is in an error state then throws an appropriate
-  XArchNetwork exception.
+  ArchNetworkException exception.
   */
   virtual void throwErrorOnSocket(ArchSocket s) = 0;
 
@@ -225,6 +235,12 @@ public:
   */
   virtual bool setNoDelayOnSocket(ArchSocket, bool noDelay) = 0;
 
+  //! Turn keep-alive on or off on socket
+  /*!
+  Set socket to use keep-alive (true) or not (false).
+  */
+  virtual void setKeepAliveOnSocket(ArchSocket, bool keepAlive) = 0;
+
   //! Turn address reuse on or off on socket
   /*!
   Allows the address this socket is bound to to be reused while in the
@@ -232,11 +248,8 @@ public:
   */
   virtual bool setReuseAddrOnSocket(ArchSocket, bool reuse) = 0;
 
-  //! Return local host's name
-  virtual std::string getHostName() = 0;
-
   //! Create an "any" network address
-  virtual ArchNetAddress newAnyAddr(EAddressFamily) = 0;
+  virtual ArchNetAddress newAnyAddr(AddressFamily) = 0;
 
   //! Copy a network address
   virtual ArchNetAddress copyAddr(ArchNetAddress) = 0;
@@ -254,7 +267,7 @@ public:
   virtual std::string addrToString(ArchNetAddress) = 0;
 
   //! Get an address's family
-  virtual EAddressFamily getAddrFamily(ArchNetAddress) = 0;
+  virtual AddressFamily getAddrFamily(ArchNetAddress) = 0;
 
   //! Set the port of an address
   virtual void setAddrPort(ArchNetAddress, int port) = 0;
@@ -275,4 +288,15 @@ public:
   //@}
 
   virtual void init() = 0;
+
+private:
+  /**
+   * @brief throwError, Used to throw network errors
+   */
+  [[noreturn]] virtual void throwError(int) const = 0;
+
+  /**
+   * @brief throwNameError, Errors related to client names.
+   */
+  [[noreturn]] virtual void throwNameError(int) const = 0;
 };

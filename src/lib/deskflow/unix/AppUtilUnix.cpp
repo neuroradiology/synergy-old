@@ -1,6 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2026 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -8,37 +9,29 @@
 #include "deskflow/unix/AppUtilUnix.h"
 
 #include "base/Log.h"
+#include "common/PlatformInfo.h"
 
 #if WINAPI_XWINDOWS
-#include "deskflow/unix/X11LayoutsParser.h"
 #include <X11/XKBlib.h>
-#elif WINAPI_CARBON
+#include <deskflow/unix/XkbLayoutsParser.h>
+#elif defined(Q_OS_MACOS)
 #include <Carbon/Carbon.h>
 #include <platform/OSXAutoTypes.h>
-#else
-#error Platform not supported.
 #endif
 
-#include <filesystem>
-
-AppUtilUnix::AppUtilUnix(const IEventQueue *events)
+AppUtilUnix::AppUtilUnix(const IEventQueue *)
 {
   // do nothing
 }
 
-int standardStartupStatic(int argc, char **argv)
+int startStatic()
 {
-  return AppUtil::instance().app().standardStartup(argc, argv);
+  return AppUtil::instance().app().start();
 }
 
-int AppUtilUnix::run(int argc, char **argv)
+int AppUtilUnix::run()
 {
-  return app().runInner(argc, argv, &standardStartupStatic);
-}
-
-void AppUtilUnix::startNode()
-{
-  app().startNode();
+  return app().runInner(&startStatic);
 }
 
 std::vector<std::string> AppUtilUnix::getKeyboardLayoutList()
@@ -46,25 +39,29 @@ std::vector<std::string> AppUtilUnix::getKeyboardLayoutList()
   std::vector<std::string> layoutLangCodes;
 
 #if WINAPI_XWINDOWS
-  // Check /usr/local first used on bsd and some systems
-  m_evdev = "/usr/local/share/X11/xkb/rules/evdev.xml";
-  if (!std::filesystem::exists(m_evdev))
-    m_evdev = "/usr/share/X11/xkb/rules/evdev.xml";
-  layoutLangCodes = X11LayoutsParser::getX11LanguageList(m_evdev);
+  layoutLangCodes = XkbLayoutsParser::getXkbLanguageList();
 
-#elif WINAPI_CARBON
+#elif defined(Q_OS_MACOS)
   CFStringRef keys[] = {kTISPropertyInputSourceCategory};
   CFStringRef values[] = {kTISCategoryKeyboardInputSource};
   AutoCFDictionary dict(
       CFDictionaryCreate(nullptr, (const void **)keys, (const void **)values, 1, nullptr, nullptr), CFRelease
   );
-  AutoCFArray kbds(TISCreateInputSourceList(dict.get(), false), CFRelease);
+  AutoCFArray kbds(nullptr, CFRelease);
+  {
+    std::lock_guard<std::mutex> lock(g_tisMutex);
+    kbds = AutoCFArray(TISCreateInputSourceList(dict.get(), false), CFRelease);
+  }
 
   for (CFIndex i = 0; i < CFArrayGetCount(kbds.get()); ++i) {
     TISInputSourceRef keyboardLayout = (TISInputSourceRef)CFArrayGetValueAtIndex(kbds.get(), i);
-    auto layoutLanguages = (CFArrayRef)TISGetInputSourceProperty(keyboardLayout, kTISPropertyInputSourceLanguages);
+    CFArrayRef layoutLanguages = nullptr;
+    {
+      std::lock_guard<std::mutex> lock(g_tisMutex);
+      layoutLanguages = (CFArrayRef)TISGetInputSourceProperty(keyboardLayout, kTISPropertyInputSourceLanguages);
+    }
     char temporaryCString[128] = {0};
-    for (CFIndex index = 0; index < CFArrayGetCount(layoutLanguages) && layoutLanguages; index++) {
+    for (CFIndex index = 0; layoutLanguages && index < CFArrayGetCount(layoutLanguages); index++) {
       auto languageCode = (CFStringRef)CFArrayGetValueAtIndex(layoutLanguages, index);
       if (!languageCode || !CFStringGetCString(languageCode, temporaryCString, 128, kCFStringEncodingUTF8)) {
         continue;
@@ -85,20 +82,24 @@ std::vector<std::string> AppUtilUnix::getKeyboardLayoutList()
   return layoutLangCodes;
 }
 
+// TODO: read the layout for x and wayland via xkbcommon
 std::string AppUtilUnix::getCurrentLanguageCode()
 {
   std::string result = "";
+  if (deskflow::platform::isWayland())
+    return result;
+
 #if WINAPI_XWINDOWS
 
   auto display = XOpenDisplay(nullptr);
   if (!display) {
-    LOG((CLOG_WARN "failed to open x11 default display"));
+    LOG_WARN("failed to open x11 default display");
     return result;
   }
 
   auto kbdDescr = XkbAllocKeyboard();
   if (!kbdDescr) {
-    LOG((CLOG_WARN "failed to get x11 keyboard description"));
+    LOG_WARN("failed to get x11 keyboard description");
     return result;
   }
   XkbGetNames(display, XkbSymbolsNameMask, kbdDescr);
@@ -108,7 +109,7 @@ std::string AppUtilUnix::getCurrentLanguageCode()
 
   XkbStateRec state;
   XkbGetState(display, XkbUseCoreKbd, &state);
-  auto nedeedGroupIndex = static_cast<int>(state.group);
+  auto neededGroupIndex = static_cast<int>(state.group);
 
   size_t groupIdx = 0;
   size_t groupStartI = 0;
@@ -120,7 +121,7 @@ std::string AppUtilUnix::getCurrentLanguageCode()
     if (auto group = rawLayouts.substr(groupStartI, strI - groupStartI);
         group.find("group", 0, 5) == std::string::npos && group.find("inet", 0, 4) == std::string::npos &&
         group.find("pc", 0, 2) == std::string::npos) {
-      if (nedeedGroupIndex == groupIdx) {
+      if (neededGroupIndex == groupIdx) {
         result = group.substr(0, std::min(group.find('(', 0), group.find(':', 0)));
         break;
       }
@@ -134,13 +135,19 @@ std::string AppUtilUnix::getCurrentLanguageCode()
   XFree(kbdDescr);
   XCloseDisplay(display);
 
-  result = X11LayoutsParser::convertLayotToISO(m_evdev, result);
+  result = XkbLayoutsParser::convertLayoutToISO(result);
 
-#elif WINAPI_CARBON
-  auto layoutLanguages =
-      (CFArrayRef)TISGetInputSourceProperty(TISCopyCurrentKeyboardInputSource(), kTISPropertyInputSourceLanguages);
+#elif defined(Q_OS_MACOS)
+  AutoTISInputSourceRef source(nullptr, CFRelease);
+  CFArrayRef layoutLanguages = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(g_tisMutex);
+    source = AutoTISInputSourceRef(TISCopyCurrentKeyboardInputSource(), CFRelease);
+    if (source)
+      layoutLanguages = (CFArrayRef)TISGetInputSourceProperty(source.get(), kTISPropertyInputSourceLanguages);
+  }
   char temporaryCString[128] = {0};
-  for (CFIndex index = 0; index < CFArrayGetCount(layoutLanguages) && layoutLanguages; index++) {
+  for (CFIndex index = 0; layoutLanguages && index < CFArrayGetCount(layoutLanguages); index++) {
     auto languageCode = (CFStringRef)CFArrayGetValueAtIndex(layoutLanguages, index);
     if (!languageCode || !CFStringGetCString(languageCode, temporaryCString, 128, kCFStringEncodingUTF8)) {
       continue;

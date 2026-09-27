@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2005 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -52,7 +52,7 @@ public:
     uint32_t m_client{};           //!< Client data
 
   public:
-    bool operator==(const KeyItem &) const;
+    bool operator==(const KeyItem &) const = default;
   };
 
   //! The KeyButtons needed to synthesize a KeyID
@@ -71,10 +71,10 @@ public:
   class Keystroke
   {
   public:
-    enum EType
+    enum class KeyType
     {
-      kButton, //!< Synthesize button
-      kGroup   //!< Set new group
+      Button, //!< Synthesize button
+      Group   //!< Set new group
     };
 
     Keystroke(KeyButton, bool press, bool repeat, uint32_t clientData);
@@ -103,7 +103,7 @@ public:
       Group m_group;
     };
 
-    EType m_type{};
+    KeyType m_type{};
     Data m_data{};
   };
 
@@ -123,7 +123,7 @@ public:
   //@{
 
   //! Swap with another \c KeyMap
-  virtual void swap(KeyMap &);
+  virtual void swap(KeyMap &) noexcept;
 
   //! Add a key entry
   /*!

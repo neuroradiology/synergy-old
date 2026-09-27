@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2024 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2024 Synergy App Ltd
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
@@ -8,8 +8,12 @@
 
 #include <QDir>
 #include <QFileInfoList>
+#include <QFontDatabase>
+#include <QIcon>
 #include <QPalette>
 #include <QStyleHints>
+
+#include "common/Constants.h"
 
 namespace deskflow::gui {
 
@@ -35,31 +39,29 @@ inline QString iconMode()
   return isDarkMode() ? QStringLiteral("dark") : QStringLiteral("light");
 }
 
-/**
- * @brief checkSubDir checks for subdirs in a dir
- * @param path The path to check for subdirs
- * @return list of subdirs
- */
-inline QStringList checkSubDir(const QString &path)
+inline void updateIconTheme()
 {
-  QStringList paths;
-  auto dir = QDir(path);
-  const QFileInfoList items = dir.entryInfoList({"*"}, QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot);
-  for (const QFileInfo &item : items) {
-    if (item.isDir()) {
-      paths.append(item.absoluteFilePath());
-      paths.append(checkSubDir(item.absoluteFilePath()));
-    }
-  }
-  return paths;
-}
-
-/**
- * @brief setIconFallbackPaths Set the icon fallback path to our light or dark theme
- */
-inline void setIconFallbackPaths()
-{
-  QStringList paths = checkSubDir(QStringLiteral(":/icons/deskflow-%1").arg(iconMode()));
-  QIcon::setFallbackSearchPaths(paths);
+  // Sets the fallback icon path and fallback theme
+  const auto themeName = QStringLiteral("%1-%2").arg(kAppId, iconMode());
+  if (QIcon::themeName().isEmpty() || QIcon::themeName().startsWith(kAppId))
+    QIcon::setThemeName(themeName);
+  else
+    QIcon::setFallbackThemeName(themeName);
+  QIcon::setFallbackSearchPaths({QStringLiteral(":/icons/%1").arg(themeName)});
 }
 } // namespace deskflow::gui
+
+inline QFont fixedFont()
+{
+#if defined(Q_OS_WIN)
+  QFont f({"Hack", "Liberation Mono", "Monospace", "Andale Mono"});
+  f.setStyleHint(QFont::Monospace);
+#else
+  QFont f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+#endif
+
+#if defined(Q_OS_MACOS)
+  f.setPointSize(12);
+#endif
+  return f;
+}

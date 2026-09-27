@@ -1,14 +1,12 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #include "net/TCPSocketFactory.h"
-#include "arch/Arch.h"
-#include "base/Log.h"
 #include "net/SecureListenSocket.h"
 #include "net/SecureSocket.h"
 #include "net/TCPListenSocket.h"
@@ -25,7 +23,7 @@ TCPSocketFactory::TCPSocketFactory(IEventQueue *events, SocketMultiplexer *socke
   // do nothing
 }
 
-IDataSocket *TCPSocketFactory::create(IArchNetwork::EAddressFamily family, SecurityLevel securityLevel) const
+IDataSocket *TCPSocketFactory::create(IArchNetwork::AddressFamily family, SecurityLevel securityLevel) const
 {
   if (securityLevel != SecurityLevel::PlainText) {
     auto *secureSocket = new SecureSocket(m_events, m_socketMultiplexer, family, securityLevel);
@@ -36,7 +34,7 @@ IDataSocket *TCPSocketFactory::create(IArchNetwork::EAddressFamily family, Secur
   }
 }
 
-IListenSocket *TCPSocketFactory::createListen(IArchNetwork::EAddressFamily family, SecurityLevel securityLevel) const
+IListenSocket *TCPSocketFactory::createListen(IArchNetwork::AddressFamily family, SecurityLevel securityLevel) const
 {
   IListenSocket *socket = nullptr;
   if (securityLevel != SecurityLevel::PlainText) {

@@ -1,23 +1,15 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2013 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2013 - 2016 Synergy App Ltd
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #include "deskflow/StreamChunker.h"
 
 #include "base/Event.h"
-#include "base/EventTypes.h"
 #include "base/IEventQueue.h"
 #include "base/Log.h"
-#include "base/String.h"
 #include "deskflow/ClipboardChunk.h"
-#include "deskflow/ProtocolTypes.h"
-
-#include <fstream>
-#include <stdexcept>
-
-using namespace std;
 
 static const size_t g_chunkSize = 512 * 1024; // 512kb
 
@@ -26,7 +18,7 @@ void StreamChunker::sendClipboard(
 )
 {
   // send first message (data size)
-  std::string dataSize = deskflow::string::sizeTypeToString(size);
+  std::string dataSize = QString::number(size).toStdString();
   ClipboardChunk *sizeMessage = ClipboardChunk::start(id, sequence, dataSize);
 
   events->addEvent(Event(EventTypes::ClipboardSending, eventTarget, sizeMessage));
@@ -57,5 +49,5 @@ void StreamChunker::sendClipboard(
 
   events->addEvent(Event(EventTypes::ClipboardSending, eventTarget, end));
 
-  LOG((CLOG_DEBUG "sent clipboard size=%d", sentLength));
+  LOG_DEBUG("sent clipboard size=%d", sentLength);
 }

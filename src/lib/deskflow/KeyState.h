@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -204,20 +204,20 @@ private:
   // current keyboard state (> 0 if pressed, 0 otherwise).  this is
   // initialized to the keyboard state according to the system then
   // it tracks synthesized events.
-  int32_t m_keys[kNumButtons];
+  int32_t m_keys[s_numButtons];
 
   // synthetic keyboard state (> 0 if pressed, 0 otherwise).  this
   // tracks the synthesized keyboard state.  if m_keys[n] > 0 but
   // m_syntheticKeys[n] == 0 then the key was pressed locally and
   // not synthesized yet.
-  int32_t m_syntheticKeys[kNumButtons];
+  int32_t m_syntheticKeys[s_numButtons];
 
   // client data for each pressed key
-  uint32_t m_keyClientData[kNumButtons];
+  uint32_t m_keyClientData[s_numButtons];
 
   // server keyboard state.  an entry is 0 if not the key isn't pressed
   // otherwise it's the local KeyButton synthesized for the server key.
-  KeyButton m_serverKeys[kNumButtons];
+  KeyButton m_serverKeys[s_numButtons];
 
   IEventQueue *m_events;
 

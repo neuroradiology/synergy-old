@@ -1,6 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -10,8 +11,11 @@
 #include "deskflow/ClipboardTypes.h"
 #include "deskflow/IClipboard.h"
 
+#include <QString>
+
 #include <list>
 #include <map>
+#include <mutex>
 #include <vector>
 
 #include <X11/Xlib.h>
@@ -77,12 +81,12 @@ public:
 
   // IClipboard overrides
   bool empty() override;
-  void add(EFormat, const std::string &data) override;
+  void add(Format, const std::string &data) override;
   bool open(Time) const override;
   void close() const override;
   Time getTime() const override;
-  bool has(EFormat) const override;
-  std::string get(EFormat) const override;
+  bool has(Format) const override;
+  std::string get(Format) const override;
 
 private:
   // remove all converters from our list
@@ -95,7 +99,7 @@ private:
   IXWindowsClipboardConverter *getConverter(Atom target, bool onlyIfNotAdded = false) const;
 
   // convert target atom to clipboard format
-  EFormat getFormat(Atom target) const;
+  Format getFormat(Atom target) const;
 
   // add a non-MULTIPLE request.  does not verify that the selection
   // was owned at the given time.  returns true if the conversion
@@ -283,6 +287,7 @@ private:
   Window m_window;
   ClipboardID m_id;
   Atom m_selection;
+  mutable std::mutex m_mutex;
   mutable bool m_open = false;
   mutable Time m_time = 0;
   bool m_owner = false;
@@ -296,8 +301,8 @@ private:
   mutable bool m_checkCache;
   bool m_cached;
   Time m_cacheTime;
-  bool m_added[kNumFormats];
-  std::string m_data[kNumFormats];
+  bool m_added[static_cast<int>(IClipboard::Format::TotalFormats)];
+  std::string m_data[static_cast<int>(IClipboard::Format::TotalFormats)];
 
   // conversion request replies
   ReplyMap m_replies;
@@ -326,9 +331,10 @@ private:
 This interface defines the methods common to all X11 clipboard format
 converters.
 */
-class IXWindowsClipboardConverter : public IInterface
+class IXWindowsClipboardConverter
 {
 public:
+  virtual ~IXWindowsClipboardConverter() = default;
   //! @name accessors
   //@{
 
@@ -336,7 +342,7 @@ public:
   /*!
   Return the clipboard format this object converts from/to.
   */
-  virtual IClipboard::EFormat getFormat() const = 0;
+  virtual IClipboard::Format getFormat() const = 0;
 
   //! Get X11 format atom
   /*!

@@ -16,7 +16,7 @@ runs:
   using: "composite"
   steps:
     - name: Download test result rows
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         pattern: ${{ inputs.download-pattern }}
         merge-multiple: true
@@ -28,8 +28,7 @@ runs:
         # Builds a markdown table from the row artifacts.
 
         header=$(cat <<EOF
-        # Test results
-        | Job name | Unit tests | Integration tests |
+        | OS | Unit tests | Legacy tests |
         | --- | --- | --- |
         EOF
         )
@@ -57,15 +56,25 @@ runs:
         if [ -z "$table" ]; then
           echo "No test results found" | tee $GITHUB_STEP_SUMMARY >&2
           exit 1
-        else
-          echo "$table" > $GITHUB_STEP_SUMMARY
         fi
 
-        count=$(echo "$table" | awk -v RS='' '{gsub(/[^❌]/, ""); print length}')
-        file="ci-summary.md"
+        echo "$table" > $GITHUB_STEP_SUMMARY
 
+        count=$(echo "$table" | { grep -o '❌' || true; } | wc -l)
+
+        # Keep at this indentation level for heredoc.
+        fail_summary=$(cat <<EOF
+        ### Test result
+        
+        ❌🔬 Tests failed: $count
+        
+        $table
+        EOF
+        )
+
+        file="ci-summary.md"
         if [ $count -gt 0 ]; then
-          echo "❌🔬 Tests failed: $count" | tee $file
+          echo "$fail_summary" | tee $file
           echo "file=$file" >> $GITHUB_OUTPUT
         else
           # For debugging; don't send success to CI summary (reduce noise).
@@ -77,7 +86,7 @@ runs:
 
     - name: Upload CI summary
       if: steps.summary.outputs.file
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ inputs.upload-name }}
         path: ${{ steps.summary.outputs.file }}

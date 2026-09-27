@@ -1,13 +1,12 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
 
-#include "base/EventTypes.h"
 #include "net/ISocket.h"
 
 #include <memory>
@@ -34,9 +33,4 @@ public:
   virtual std::unique_ptr<IDataSocket> accept() = 0;
 
   //@}
-
-  // ISocket overrides
-  void bind(const NetworkAddress &) override = 0;
-  void close() override = 0;
-  void *getEventTarget() const override = 0;
 };

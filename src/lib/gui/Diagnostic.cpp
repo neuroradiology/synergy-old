@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2024 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2024 Synergy App Ltd
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
@@ -34,6 +34,7 @@ void clearSettings(bool enableRestart)
 {
   qDebug("clearing settings");
   Settings::proxy().clear();
+  Settings::clearState();
 
   // save but do not emit saving signal which will prevent the current state of
   // the app config and server configs from being applied.
@@ -44,11 +45,11 @@ void clearSettings(bool enableRestart)
   profileDir.removeRecursively();
 
 #ifdef Q_OS_WIN
-  if (Settings::isNativeMode()) {
+  if (Settings::isPortableMode()) {
     // make a new empty portable settings file
     if (profileDir.mkpath(Settings::settingsPath())) {
       QFile file(Settings::settingsFile());
-      file.open(QIODevice::WriteOnly);
+      std::ignore = file.open(QIODevice::WriteOnly);
       file.write(" ", 1);
       file.close();
     }

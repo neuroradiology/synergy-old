@@ -1,21 +1,19 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #include "deskflow/KeyState.h"
 #include "base/Log.h"
-#include "deskflow/ClientApp.h"
-#include "deskflow/ClientArgs.h"
 
 #include <algorithm>
 #include <cstring>
 #include <iterator>
 #include <list>
 
-static const KeyButton kButtonMask = (KeyButton)(IKeyState::kNumButtons - 1);
+static const KeyButton kButtonMask = (KeyButton)(IKeyState::s_numButtons - 1);
 
 static const KeyID s_decomposeTable[] = {
     // spacing version of dead keys
@@ -686,7 +684,7 @@ void KeyState::onKey(KeyButton button, bool down, KeyModifierMask newState)
 {
   // update modifier state
   m_mask = newState;
-  LOG((CLOG_DEBUG1 "new mask: 0x%04x", m_mask));
+  LOG_VERBOSE("new mask: 0x%04x", m_mask);
 
   // ignore bogus buttons
   button &= kButtonMask;
@@ -708,20 +706,21 @@ void KeyState::sendKeyEvent(
     void *target, bool press, bool isAutoRepeat, KeyID key, KeyModifierMask mask, int32_t count, KeyButton button
 )
 {
+  using enum EventTypes;
   if (m_keyMap.isHalfDuplex(key, button)) {
     if (isAutoRepeat) {
       // ignore auto-repeat on half-duplex keys
     } else {
-      m_events->addEvent(Event(EventTypes::KeyStateKeyDown, target, KeyInfo::alloc(key, mask, button, 1)));
-      m_events->addEvent(Event(EventTypes::KeyStateKeyUp, target, KeyInfo::alloc(key, mask, button, 1)));
+      m_events->addEvent(Event(KeyStateKeyDown, target, KeyInfo::alloc(key, mask, button, 1)));
+      m_events->addEvent(Event(KeyStateKeyUp, target, KeyInfo::alloc(key, mask, button, 1)));
     }
   } else {
     if (isAutoRepeat) {
-      m_events->addEvent(Event(EventTypes::KeyStateKeyRepeat, target, KeyInfo::alloc(key, mask, button, count)));
+      m_events->addEvent(Event(KeyStateKeyRepeat, target, KeyInfo::alloc(key, mask, button, count)));
     } else if (press) {
-      m_events->addEvent(Event(EventTypes::KeyStateKeyDown, target, KeyInfo::alloc(key, mask, button, 1)));
+      m_events->addEvent(Event(KeyStateKeyDown, target, KeyInfo::alloc(key, mask, button, 1)));
     } else {
-      m_events->addEvent(Event(EventTypes::KeyStateKeyUp, target, KeyInfo::alloc(key, mask, button, 1)));
+      m_events->addEvent(Event(KeyStateKeyUp, target, KeyInfo::alloc(key, mask, button, 1)));
     }
   }
 }
@@ -761,13 +760,14 @@ void KeyState::updateKeyState()
   }
 
   // get the current modifier state
+  clearStaleModifiers();
   m_mask = pollActiveModifiers();
 
   // set active modifiers
   AddActiveModifierContext addModifierContext(pollActiveGroup(), m_mask, m_activeModifiers);
   m_keyMap.foreachKey(&KeyState::addActiveModifierCB, &addModifierContext);
 
-  LOG((CLOG_DEBUG1 "modifiers on update: 0x%04x", m_mask));
+  LOG_VERBOSE("modifiers on update: 0x%04x", m_mask);
 }
 
 void KeyState::addActiveModifierCB(KeyID, int32_t group, deskflow::KeyMap::KeyItem &keyItem, void *vcontext)
@@ -804,7 +804,7 @@ void KeyState::fakeKeyDown(KeyID id, KeyModifierMask mask, KeyButton serverID, c
 
   // ignore certain keys
   if (isIgnoredKey(id, mask)) {
-    LOG((CLOG_DEBUG1 "ignored key %04x %04x", id, mask));
+    LOG_VERBOSE("ignored key %04x %04x", id, mask);
     return;
   }
 
@@ -818,7 +818,7 @@ void KeyState::fakeKeyDown(KeyID id, KeyModifierMask mask, KeyButton serverID, c
     // special way
     if (id == kKeyAudioDown || id == kKeyAudioUp || id == kKeyAudioMute || id == kKeyAudioPlay || id == kKeyAudioPrev ||
         id == kKeyAudioNext || id == kKeyBrightnessDown || id == kKeyBrightnessUp) {
-      LOG((CLOG_DEBUG1 "emulating media key"));
+      LOG_VERBOSE("emulating media key");
       fakeMediaKey(id);
     }
 
@@ -841,7 +841,7 @@ void KeyState::fakeKeyDown(KeyID id, KeyModifierMask mask, KeyButton serverID, c
 
 bool KeyState::fakeKeyRepeat(KeyID id, KeyModifierMask mask, int32_t count, KeyButton serverID, const std::string &lang)
 {
-  LOG((CLOG_DEBUG2 "fakeKeyRepeat"));
+  LOG_VERBOSE("fakeKeyRepeat");
   serverID &= kButtonMask;
 
   // if we haven't seen this button go down then ignore it
@@ -873,7 +873,7 @@ bool KeyState::fakeKeyRepeat(KeyID id, KeyModifierMask mask, int32_t count, KeyB
     // replace key up with previous KeyButton but leave key down
     // alone so it uses the new KeyButton.
     for (auto &key : keys) {
-      if (key.m_type == Keystroke::kButton && key.m_data.m_button.m_button == localID) {
+      if (key.m_type == Keystroke::KeyType::Button && key.m_data.m_button.m_button == localID) {
         key.m_data.m_button.m_button = oldLocalID;
         break;
       }
@@ -927,7 +927,7 @@ bool KeyState::fakeKeyUp(KeyButton serverID)
       if (!m_activeModifiers.contains(mask)) {
         // no key for modifier is down so deactivate modifier
         m_mask &= ~mask;
-        LOG((CLOG_DEBUG1 "new state %04x", m_mask));
+        LOG_VERBOSE("new state %04x", m_mask);
       }
     } else {
       ++i;
@@ -942,7 +942,7 @@ bool KeyState::fakeKeyUp(KeyButton serverID)
 void KeyState::fakeAllKeysUp()
 {
   Keystrokes keys;
-  for (KeyButton i = 0; i < IKeyState::kNumButtons; ++i) {
+  for (KeyButton i = 0; i < IKeyState::s_numButtons; ++i) {
     if (m_syntheticKeys[i] > 0) {
       keys.push_back(Keystroke(i, false, false, m_keyClientData[i]));
       m_keys[i] = 0;
@@ -955,7 +955,7 @@ void KeyState::fakeAllKeysUp()
   m_mask = pollActiveModifiers();
 }
 
-bool KeyState::fakeMediaKey(KeyID id)
+bool KeyState::fakeMediaKey(KeyID)
 {
   return false;
 }
@@ -1027,7 +1027,7 @@ void KeyState::addKeypadEntries()
   // map every numpad key to its equivalent non-numpad key if it's not
   // on the keyboard.
   for (int32_t g = 0, n = m_keyMap.getNumGroups(); g < n; ++g) {
-    for (size_t i = 0; i < sizeof(s_numpadTable) / sizeof(s_numpadTable[0]); i += 2) {
+    for (size_t i = 0; i < std::size(s_numpadTable); i += 2) {
       m_keyMap.addKeyCombinationEntry(s_numpadTable[i], g, s_numpadTable + i + 1, 1);
     }
   }
@@ -1064,29 +1064,29 @@ void KeyState::fakeKeys(const Keystrokes &keys, uint32_t count)
   }
 
   // generate key events
-  LOG((CLOG_DEBUG1 "keystrokes:"));
   for (auto k = keys.begin(); k != keys.end();) {
-    if (k->m_type == Keystroke::kButton && k->m_data.m_button.m_repeat) {
+    if (k->m_type == Keystroke::KeyType::Button && k->m_data.m_button.m_repeat) {
       // repeat from here up to but not including the next key
       // with m_repeat == false count times.
       Keystrokes::const_iterator start = k;
       while (count-- > 0) {
         // send repeating events
-        for (k = start; k != keys.end() && k->m_type == Keystroke::kButton && k->m_data.m_button.m_repeat; ++k) {
+        for (k = start; k != keys.end() && k->m_type == Keystroke::KeyType::Button && k->m_data.m_button.m_repeat;
+             ++k) {
           fakeKey(*k);
         }
       }
 
       // note -- k is now on the first non-repeat key after the
       // repeat keys, exactly where we'd like to continue from.
-    } else if (k->m_type != Keystroke::kGroup || (!k->m_data.m_group.m_restore && m_isLangSyncEnabled)) {
+    } else if (k->m_type != Keystroke::KeyType::Group || (!k->m_data.m_group.m_restore && m_isLangSyncEnabled)) {
       // send event
       fakeKey(*k);
 
       // next key
       ++k;
     } else {
-      LOG((CLOG_DEBUG1 "skipping keystroke, language sync is disabled"));
+      LOG_VERBOSE("skipping keystroke, language sync is disabled");
       ++k;
     }
   }
@@ -1100,23 +1100,17 @@ void KeyState::updateModifierKeyState(
   deskflow::KeyMap::ButtonToKeyMap oldKeys;
   deskflow::KeyMap::ButtonToKeyMap newKeys;
   for (const auto &[modifier, keyItem] : oldModifiers) {
-    oldKeys.insert(std::make_pair(keyItem.m_button, &keyItem));
+    oldKeys.try_emplace(keyItem.m_button, &keyItem);
   }
   for (const auto &[modifier, keyItem] : newModifiers) {
-    newKeys.insert(std::make_pair(keyItem.m_button, &keyItem));
+    newKeys.try_emplace(keyItem.m_button, &keyItem);
   }
 
   // get the modifier buttons that were pressed or released
   deskflow::KeyMap::ButtonToKeyMap pressed;
   deskflow::KeyMap::ButtonToKeyMap released;
-  std::set_difference(
-      oldKeys.begin(), oldKeys.end(), newKeys.begin(), newKeys.end(), std::inserter(released, released.end()),
-      ButtonToKeyLess()
-  );
-  std::set_difference(
-      newKeys.begin(), newKeys.end(), oldKeys.begin(), oldKeys.end(), std::inserter(pressed, pressed.end()),
-      ButtonToKeyLess()
-  );
+  std::ranges::set_difference(oldKeys, newKeys, std::inserter(released, released.end()), ButtonToKeyLess());
+  std::ranges::set_difference(newKeys, oldKeys, std::inserter(pressed, pressed.end()), ButtonToKeyLess());
 
   // update state
   for (deskflow::KeyMap::ButtonToKeyMap::const_iterator i = released.begin(); i != released.end(); ++i) {

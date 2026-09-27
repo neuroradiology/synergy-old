@@ -1,7 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -10,7 +10,8 @@
 
 #include <algorithm>
 #include <cstdarg>
-#include <sstream>
+#include <cstdint>
+#include <cstring>
 #include <vector>
 
 namespace deskflow::string {
@@ -106,7 +107,8 @@ std::string sprintf(const char *fmt, ...)
 {
   char tmp[1024];
   char *buffer = tmp;
-  auto len = (int)(sizeof(tmp) / sizeof(tmp[0]));
+  auto len = static_cast<int>(std::size(tmp));
+
   std::string result;
   while (buffer != nullptr) {
     // try printing into the buffer
@@ -137,21 +139,6 @@ std::string sprintf(const char *fmt, ...)
   return result;
 }
 
-std::string sizeTypeToString(size_t n)
-{
-  std::stringstream ss;
-  ss << n;
-  return ss.str();
-}
-
-size_t stringToSizeType(std::string string)
-{
-  std::istringstream iss(string);
-  size_t value;
-  iss >> value;
-  return value;
-}
-
 //
 // CaselessCmp
 //
@@ -163,7 +150,7 @@ bool CaselessCmp::operator()(const std::string &a, const std::string &b) const
 
 bool CaselessCmp::less(const std::string_view &a, const std::string_view &b)
 {
-  return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end(), &deskflow::string::CaselessCmp::cmpLess);
+  return std::ranges::lexicographical_compare(a, b, &deskflow::string::CaselessCmp::cmpLess);
 }
 
 bool CaselessCmp::equal(const std::string &a, const std::string &b)

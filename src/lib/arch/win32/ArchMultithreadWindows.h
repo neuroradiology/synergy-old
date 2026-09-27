@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -83,13 +83,13 @@ public:
   bool isExitedThread(ArchThread) override;
   void *getResultOfThread(ArchThread) override;
   ThreadID getIDOfThread(ArchThread) override;
-  void setSignalHandler(ESignal, SignalFunc, void *) override;
-  void raiseSignal(ESignal) override;
+  void setSignalHandler(ThreadSignal, SignalFunc, void *) override;
+  void raiseSignal(ThreadSignal) override;
 
 private:
   ArchThreadImpl *find(DWORD id);
   ArchThreadImpl *findNoRef(DWORD id);
-  ArchThreadImpl *findNoRefOrCreate(DWORD id);
+  ArchThreadImpl *findNoRefOrInsert(DWORD id);
   void insert(ArchThreadImpl *thread);
   void erase(ArchThreadImpl *thread);
 
@@ -109,6 +109,6 @@ private:
   ThreadList m_threadList;
   ArchThread m_mainThread;
 
-  SignalFunc m_signalFunc[kNUM_SIGNALS];
-  void *m_signalUserData[kNUM_SIGNALS];
+  SignalFunc m_signalFunc[static_cast<int>(ThreadSignal::MaxSignals)];
+  void *m_signalUserData[static_cast<int>(ThreadSignal::MaxSignals)];
 };

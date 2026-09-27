@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2003 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -46,13 +46,13 @@ public:
   void push(const value_type &v)
   {
     c.push_back(v);
-    std::push_heap(c.begin(), c.end(), comp);
+    std::ranges::push_heap(c, comp);
   }
 
   //! Remove head element
   void pop()
   {
-    std::pop_heap(c.begin(), c.end(), comp);
+    std::ranges::pop_heap(c, comp);
     c.pop_back();
   }
 
@@ -60,7 +60,7 @@ public:
   void erase(iterator i)
   {
     c.erase(i);
-    std::make_heap(c.begin(), c.end(), comp);
+    std::ranges::make_heap(c, comp);
   }
 
   //! Get start iterator
@@ -76,16 +76,16 @@ public:
   }
 
   //! Swap contents with another priority queue
-  void swap(PriorityQueue<T, Container, Compare> &q)
+  void swap(PriorityQueue<T, Container, Compare> &q) noexcept
   {
     c.swap(q.c);
   }
 
   //! Swap contents with another container
-  void swap(Container &c2)
+  void swap(Container &c2) noexcept
   {
     c.swap(c2);
-    std::make_heap(c.begin(), c.end(), comp);
+    std::ranges::make_heap(c, comp);
   }
 
   //@}
@@ -126,5 +126,5 @@ public:
 
 private:
   Container c;
-  Compare comp;
+  [[no_unique_address]] Compare comp;
 };

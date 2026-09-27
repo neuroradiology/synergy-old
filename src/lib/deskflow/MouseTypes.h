@@ -1,13 +1,13 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
 
-#include "base/EventTypes.h"
+#include <cstdint>
 
 //! Mouse button ID
 /*!
@@ -26,6 +26,12 @@ static const ButtonID kButtonExtra1 = 5;
 
 static const ButtonID kMacButtonRight = 2;
 static const ButtonID kMacButtonMiddle = 3;
+
+// Only used for X11 Scroll Wheel
+static const ButtonID kX11ScrollWheelUp = 255;
+static const ButtonID kX11ScrollWheelDown = 254;
+static const ButtonID kX11ScrollWheelLeft = 6;
+static const ButtonID kX11ScrollWheelRight = 7;
 //@}
 
-static const uint8_t NumButtonIDs = 5;
+static const uint8_t NumButtonIDs = 6;

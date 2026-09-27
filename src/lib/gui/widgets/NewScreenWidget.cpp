@@ -1,7 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2008 Volker Lanz <vl@fidra.de>
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -19,8 +19,9 @@ NewScreenWidget::NewScreenWidget(QWidget *parent) : QLabel(parent)
   // do nothing
 }
 
-void NewScreenWidget::mousePressEvent(QMouseEvent *event)
+void NewScreenWidget::mousePressEvent(QMouseEvent *)
 {
+  //: Used as the hostname. Translation may not contain spaces
   Screen newScreen(tr("Unnamed"));
 
   QByteArray itemData;
@@ -33,6 +34,6 @@ void NewScreenWidget::mousePressEvent(QMouseEvent *event)
   auto *pDrag = new QDrag(this);
   pDrag->setMimeData(pMimeData);
   pDrag->setPixmap(pixmap());
-  pDrag->setHotSpot(event->pos());
+  pDrag->setHotSpot(QPoint(width() / 2, height() / 2));
   pDrag->exec(Qt::CopyAction, Qt::CopyAction);
 }

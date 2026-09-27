@@ -1,78 +1,45 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2024 - 2025 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2025 Chris Rizzitello <sithlord48@gmail.com>
+ * SPDX-FileCopyrightText: (C) 2024 - 2025 Synergy App Ltd
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
 
+#include "common/Enums.h"
 #include "common/Settings.h"
 #include "gui/FileTail.h"
-#include "gui/config/IServerConfig.h"
-#include "gui/proxy/QProcessProxy.h"
+#include "gui/config/ServerConfig.h"
 
-#include <memory>
-
-#include <QFileSystemWatcher>
 #include <QMutex>
 #include <QObject>
-#include <QString>
-#include <QStringList>
+#include <QProcess>
 #include <QTimer>
 
 namespace deskflow::gui {
 
 namespace ipc {
+class CoreIpcClient;
 class DaemonIpcClient;
-}
+} // namespace ipc
 
 class CoreProcess : public QObject
 {
+  using ConnectionState = deskflow::core::ConnectionState;
   using ProcessMode = Settings::ProcessMode;
-  using IServerConfig = deskflow::gui::IServerConfig;
-  using QProcessProxy = deskflow::gui::proxy::QProcessProxy;
-
+  using ProcessState = deskflow::core::ProcessState;
   Q_OBJECT
 
 public:
-  struct Deps
-  {
-    virtual ~Deps() = default;
-    virtual QProcessProxy &process()
-    {
-      return m_process;
-    }
-    virtual QString appPath(const QString &name) const;
-    virtual bool fileExists(const QString &path) const;
-
-  private:
-    QProcessProxy m_process;
-  };
-
   enum class Error
   {
     AddressMissing,
     StartFailed
   };
-  enum class ProcessState
-  {
-    Starting,
-    Started,
-    Stopping,
-    Stopped,
-    RetryPending
-  };
-  enum class ConnectionState
-  {
-    Disconnected,
-    Connecting,
-    Connected,
-    Listening
-  };
 
-  explicit CoreProcess(const IServerConfig &serverConfig, std::shared_ptr<Deps> deps = std::make_shared<Deps>());
+  explicit CoreProcess(const ServerConfig &serverConfig);
 
-  void extracted(QString &app, QStringList &args);
   void start(std::optional<ProcessMode> processMode = std::nullopt);
   void stop(std::optional<ProcessMode> processMode = std::nullopt);
   void restart();
@@ -106,7 +73,7 @@ public:
   // setters
   void setAddress(const QString &address)
   {
-    m_address = address.trimmed();
+    m_address = correctedAddress(address);
   }
   void setMode(Settings::CoreMode mode)
   {
@@ -114,58 +81,59 @@ public:
   }
 
 Q_SIGNALS:
-  void starting();
-  void error(Error error);
+  void error(deskflow::gui::CoreProcess::Error error);
   void logLine(const QString &line);
-  void connectionStateChanged(ConnectionState state);
-  void processStateChanged(ProcessState state);
+  void connectionStateChanged(deskflow::core::ConnectionState state);
+  void processStateChanged(deskflow::core::ProcessState state);
   void secureSocket(bool enabled);
   void daemonIpcClientConnectionFailed();
+  void connectedClientsChanged(const QStringList &clients);
+  void securityLevelChanged(QString securityLevel);
+  void unrecognisedClient(const QString &clientName);
+  void connectionRefused(deskflow::core::ConnectionRefusal reason);
+  void retryIn(int seconds);
+  void peerFingerprint(const QString &fingerprint);
+  void missingKeyboardLayouts(const QString &layouts);
 
 private Q_SLOTS:
   void onProcessFinished(int exitCode, QProcess::ExitStatus);
   void onProcessReadyReadStandardOutput();
   void onProcessReadyReadStandardError();
+  void onCoreIpcMessageReceived(const QString &command, const QString &args);
   void daemonIpcClientConnected();
 
 private:
-  void startForegroundProcess(const QString &app, const QStringList &args);
-  void startProcessFromDaemon(const QString &app, const QStringList &args);
-  void stopForegroundProcess() const;
+  void startForegroundProcess(const QStringList &args);
+  void startProcessFromDaemon();
+  void stopForegroundProcess();
   void stopProcessFromDaemon();
-  bool addGenericArgs(QStringList &args, const ProcessMode processMode) const;
-  bool addServerArgs(QStringList &args, QString &app);
-  bool addClientArgs(QStringList &args, QString &app);
-  QString persistServerConfig() const;
-  QString modeString() const;
-  QString processModeString() const;
+  QPair<bool, QString> persistServerConfig() const;
   void setConnectionState(ConnectionState state);
   void setProcessState(ProcessState state);
-  void checkLogLine(const QString &line);
   bool checkSecureSocket(const QString &line);
   void handleLogLines(const QString &text);
-  QString correctedInterface() const;
-  QString correctedAddress() const;
-  QString requestDaemonLogPath();
-  void persistLogDir() const;
+  QString correctedAddress(const QString &address) const;
+  void setupDaemonLogTail(const QString &logPath);
+  void checkExistingProcess();
+  static QString makeQuotedArgs(const QString &app, const QStringList &args);
+  static QString processModeToString(const Settings::ProcessMode mode);
+  static QString processStateToString(const CoreProcess::ProcessState state);
+  static QString wrapIpv6(const QString &address);
 
-#ifdef Q_OS_MAC
-  void checkOSXNotification(const QString &line);
-#endif
-
-  const IServerConfig &m_serverConfig;
-  std::shared_ptr<Deps> m_pDeps;
+  const ServerConfig &m_serverConfig;
   QString m_address;
   ProcessState m_processState = ProcessState::Stopped;
   ConnectionState m_connectionState = ConnectionState::Disconnected;
   Settings::CoreMode m_mode = Settings::CoreMode::None;
   QMutex m_processMutex;
-  QString m_secureSocketVersion = "";
+  QString m_secureSocketVersion;
   std::optional<ProcessMode> m_lastProcessMode = std::nullopt;
   QTimer m_retryTimer;
-  int m_connections = 0;
+  deskflow::gui::ipc::CoreIpcClient *m_coreIpcClient = nullptr;
   deskflow::gui::ipc::DaemonIpcClient *m_daemonIpcClient = nullptr;
   FileTail *m_daemonFileTail = nullptr;
+  QProcess *m_process = nullptr;
+  QString m_appPath;
 };
 
 } // namespace deskflow::gui

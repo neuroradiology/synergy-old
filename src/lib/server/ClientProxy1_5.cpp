@@ -1,26 +1,24 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2013 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2013 - 2016 Synergy App Ltd
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #include "server/ClientProxy1_5.h"
 
-#include "base/Log.h"
 #include "deskflow/ProtocolUtil.h"
 #include "deskflow/StreamChunker.h"
 #include "io/IStream.h"
 #include "server/Server.h"
 
-#include <sstream>
+#include <cstring>
 
 //
 // ClientProxy1_5
 //
 
 ClientProxy1_5::ClientProxy1_5(const std::string &name, deskflow::IStream *stream, Server *server, IEventQueue *events)
-    : ClientProxy1_4(name, stream, server, events),
-      m_events(events)
+    : ClientProxy1_4(name, stream, server, events)
 {
   // do nothing
 }

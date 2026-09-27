@@ -1,15 +1,14 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
 
-#include "common/Common.h"
-
+#include <cstdarg>
 #include <string>
 
 //! std::string utilities
@@ -41,18 +40,6 @@ std::string vformat(const char *fmt, va_list);
 Equivalent to sprintf() except the result is returned as a String.
 */
 std::string sprintf(const char *fmt, ...);
-
-//! Convert a size type to a string
-/*!
-Convert an size type to a string
-*/
-std::string sizeTypeToString(size_t n);
-
-//! Convert a string to a size type
-/*!
-Convert an a \c string to an size type
-*/
-size_t stringToSizeType(std::string string);
 
 //! Case-insensitive comparisons
 /*!

@@ -1,14 +1,15 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
 
-#include "common/Common.h"
-#include "common/IInterface.h"
+#include <assert.h>
+#include <cstdint>
 
 class Event;
 class EventQueueTimer;
@@ -17,14 +18,15 @@ class EventQueueTimer;
 /*!
 An event queue buffer provides a queue of events for an IEventQueue.
 */
-class IEventQueueBuffer : public IInterface
+class IEventQueueBuffer
 {
 public:
-  enum Type
+  virtual ~IEventQueueBuffer() = default;
+  enum class Type : uint8_t
   {
-    kNone,   //!< No event is available
-    kSystem, //!< Event is a system event
-    kUser    //!< Event is a user event
+    Unknown, //!< No event is available
+    System,  //!< Event is a system event
+    User     //!< Event is a user event
   };
 
   //! @name manipulators
@@ -45,11 +47,11 @@ public:
 
   //! Get the next event
   /*!
-  Get the next event from the buffer.  Return kNone if no event is
-  available.  If a system event is next, return kSystem and fill in
+  Get the next event from the buffer.  Return None if no event is
+  available.  If a system event is next, return System and fill in
   event.  The event data in a system event can point to a static
   buffer (because Event::deleteData() will not attempt to delete
-  data in a kSystem event).  Otherwise, return kUser and fill in
+  data in a System event).  Otherwise, return User and fill in
   \p dataID with the value passed to \c addEvent().
   */
   virtual Type getEvent(Event &event, uint32_t &dataID) = 0;
@@ -63,29 +65,9 @@ public:
   */
   virtual bool addEvent(uint32_t dataID) = 0;
 
-  //@}
-  //! @name accessors
-  //@{
-
   //! Check if event queue buffer is empty
   /*!
   Return true iff the event queue buffer  is empty.
   */
   virtual bool isEmpty() const = 0;
-
-  //! Create a timer object
-  /*!
-  Create and return a timer object.  The object is opaque and is
-  used only by the buffer but it must be a valid object (i.e.
-  not nullptr).
-  */
-  virtual EventQueueTimer *newTimer(double duration, bool oneShot) const = 0;
-
-  //! Destroy a timer object
-  /*!
-  Destroy a timer object previously returned by \c newTimer().
-  */
-  virtual void deleteTimer(EventQueueTimer *) const = 0;
-
-  //@}
 };

@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -8,8 +8,6 @@
 #include "server/PrimaryClient.h"
 
 #include "base/Log.h"
-#include "deskflow/AppUtil.h"
-#include "deskflow/Clipboard.h"
 #include "deskflow/Screen.h"
 //
 // PrimaryClient
@@ -215,7 +213,7 @@ std::string PrimaryClient::getSecureInputApp() const
 
 void PrimaryClient::secureInputNotification(const std::string &app) const
 {
-  LOG((CLOG_INFO "application \"%s\" is blocking the keyboard", app.c_str()));
+  LOG_INFO("application \"%s\" is blocking the keyboard", app.c_str());
 }
 
 void PrimaryClient::resetOptions()

@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2021 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2021 Synergy App Ltd
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
@@ -8,15 +8,14 @@
 
 #include "IStringValidator.h"
 
-#include <QLabel>
-#include <QLineEdit>
 #include <QValidator>
 #include <memory>
 #include <vector>
 
-#include "ValidationError.h"
+class QLineEdit;
 
 namespace validators {
+class ValidationError;
 
 class LineEditValidator : public QValidator
 {

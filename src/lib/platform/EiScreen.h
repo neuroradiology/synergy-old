@@ -1,19 +1,24 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2024 Symless Ltd.
- * SPDX-FileCopyrightText: (C) 2022 Red Hat, Inc.
+ * SPDX-FileCopyrightText: (C) 2024, 2026 Synergy App Ltd
+ * SPDX-FileCopyrightText: (C) 2022, 2026 Red Hat, Inc.
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
 
-#include "deskflow/KeyMap.h"
+#include "deskflow/IScreen.h"
 #include "deskflow/PlatformScreen.h"
+#ifdef HAVE_LIBPORTAL_SHORTCUTS
+#include "platform/PortalGlobalShortcuts.h"
+#endif
+#include "platform/XDGPowerManager.h"
 
+#include <bitset>
+#include <climits>
 #include <libei.h>
-#include <memory>
+#include <map>
 #include <mutex>
-#include <set>
 #include <vector>
 
 struct ei;
@@ -21,12 +26,17 @@ struct ei_event;
 struct ei_seat;
 struct ei_device;
 
+class EventQueueTimer;
+
 namespace deskflow {
 
-class EiClipboard;
 class EiKeyState;
 class PortalRemoteDesktop;
 class PortalInputCapture;
+class PortalGlobalShortcuts;
+class EiClipboard;
+
+using ClipboardInfo = IScreen::ClipboardInfo;
 
 //! Implementation of IPlatformScreen for X11
 class EiScreen : public PlatformScreen
@@ -43,6 +53,7 @@ public:
 
   // IPrimaryScreen overrides
   void reconfigure(std::uint32_t activeSides) override;
+  std::uint32_t activeSides() override;
   void warpCursor(std::int32_t x, std::int32_t y) override;
   std::uint32_t registerHotKey(KeyID key, KeyModifierMask mask) override;
   void unregisterHotKey(std::uint32_t id) override;
@@ -56,8 +67,8 @@ public:
   void fakeMouseButton(ButtonID id, bool press) override;
   void fakeMouseMove(std::int32_t x, std::int32_t y) override;
   void fakeMouseRelativeMove(std::int32_t dx, std::int32_t dy) const override;
-  void fakeMouseWheel(std::int32_t xDelta, std::int32_t yDelta) const override;
-  void fakeKey(std::uint32_t keycode, bool is_down) const;
+  void fakeMouseWheel(ScrollDelta delta) const override;
+  void fakeKey(std::uint32_t keycode, bool isDown) const;
 
   // IPlatformScreen overrides
   void enable() override;
@@ -74,6 +85,21 @@ public:
   void setOptions(const OptionsList &options) override;
   void setSequenceNumber(std::uint32_t) override;
   bool isPrimary() const override;
+
+  // Send clipboard event (needed by PortalInputCapture)
+  void sendClipboardEvent(EventTypes type, ClipboardID id) const;
+
+  // Local clipboard cache (used by PortalRemoteDesktop to land selection reads)
+  EiClipboard *getClipboardCache() const
+  {
+    return m_clipboard;
+  }
+
+  // Maximum clipboard size in KB, configured by the server
+  size_t maximumClipboardSize() const
+  {
+    return m_maximumClipboardSize;
+  }
 
 protected:
   // IPlatformScreen overrides
@@ -98,11 +124,15 @@ private:
   void onPointerScrollDiscreteEvent(ei_event *event);
   void onMotionEvent(ei_event *event);
   void onAbsMotionEvent(const ei_event *) const;
-  bool onHotkey(KeyID key, bool is_press, KeyModifierMask mask);
+  bool onHotkey(KeyID key, bool isPressed, KeyModifierMask mask);
   void eiLogEvent(ei_log_priority priority, const char *message) const;
 
   void handleConnectedToEisEvent(const Event &event);
   void handlePortalSessionClosed();
+  void ensureEmulating() const;
+  void stopEmulating() const;
+  void cancelIdleEmulationTimer() const;
+  void updatePortalGlobalShortcuts();
 
   static void handleEiLogEvent(ei *ei, const ei_log_priority priority, const char *message, ei_log_context *)
   {
@@ -118,6 +148,15 @@ private:
   // keyboard stuff
   EiKeyState *m_keyState = nullptr;
 
+  KeyID m_lastPressed = kKeyNone;
+
+  // mouse buttons currently held, indexed by ButtonID
+  std::bitset<NumButtonIDs> m_buttons;
+
+  // clipboard stuff
+  EiClipboard *m_clipboard = nullptr;
+  size_t m_maximumClipboardSize = INT_MAX;
+
   std::vector<ei_device *> m_eiDevices;
 
   ei *m_ei = nullptr;
@@ -126,12 +165,22 @@ private:
   ei_device *m_eiKeyboard = nullptr;
   ei_device *m_eiAbs = nullptr;
 
-  std::uint32_t m_sequenceNumber = 0;
+  mutable std::uint32_t m_sequenceNumber = 0;
 
+  // Lazily-started EIS emulation: only grab while relayed input is actually
+  // flowing, and release after a short idle so the compositor can DPMS-sleep
+  // this screen even while the deskflow cursor logically sits on it.
+  mutable bool m_isEmulating = false;
+  mutable EventQueueTimer *m_idleEmulationTimer = nullptr;
+  // Chosen empirically on one machine in 2026-06; not derived from any protocol constant.
+  static constexpr double s_idleEmulationTimeout = 4.0;
+
+  std::uint32_t m_activeSides = 0;
   std::uint32_t m_x = 0;
   std::uint32_t m_y = 0;
   std::uint32_t m_w = 0;
   std::uint32_t m_h = 0;
+  bool m_isShapeInitialized = false;
 
   // true if mouse has entered the screen
   bool m_isOnScreen;
@@ -148,15 +197,18 @@ private:
 
   PortalRemoteDesktop *m_portalRemoteDesktop = nullptr;
   PortalInputCapture *m_portalInputCapture = nullptr;
+  PortalGlobalShortcuts *m_portalGlobalShortcuts = nullptr;
+
+  bool m_activated = false;
 
   struct HotKeyItem
   {
   public:
     HotKeyItem(std::uint32_t mask, std::uint32_t id);
-    bool operator<(const HotKeyItem &other) const
+    auto operator<=>(const HotKeyItem &other) const
     {
-      return mask < other.mask;
-    };
+      return mask <=> other.mask;
+    }
 
   public:
     std::uint32_t mask = 0;
@@ -170,10 +222,17 @@ private:
     KeyID keyid() const
     {
       return m_id;
-    };
+    }
     bool removeById(std::uint32_t id);
     void addItem(HotKeyItem item);
     std::uint32_t findByMask(std::uint32_t mask) const;
+    bool empty() const
+    {
+      return m_set.empty();
+    }
+#ifdef HAVE_LIBPORTAL_SHORTCUTS
+    const std::vector<PortalGlobalShortcuts::HotKey> getPortalHotKeys() const;
+#endif
 
   private:
     KeyID m_id = 0;
@@ -183,6 +242,7 @@ private:
   using HotKeyMap = std::map<KeyID, HotKeySet>;
 
   HotKeyMap m_hotkeys;
+  [[no_unique_address]] XDGPowerManager m_powerManager;
 };
 
 } // namespace deskflow

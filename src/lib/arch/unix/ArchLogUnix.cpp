@@ -1,21 +1,22 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2026 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #include "arch/unix/ArchLogUnix.h"
 
+#include <QString>
 #include <syslog.h>
-
 //
 // ArchLogUnix
 //
 
-void ArchLogUnix::openLog(const char *name)
+void ArchLogUnix::openLog(const QString &name)
 {
-  openlog(name, 0, LOG_DAEMON);
+  openlog(qPrintable(name), 0, LOG_DAEMON);
 }
 
 void ArchLogUnix::closeLog()
@@ -23,29 +24,21 @@ void ArchLogUnix::closeLog()
   closelog();
 }
 
-void ArchLogUnix::showLog(bool)
-{
-  // do nothing
-}
-
-void ArchLogUnix::writeLog(ELevel level, const char *msg)
+void ArchLogUnix::writeLog(LogLevel::Level level, const QString &msg)
 {
   // convert level
   int priority;
   switch (level) {
-  case kERROR:
+    using enum LogLevel::Level;
+  case Error:
     priority = LOG_ERR;
     break;
 
-  case kWARNING:
+  case Warning:
     priority = LOG_WARNING;
     break;
 
-  case kNOTE:
-    priority = LOG_NOTICE;
-    break;
-
-  case kINFO:
+  case Info:
     priority = LOG_INFO;
     break;
 
@@ -55,5 +48,5 @@ void ArchLogUnix::writeLog(ELevel level, const char *msg)
   }
 
   // log it
-  syslog(priority, "%s", msg);
+  syslog(priority, "%s", qPrintable(msg));
 }

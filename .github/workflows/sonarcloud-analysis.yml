@@ -1,14 +1,36 @@
 name: "SonarCloud Analysis"
 
+# This is best run as a standalone workflow, not as part of another workflow like CI
+# because of how GitHub understands the code scanning workflows in it's UI.
 on:
   workflow_dispatch:
-  workflow_call:
-    secrets:
-      SONAR_TOKEN:
-        required: true
+  pull_request:
+    paths:
+      - '.github/workflows/sonarcloud-analysis.yml'
+      - 'sonar-project.properties'
+      - 'cmake/Libraries.cmake'
+      - 'CMakeLists.txt'
+      - 'src/**'
+      - '!src/res/**'
+      - '!src/unittests/**'
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/codeql-analysis.yml'
+      - 'cmake/Libraries.cmake'
+      - 'CMakeLists.txt'
+      - 'src/**'
+      - '!src/res/**'
+      - '!src/unittests/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  sonarcloud-analysis:
+  sonar:
+    # This job would fail for contributors who open PRs as the workflow runs outside of our repo
+    # in this scenario. Having a var that only we set to true prevents this job from running.
     if: ${{ vars.SONAR_SCANNER_ENABLED }}
 
     runs-on: ubuntu-latest
@@ -16,27 +38,24 @@ jobs:
     timeout-minutes: 20
 
     env:
-      SONAR_SCANNER_VERSION: 6.1.0.4477
-      SONAR_SCANNER_OPTS: -server
-      SONAR_SCANNER_URL_BASE: https://binaries.sonarsource.com/Distribution/sonar-scanner-cli
-      CPU_CORE_COUNT: ${{ vars.SONAR_SCANNER_CPU_COUNT || 4 }}
+      CPU_CORE_COUNT: 4
 
     steps:
       - name: Install container dependencies
         run: |
           apt update -qqq > /dev/null
-          apt install -qqq git curl unzip gcovr > /dev/null
+          apt install -qqq git curl unzip gcovr dirmngr gpg > /dev/null
 
       - name: Fancy Checkout
-        uses: sithlord48/fancy-checkout@v1
+        uses: sithlord48/fancy-checkout@v2
 
       - name: Install project dependencies
         uses: ./.github/actions/install-dependencies
         with:
           like: "debian"
 
-      - name: Install sonar-scanner and build-wrapper
-        uses: sonarsource/sonarcloud-github-c-cpp@v3
+      - name: Install Build Wrapper
+        uses: SonarSource/sonarqube-scan-action/install-build-wrapper@v8
 
       - name: Configure
         run: |
@@ -71,11 +90,11 @@ jobs:
           fi
           echo "csv=$paths" >> $GITHUB_OUTPUT
 
-      - name: Run SonarScanner
-        run: |
-          export PATH=$HOME/.sonar/sonar-scanner-$SONAR_SCANNER_VERSION-linux-x64/bin:$PATH
-          sonar-scanner \
-            -Dsonar.coverageReportPaths=${{ steps.coverage-paths.outputs.csv }} \
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v8
+        with:
+          args: >
+            -Dsonar.coverageReportPaths=${{ steps.coverage-paths.outputs.csv }}
             -Dsonar.cfamily.threads=${{ env.CPU_CORE_COUNT }}
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

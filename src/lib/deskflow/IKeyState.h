@@ -1,34 +1,30 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2003 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
 
-#include "base/Event.h"
-#include "base/EventTypes.h"
 #include "base/IEventQueue.h"
-#include "common/IInterface.h"
 #include "deskflow/KeyTypes.h"
 
 #include <set>
+#include <string>
 
 //! Key state interface
 /*!
 This interface provides access to set and query the keyboard state and
 to synthesize key events.
 */
-class IKeyState : public IInterface
+class IKeyState
 {
 public:
   explicit IKeyState(const IEventQueue *events);
-
-  enum
-  {
-    kNumButtons = 0x200
-  };
+  virtual ~IKeyState() = default;
+  inline static const auto s_numButtons = 0x200;
 
   //! Key event data
   class KeyInfo
@@ -49,8 +45,7 @@ public:
     KeyModifierMask m_mask;
     KeyButton m_button;
     int32_t m_count;
-    char *m_screens;
-    char m_screensBuffer[1];
+    std::string m_screens;
   };
 
   using KeyButtonSet = std::set<KeyButton>;
@@ -105,6 +100,16 @@ public:
   pressed and updates the key state.
   */
   virtual void fakeAllKeysUp() = 0;
+
+  //! Clear stale modifiers
+  /*!
+  Clears stuck modifier state in platform-specific keyboard tracking (e.g. XKB).
+  Default implementation does nothing.
+  */
+  virtual void clearStaleModifiers()
+  {
+    // Default implementation does nothing
+  }
 
   //! Fake ctrl+alt+del
   /*!

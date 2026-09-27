@@ -11,15 +11,15 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 
-enum FingerprintDialogMode
+class QLabel;
+class FingerprintPreview;
+
+enum class FingerprintDialogMode
 {
   Local,
   Client,
   Server
 };
-
-class QLabel;
-class FingerprintPreview;
 
 class FingerprintDialog : public QDialog
 {
@@ -27,17 +27,21 @@ class FingerprintDialog : public QDialog
 
 public:
   explicit FingerprintDialog(
-      QWidget *parent = nullptr, const Fingerprint &fingerprint = {},
-      FingerprintDialogMode mode = FingerprintDialogMode::Local
+      QWidget *parent = nullptr, const Fingerprint &localFingerprint = {},
+      FingerprintDialogMode mode = FingerprintDialogMode::Local, const Fingerprint &remoteFingerprint = {}
   );
   ~FingerprintDialog() override = default;
 
-Q_SIGNALS:
-  void requestLocalPrintsDialog();
-
 private:
+  QLayout *makeLocalLayout(const Fingerprint &localFingerprint = {});
+  QLayout *makeCompareLayout(
+      const Fingerprint &localFingerprint = {}, bool isServer = true, const Fingerprint &remoteFingerprint = {}
+  );
+  void togglePreviewMode(bool hashMode);
+  void updateModeButton(bool hashMode) const;
   QLabel *m_lblHeader = nullptr;
   QLabel *m_lblFooter = nullptr;
-  FingerprintPreview *m_fingerprintPreview = nullptr;
+  FingerprintPreview *m_localPreview = nullptr;
+  FingerprintPreview *m_remotePreview = nullptr;
   QDialogButtonBox *m_buttonBox = nullptr;
 };

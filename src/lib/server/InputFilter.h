@@ -1,19 +1,18 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2005 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #pragma once
 
+#include "base/DirectionTypes.h"
 #include "deskflow/IPlatformScreen.h"
 #include "deskflow/KeyTypes.h"
 #include "deskflow/MouseTypes.h"
-#include "deskflow/ProtocolTypes.h"
 
-#include <map>
 #include <set>
 
 class PrimaryClient;
@@ -26,11 +25,11 @@ public:
   // -------------------------------------------------------------------------
   // Input Filter Condition Classes
   // -------------------------------------------------------------------------
-  enum EFilterStatus
+  enum class FilterStatus
   {
-    kNoMatch,
-    kActivate,
-    kDeactivate
+    NoMatch,
+    Activate,
+    Deactivate
   };
 
   class Condition
@@ -42,7 +41,7 @@ public:
     virtual Condition *clone() const = 0;
     virtual std::string format() const = 0;
 
-    virtual EFilterStatus match(const Event &) = 0;
+    virtual FilterStatus match(const Event &) = 0;
 
     virtual void enablePrimary(PrimaryClient *);
     virtual void disablePrimary(PrimaryClient *);
@@ -62,7 +61,7 @@ public:
     // Condition overrides
     Condition *clone() const override;
     std::string format() const override;
-    EFilterStatus match(const Event &) override;
+    FilterStatus match(const Event &) override;
     void enablePrimary(PrimaryClient *) override;
     void disablePrimary(PrimaryClient *) override;
 
@@ -77,7 +76,7 @@ public:
   class MouseButtonCondition : public Condition
   {
   public:
-    MouseButtonCondition(IEventQueue *events, IPlatformScreen::ButtonInfo *);
+    MouseButtonCondition(IEventQueue *events, const IPlatformScreen::ButtonInfo &);
     MouseButtonCondition(IEventQueue *events, ButtonID, KeyModifierMask mask);
     ~MouseButtonCondition() override = default;
 
@@ -87,7 +86,7 @@ public:
     // Condition overrides
     Condition *clone() const override;
     std::string format() const override;
-    EFilterStatus match(const Event &) override;
+    FilterStatus match(const Event &) override;
 
   private:
     ButtonID m_button;
@@ -105,7 +104,7 @@ public:
     // Condition overrides
     Condition *clone() const override;
     std::string format() const override;
-    EFilterStatus match(const Event &) override;
+    FilterStatus match(const Event &) override;
 
   private:
     std::string m_screen;
@@ -139,7 +138,7 @@ public:
       kToggle
     };
 
-    LockCursorToScreenAction(IEventQueue *events, Mode = kToggle);
+    explicit LockCursorToScreenAction(IEventQueue *events, Mode = kToggle);
 
     Mode getMode() const;
 
@@ -161,7 +160,7 @@ public:
       restart
     };
 
-    RestartServer(IEventQueue *events, Mode = restart);
+    explicit RestartServer(Mode = restart);
 
     Mode getMode() const;
 
@@ -172,7 +171,6 @@ public:
 
   private:
     Mode m_mode;
-    IEventQueue *m_events;
   };
 
   // SwitchToScreenAction
@@ -197,9 +195,9 @@ public:
   class SwitchInDirectionAction : public Action
   {
   public:
-    SwitchInDirectionAction(IEventQueue *events, EDirection);
+    SwitchInDirectionAction(IEventQueue *events, Direction);
 
-    EDirection getDirection() const;
+    Direction getDirection() const;
 
     // Action overrides
     Action *clone() const override;
@@ -207,7 +205,22 @@ public:
     void perform(const Event &) override;
 
   private:
-    EDirection m_direction;
+    Direction m_direction;
+    IEventQueue *m_events;
+  };
+
+  // SwitchToNextScreenAction
+  class SwitchToNextScreenAction : public Action
+  {
+  public:
+    explicit SwitchToNextScreenAction(IEventQueue *events);
+
+    // Action overrides
+    Action *clone() const override;
+    std::string format() const override;
+    void perform(const Event &) override;
+
+  private:
     IEventQueue *m_events;
   };
 
@@ -222,8 +235,8 @@ public:
       kToggle
     };
 
-    KeyboardBroadcastAction(IEventQueue *events, Mode = kToggle);
-    KeyboardBroadcastAction(IEventQueue *events, Mode, const std::set<std::string> &screens);
+    explicit KeyboardBroadcastAction(IEventQueue *events, Mode = kToggle);
+    explicit KeyboardBroadcastAction(IEventQueue *events, Mode, const std::set<std::string> &screens);
 
     Mode getMode() const;
     std::set<std::string> getScreens() const;
@@ -273,15 +286,15 @@ public:
   class MouseButtonAction : public Action
   {
   public:
-    MouseButtonAction(IEventQueue *events, IPlatformScreen::ButtonInfo *adoptedInfo, bool press);
+    MouseButtonAction(IEventQueue *events, const IPlatformScreen::ButtonInfo &adoptedInfo, bool press);
     MouseButtonAction(MouseButtonAction const &) = delete;
     MouseButtonAction(MouseButtonAction &&) = delete;
-    ~MouseButtonAction() override;
+    ~MouseButtonAction() override = default;
 
     MouseButtonAction &operator=(MouseButtonAction const &) = delete;
     MouseButtonAction &operator=(MouseButtonAction &&) = delete;
 
-    const IPlatformScreen::ButtonInfo *getInfo() const;
+    const IPlatformScreen::ButtonInfo &getInfo() const;
     bool isOnPress() const;
 
     // Action overrides
@@ -293,7 +306,7 @@ public:
     virtual const char *formatName() const;
 
   private:
-    IPlatformScreen::ButtonInfo *m_buttonInfo;
+    IPlatformScreen::ButtonInfo m_buttonInfo;
     bool m_press;
     IEventQueue *m_events;
   };
@@ -365,9 +378,6 @@ public:
   // add rule, adopting the condition and the actions
   void addFilterRule(const Rule &rule);
 
-  // remove a rule
-  void removeFilterRule(uint32_t index);
-
   // get rule by index
   Rule &getRule(uint32_t index);
 
@@ -383,8 +393,6 @@ public:
 
   //! Compare filters
   bool operator==(const InputFilter &) const;
-  //! Compare filters
-  bool operator!=(const InputFilter &) const;
 
 private:
   // event handling

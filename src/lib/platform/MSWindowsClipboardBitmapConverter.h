@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -17,7 +17,7 @@ public:
   ~MSWindowsClipboardBitmapConverter() override = default;
 
   // IMSWindowsClipboardConverter overrides
-  IClipboard::EFormat getFormat() const override;
+  IClipboard::Format getFormat() const override;
   UINT getWin32Format() const override;
   HANDLE fromIClipboard(const std::string &) const override;
   std::string toIClipboard(HANDLE) const override;

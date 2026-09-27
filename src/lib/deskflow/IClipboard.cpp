@@ -1,12 +1,15 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #include "deskflow/IClipboard.h"
 
+#include "base/Log.h"
+
+#include <assert.h>
 #include <vector>
 
 //
@@ -18,29 +21,46 @@ void IClipboard::unmarshall(IClipboard *clipboard, const std::string_view &data,
   assert(clipboard != nullptr);
 
   const char *index = data.data();
+  const char *const end = index + data.size();
 
   if (clipboard->open(time)) {
     // clear existing data
     clipboard->empty();
 
+    if (end - index < 4) {
+      LOG_ERR("clipboard unmarshall: truncated header");
+      clipboard->close();
+      return;
+    }
     // read the number of formats
     const uint32_t numFormats = readUInt32(index);
     index += 4;
 
     // read each format
     for (uint32_t i = 0; i < numFormats; ++i) {
+      // need 8 bytes for format id + payload size
+      if (end - index < 8) {
+        LOG_ERR("clipboard unmarshall: truncated format header at %u/%u", i, numFormats);
+        break;
+      }
       // get the format id
-      auto format = static_cast<IClipboard::EFormat>(readUInt32(index));
+      auto format = static_cast<IClipboard::Format>(readUInt32(index));
       index += 4;
 
       // get the size of the format data
       uint32_t size = readUInt32(index);
       index += 4;
 
+      // peer-supplied size must not exceed remaining buffer
+      if (size > static_cast<uint32_t>(end - index)) {
+        LOG_ERR("clipboard unmarshall: payload size %u exceeds remaining %zd", size, end - index);
+        break;
+      }
+
       // save the data if it's a known format.  if either the client
       // or server supports more clipboard formats than the other
-      // then one of them will get a format >= kNumFormats here.
-      if (format < IClipboard::kNumFormats) {
+      // then one of them will get a format >= TotalFormats here.
+      if (format < IClipboard::Format::TotalFormats) {
         clipboard->add(format, std::string(index, size));
       }
       index += size;
@@ -63,19 +83,19 @@ std::string IClipboard::marshall(const IClipboard *clipboard)
   assert(clipboard != nullptr);
 
   std::string data;
-
+  static const auto totalClipboardFormats = static_cast<int>(Format::TotalFormats);
   std::vector<std::string> formatData;
-  formatData.resize(IClipboard::kNumFormats);
+  formatData.resize(totalClipboardFormats);
   // FIXME -- use current time
   if (clipboard->open(0)) {
 
     // compute size of marshalled data
     uint32_t size = 4;
     uint32_t numFormats = 0;
-    for (uint32_t format = 0; format != IClipboard::kNumFormats; ++format) {
-      if (clipboard->has(static_cast<IClipboard::EFormat>(format))) {
+    for (uint32_t format = 0; format != totalClipboardFormats; ++format) {
+      if (clipboard->has(static_cast<IClipboard::Format>(format))) {
         ++numFormats;
-        formatData[format] = clipboard->get(static_cast<IClipboard::EFormat>(format));
+        formatData[format] = clipboard->get(static_cast<IClipboard::Format>(format));
         size += 4 + 4 + (uint32_t)formatData[format].size();
       }
     }
@@ -85,8 +105,8 @@ std::string IClipboard::marshall(const IClipboard *clipboard)
 
     // marshall the data
     writeUInt32(&data, numFormats);
-    for (uint32_t format = 0; format != IClipboard::kNumFormats; ++format) {
-      if (clipboard->has(static_cast<IClipboard::EFormat>(format))) {
+    for (uint32_t format = 0; format != totalClipboardFormats; ++format) {
+      if (clipboard->has(static_cast<IClipboard::Format>(format))) {
         writeUInt32(&data, format);
         writeUInt32(&data, (uint32_t)formatData[format].size());
         data += formatData[format];
@@ -115,8 +135,8 @@ bool IClipboard::copy(IClipboard *dst, const IClipboard *src, Time time)
   if (src->open(time)) {
     if (dst->open(time)) {
       if (dst->empty()) {
-        for (int32_t format = 0; format != IClipboard::kNumFormats; ++format) {
-          auto eFormat = (IClipboard::EFormat)format;
+        for (int32_t format = 0; format != static_cast<int>(Format::TotalFormats); ++format) {
+          auto eFormat = (IClipboard::Format)format;
           if (src->has(eFormat)) {
             dst->add(eFormat, src->get(eFormat));
           }

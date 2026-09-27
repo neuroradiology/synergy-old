@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -11,7 +11,7 @@
 
 #include "arch/win32/ArchMultithreadWindows.h"
 #include "arch/Arch.h"
-#include "arch/XArch.h"
+#include "arch/ArchException.h"
 
 #include <process.h>
 
@@ -80,7 +80,7 @@ ArchMultithreadWindows::ArchMultithreadWindows()
   s_instance = this;
 
   // no signal handlers
-  for (size_t i = 0; i < kNUM_SIGNALS; ++i) {
+  for (size_t i = 0; i < static_cast<size_t>(ThreadSignal::MaxSignals); ++i) {
     m_signalFunc[i] = nullptr;
     m_signalUserData[i] = nullptr;
   }
@@ -108,7 +108,7 @@ ArchMultithreadWindows::~ArchMultithreadWindows()
 void ArchMultithreadWindows::setNetworkDataForCurrentThread(void *data)
 {
   std::scoped_lock lock{m_threadMutex};
-  ArchThreadImpl *thread = findNoRef(GetCurrentThreadId());
+  ArchThreadImpl *thread = findNoRefOrInsert(GetCurrentThreadId());
   thread->m_networkData = data;
 }
 
@@ -121,7 +121,7 @@ void *ArchMultithreadWindows::getNetworkDataForThread(ArchThread thread)
 HANDLE ArchMultithreadWindows::getCancelEventForCurrentThread()
 {
   std::scoped_lock lock{m_threadMutex};
-  ArchThreadImpl *thread = findNoRef(GetCurrentThreadId());
+  ArchThreadImpl *thread = findNoRefOrInsert(GetCurrentThreadId());
   return thread->m_cancel;
 }
 
@@ -305,7 +305,7 @@ void ArchMultithreadWindows::closeThread(ArchThread thread)
     // remove thread from list
     {
       std::scoped_lock lock{m_threadMutex};
-      assert(findNoRefOrCreate(thread->m_id) == thread);
+      assert(findNoRef(thread->m_id) == thread);
       erase(thread);
     }
 
@@ -390,7 +390,7 @@ void ArchMultithreadWindows::testCancelThread()
 {
   // find current thread
   std::scoped_lock lock{m_threadMutex};
-  ArchThreadImpl *thread = findNoRef(GetCurrentThreadId());
+  ArchThreadImpl *thread = findNoRefOrInsert(GetCurrentThreadId());
 
   // test cancel on thread
   testCancelThreadImpl(thread);
@@ -404,7 +404,7 @@ bool ArchMultithreadWindows::wait(ArchThread target, double timeout)
   {
     std::scoped_lock lock{m_threadMutex};
     // find current thread
-    self = findNoRef(GetCurrentThreadId());
+    self = findNoRefOrInsert(GetCurrentThreadId());
     // ignore wait if trying to wait on ourself
     if (target == self) {
       return false;
@@ -474,27 +474,30 @@ IArchMultithread::ThreadID ArchMultithreadWindows::getIDOfThread(ArchThread thre
   return static_cast<ThreadID>(thread->m_id);
 }
 
-void ArchMultithreadWindows::setSignalHandler(ESignal signal, SignalFunc func, void *userData)
+void ArchMultithreadWindows::setSignalHandler(ThreadSignal signal, SignalFunc func, void *userData)
 {
   std::scoped_lock lock{m_threadMutex};
-  m_signalFunc[signal] = func;
-  m_signalUserData[signal] = userData;
+  const auto index = static_cast<int>(signal);
+  m_signalFunc[index] = func;
+  m_signalUserData[index] = userData;
 }
 
-void ArchMultithreadWindows::raiseSignal(ESignal signal)
+void ArchMultithreadWindows::raiseSignal(ThreadSignal signal)
 {
+  using enum IArchMultithread::ThreadSignal;
   std::scoped_lock lock{m_threadMutex};
-  if (m_signalFunc[signal] != nullptr) {
-    m_signalFunc[signal](signal, m_signalUserData[signal]);
+  const auto index = static_cast<int>(signal);
+  if (m_signalFunc[index] != nullptr) {
+    m_signalFunc[index](signal, m_signalUserData[index]);
     ARCH->unblockPollSocket(m_mainThread);
-  } else if (signal == kINTERRUPT || signal == kTERMINATE) {
+  } else if (signal == Interrupt || signal == Terminate) {
     ARCH->cancelThread(m_mainThread);
   }
 }
 
 ArchThreadImpl *ArchMultithreadWindows::find(DWORD id)
 {
-  ArchThreadImpl *impl = findNoRef(id);
+  ArchThreadImpl *impl = findNoRefOrInsert(id);
   if (impl != nullptr) {
     refThread(impl);
   }
@@ -503,7 +506,17 @@ ArchThreadImpl *ArchMultithreadWindows::find(DWORD id)
 
 ArchThreadImpl *ArchMultithreadWindows::findNoRef(DWORD id)
 {
-  ArchThreadImpl *impl = findNoRefOrCreate(id);
+  for (ThreadList::const_iterator index = m_threadList.begin(); index != m_threadList.end(); ++index) {
+    if ((*index)->m_id == id) {
+      return *index;
+    }
+  }
+  return nullptr;
+}
+
+ArchThreadImpl *ArchMultithreadWindows::findNoRefOrInsert(DWORD id)
+{
+  ArchThreadImpl *impl = findNoRef(id);
   if (impl == nullptr) {
     // create thread for calling thread which isn't in our list and
     // add it to the list.  this won't normally happen but it can if
@@ -517,23 +530,12 @@ ArchThreadImpl *ArchMultithreadWindows::findNoRef(DWORD id)
   return impl;
 }
 
-ArchThreadImpl *ArchMultithreadWindows::findNoRefOrCreate(DWORD id)
-{
-  // linear search
-  for (ThreadList::const_iterator index = m_threadList.begin(); index != m_threadList.end(); ++index) {
-    if ((*index)->m_id == id) {
-      return *index;
-    }
-  }
-  return nullptr;
-}
-
 void ArchMultithreadWindows::insert(ArchThreadImpl *thread)
 {
   assert(thread != nullptr);
 
   // thread shouldn't already be on the list
-  assert(findNoRefOrCreate(thread->m_id) == nullptr);
+  assert(findNoRef(thread->m_id) == nullptr);
 
   // append to list
   m_threadList.push_back(thread);
@@ -552,7 +554,7 @@ void ArchMultithreadWindows::erase(ArchThreadImpl *thread)
 void ArchMultithreadWindows::refThread(ArchThreadImpl *thread)
 {
   assert(thread != nullptr);
-  assert(findNoRefOrCreate(thread->m_id) != nullptr);
+  assert(findNoRef(thread->m_id) != nullptr);
   ++thread->m_refCount;
 }
 
@@ -574,7 +576,7 @@ void ArchMultithreadWindows::testCancelThreadImpl(ArchThreadImpl *thread)
 
   // unwind thread's stack if cancelling
   if (cancel) {
-    throw XThreadCancel();
+    throw ThreadCancelException();
   }
 }
 
@@ -603,7 +605,7 @@ void ArchMultithreadWindows::doThreadFunc(ArchThread thread)
     result = (*thread->m_func)(thread->m_userData);
   }
 
-  catch (XThreadCancel &) {
+  catch (ThreadCancelException &) {
     // client called cancel()
   } catch (...) {
     // note -- don't catch (...) to avoid masking bugs

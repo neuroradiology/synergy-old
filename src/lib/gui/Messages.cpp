@@ -1,17 +1,18 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2024 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2024 Synergy App Ltd
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #include "Messages.h"
 
 #include "Logger.h"
-#include "Styles.h"
 
 #include "common/Settings.h"
 #include "common/UrlConstants.h"
+#include "common/VersionInfo.h"
 
+#include <QCheckBox>
 #include <QMessageBox>
 #include <QPushButton>
 #include <memory>
@@ -39,10 +40,10 @@ void showErrorDialog(const QString &message, const QString &fileLine, QtMsgType 
   auto errorType = QtFatalMsg ? QObject::tr("fatal error") : QObject::tr("error");
   auto title = QStringLiteral("%1 %2").arg(kAppName, errorType);
   auto text = QObject::tr(
-                  R"(<p>Please <a href="%1" style="color: %2">report a bug</a>)"
-                  " and copy/paste the following error:</p><pre>v%3\n%4\n%5</pre>"
+                  R"(<p>Please <a href="%1">report a bug</a>)"
+                  " and copy/paste the following error:</p><pre>v%2\n%3\n%4</pre>"
   )
-                  .arg(kUrlHelp, kColorSecondary, kVersion, message, fileLine);
+                  .arg(kUrlHelp, kVersion, message, fileLine);
 
   if (type == QtFatalMsg) {
     text.prepend(QObject::tr("<p>Sorry, a fatal error has occurred and the application must now exit.</p>\n"));
@@ -88,7 +89,7 @@ QString fileLine(const QMessageLogContext &context)
 void messageHandler(QtMsgType type, const QMessageLogContext &context, const QString &message)
 {
   const auto fileLine = messages::fileLine(context);
-  Logger::instance().handleMessage(type, fileLine, message);
+  Logger::instance()->handleMessage(type, fileLine, message);
 
   if (type == QtFatalMsg || type == QtCriticalMsg) {
     showErrorDialog(message, fileLine, type);
@@ -119,9 +120,9 @@ void showCloseReminder(QWidget *parent)
   message.append(
       QObject::tr(
           "<p>On Linux systems using GNOME 3, the notification area might be disabled. "
-          R"(You may need to <a href="%1" %2>enable an extension</a> to see the %3 tray icon.</p>)"
+          R"(You may need to <a href="%1">enable an extension</a> to see the %2 tray icon.</p>)"
       )
-          .arg(kUrlGnomeTrayFix, kStyleLink, kAppName)
+          .arg(kUrlGnomeTrayFix, kAppName)
   );
 #endif
 
@@ -141,12 +142,11 @@ void showFirstServerStartMessage(QWidget *parent)
   );
 }
 
-void showFirstConnectedMessage(QWidget *parent, bool closeToTray, bool enableService, bool isServer)
+void showFirstConnectedMessage(QWidget *parent)
 {
-
   auto message = QObject::tr("<p>%1 is now connected!</p>").arg(kAppName);
 
-  if (isServer) {
+  if (Settings::value(Settings::Core::CoreMode).value<Settings::CoreMode>() == Settings::Server) {
     message.append(
         QObject::tr(
             "<p>Try moving your mouse to your other computer. Once there, go ahead "
@@ -158,7 +158,10 @@ void showFirstConnectedMessage(QWidget *parent, bool closeToTray, bool enableSer
     message.append(QObject::tr("<p>Try controlling this computer remotely.</p>"));
   }
 
-  if (!closeToTray && !enableService) {
+  using ProcessMode = Settings::ProcessMode;
+
+  if (Settings::value(Settings::Core::ProcessMode).value<ProcessMode>() == ProcessMode::Desktop &&
+      !Settings::value(Settings::Gui::CloseToTray).toBool()) {
     message.append(
         QObject::tr(
             "<p>As you do not have the setting enabled to keep %1 running in "
@@ -181,45 +184,10 @@ void showFirstConnectedMessage(QWidget *parent, bool closeToTray, bool enableSer
   QMessageBox::information(parent, title, message);
 }
 
-void showClientConnectError(QWidget *parent, ClientError error, const QString &address)
+bool showNewClientPrompt(QWidget *parent, const QString &clientName)
 {
-  using enum ClientError;
-
-  auto message = QObject::tr("<p>Failed to connect to the server '%1'.</p>").arg(address);
-
-  if (error == AlreadyConnected) {
-    message.append(
-        QObject::tr( //
-            "<p>A Client with your name is already connected to the server.</p>"
-            "Please ensure that you're using a unique name and that only a "
-            "single instance of the client process is running.</p>"
-        )
-    );
-  } else if (error == HostnameError) {
-    message.append(
-        QObject::tr( //
-            "<p>Please try to connect to the server using the server IP address "
-            "instead of the hostname. </p>"
-            "<p>If that doesn't work, please check your TLS and "
-            "firewall settings.</p>"
-        )
-    );
-  } else if (error == GenericError) {
-    message.append(QObject::tr("<p>Please check your TLS and firewall settings.</p>"));
-  } else {
-    qFatal("unknown client error");
-  }
-
-  auto title = QObject::tr("%1 Connection Error").arg(kAppName);
-
-  QMessageBox::warning(parent, title, message);
-}
-
-NewClientPromptResult showNewClientPrompt(QWidget *parent, const QString &clientName, bool serverRequiresPeerAuth)
-{
-  using enum NewClientPromptResult;
-
-  if (serverRequiresPeerAuth) {
+  if (Settings::value(Settings::Security::TlsEnabled).toBool() &&
+      Settings::value(Settings::Security::CheckPeers).toBool()) {
     // When peer auth is enabled you will be prompted to allow the connection before seeing this dialog.
     // This is why we do not show a dialog with an option to ignore the new client
     QMessageBox::information(
@@ -227,62 +195,14 @@ NewClientPromptResult showNewClientPrompt(QWidget *parent, const QString &client
         QObject::tr("A new client called '%1' has been accepted. You'll need to add it to your server's screen layout.")
             .arg(clientName)
     );
-    return Add;
-  } else {
-    QMessageBox message(parent);
-    const QPushButton *ignore = message.addButton(QObject::tr("Ignore"), QMessageBox::RejectRole);
-    const QPushButton *add = message.addButton(QObject::tr("Add client"), QMessageBox::AcceptRole);
-    message.setText(QObject::tr("A new client called '%1' wants to connect").arg(clientName));
-    message.exec();
-    if (message.clickedButton() == add) {
-      return Add;
-    } else if (message.clickedButton() == ignore) {
-      return Ignore;
-    } else {
-      qFatal("no expected dialog button was clicked");
-      abort();
-    }
+    return true;
   }
-}
-
-bool showClearSettings(QWidget *parent)
-{
-  const auto title = QObject::tr("%1 Clear Settings").arg(kAppName);
-  const auto message = QObject::tr(
-                           "<p>Are you sure you want to clear all settings and restart %1?</p>"
-                           "<p>This action cannot be undone.</p>"
-  )
-                           .arg(kAppName);
-  return QMessageBox::question(parent, title, message) == QMessageBox::Yes;
-}
-
-void showReadOnlySettings(QWidget *parent, const QString &systemSettingsPath)
-{
-  const auto title = QObject::tr("%1 Read-only settings").arg(kAppName);
-  const auto message = QObject::tr(
-                           "<p>Settings are read-only because you only have read access "
-                           "to the file:</p><p>%1</p>"
-  )
-                           .arg(QDir::toNativeSeparators(systemSettingsPath));
-  QMessageBox::information(parent, title, message);
-}
-
-void showWaylandLibraryError(QWidget *parent)
-{
-  QMessageBox::critical(
-      parent, kAppName,
-      QObject::tr(
-          "<p>Sorry, while this version of %1 does support Wayland, "
-          "this build was not linked with one or more of the required "
-          "libraries.</p>"
-          "<p>Please either switch to X from your login screen or use a build "
-          "that uses the correct libraries.</p>"
-          "<p>If you think this is incorrect, please "
-          R"(<a href="%2" style="color: %3">report a bug</a>.</p>)"
-          "<p>Please check the logs for more information.</p>"
-      )
-          .arg(kAppName, kUrlHelp, kColorSecondary)
-  );
+  QMessageBox message(parent);
+  message.addButton(QObject::tr("Ignore"), QMessageBox::RejectRole);
+  message.addButton(QObject::tr("Add client"), QMessageBox::AcceptRole);
+  message.setText(QObject::tr("A new client called '%1' wants to connect").arg(clientName));
+  message.exec();
+  return message.buttonRole(message.clickedButton()) == QMessageBox::AcceptRole;
 }
 
 bool showUpdateCheckOption(QWidget *parent)
@@ -296,7 +216,7 @@ bool showUpdateCheckOption(QWidget *parent)
           "<p>Checking for updates requires an Internet connection.</p>"
           "<p>URL: <pre>%2</pre></p>"
       )
-          .arg(kAppName, Settings::value(Settings::Core::UpdateUrl).toString())
+          .arg(kAppName, Settings::value(Settings::Gui::UpdateCheckUrl).toString())
   );
 
   message.exec();

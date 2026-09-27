@@ -1,6 +1,7 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2026 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
@@ -16,21 +17,13 @@
 #include <unistd.h>
 
 //
-// EventQueueTimer
-//
-
-class EventQueueTimer
-{
-};
-
-//
 // XWindowsEventQueueBuffer
 //
 
 XWindowsEventQueueBuffer::XWindowsEventQueueBuffer(Display *display, Window window, IEventQueue *events)
-    : m_events(events),
-      m_display(display),
-      m_window(window)
+    : m_display(display),
+      m_window(window),
+      m_events(events)
 {
   assert(m_display != nullptr);
   assert(m_window != None);
@@ -103,12 +96,12 @@ void XWindowsEventQueueBuffer::waitForEvent(double dtimeout)
   // and continue doing this until timeout is reached.
   // The human eye can notice 60hz (ansi) which is 16ms, however
   // we want to give the cpu a chance s owe up this to 25ms
-#define TIMEOUT_DELAY 25
+  static const int s_timeoutDelay = 25;
 
   while (((dtimeout < 0.0) || (remaining > 0)) && getPendingCountLocked() == 0 && retval == 0) {
 
-    retval = poll(pfds, 2, TIMEOUT_DELAY); // 16ms = 60hz, but we make it > to
-                                           // play nicely with the cpu
+    retval = poll(pfds, 2, s_timeoutDelay); // 16ms = 60hz, but we make it > to
+                                            // play nicely with the cpu
     if (pfds[1].revents & POLLIN) {
       ssize_t read_response = read(m_pipefd[0], buf, 15);
 
@@ -117,7 +110,7 @@ void XWindowsEventQueueBuffer::waitForEvent(double dtimeout)
         // todo: handle read response
       }
     }
-    remaining -= TIMEOUT_DELAY;
+    remaining -= s_timeoutDelay;
   }
 
   {
@@ -142,10 +135,10 @@ IEventQueueBuffer::Type XWindowsEventQueueBuffer::getEvent(Event &event, uint32_
   // process event
   if (m_event.xany.type == ClientMessage && m_event.xclient.message_type == m_userEvent) {
     dataID = static_cast<uint32_t>(m_event.xclient.data.l[0]);
-    return kUser;
+    return IEventQueueBuffer::Type::User;
   } else {
     event = Event(EventTypes::System, m_events->getSystemTarget(), &m_event);
-    return kSystem;
+    return IEventQueueBuffer::Type::System;
   }
 }
 
@@ -188,16 +181,6 @@ bool XWindowsEventQueueBuffer::isEmpty() const
 {
   std::scoped_lock lock{m_mutex};
   return (XPending(m_display) == 0);
-}
-
-EventQueueTimer *XWindowsEventQueueBuffer::newTimer(double, bool) const
-{
-  return new EventQueueTimer;
-}
-
-void XWindowsEventQueueBuffer::deleteTimer(EventQueueTimer *timer) const
-{
-  delete timer;
 }
 
 void XWindowsEventQueueBuffer::flush()

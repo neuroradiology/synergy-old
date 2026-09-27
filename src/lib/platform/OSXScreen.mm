@@ -1,19 +1,23 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
- * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
+ * SPDX-FileCopyrightText: (C) 2025 - 2026 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #include "platform/OSXScreen.h"
 
-#include "arch/XArch.h"
+#include "arch/Arch.h"
+#include "arch/ArchException.h"
+#include "base/Event.h"
 #include "base/EventQueue.h"
 #include "base/IEventQueue.h"
 #include "base/Log.h"
 #include "base/TMethodJob.h"
 #include "client/Client.h"
+#include "common/ExitCodes.h"
+#include "common/Settings.h"
 #include "deskflow/ClientApp.h"
 #include "deskflow/Clipboard.h"
 #include "deskflow/DisplayInvalidException.h"
@@ -32,6 +36,7 @@
 #include <AppKit/NSEvent.h>
 #include <AvailabilityMacros.h>
 #include <IOKit/hidsystem/event_status_driver.h>
+#include <dispatch/dispatch.h>
 #include <libproc.h>
 #include <mach-o/dyld.h>
 #include <math.h>
@@ -56,6 +61,12 @@ enum
 
 static const double kCarbonLoopWaitTimeout = 10.0;
 
+// Synthetic mouse button and drag events require event numbers on macOS 27 and later.
+static inline bool needsEventNumber()
+{
+  return NSProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27;
+}
+
 int getSecureInputEventPID();
 std::string getProcessName(int pid);
 
@@ -72,10 +83,8 @@ void avoidHesitatingCursor();
 bool OSXScreen::s_testedForGHOM = false;
 bool OSXScreen::s_hasGHOM = false;
 
-OSXScreen::OSXScreen(
-    IEventQueue *events, bool isPrimary, bool enableLangSync, deskflow::ClientScrollDirection scrollDirection
-)
-    : PlatformScreen(events, scrollDirection),
+OSXScreen::OSXScreen(IEventQueue *events, bool isPrimary, bool enableLangSync)
+    : PlatformScreen(events),
       m_isPrimary(isPrimary),
       m_isOnScreen(m_isPrimary),
       m_cursorPosValid(false),
@@ -87,6 +96,7 @@ OSXScreen::OSXScreen(
       m_screensaverNotify(false),
       m_ownClipboard(false),
       m_clipboardTimer(nullptr),
+      m_axTimer(nullptr),
       m_hiddenWindow(nullptr),
       m_userInputWindow(nullptr),
       m_switchEventHandlerRef(0),
@@ -114,7 +124,7 @@ OSXScreen::OSXScreen(
     m_screensaver = new OSXScreenSaver(m_events, getEventTarget());
     m_keyState = new OSXKeyState(m_events, AppUtil::instance().getKeyboardLayoutList(), enableLangSync);
 
-    if (App::instance().argsBase().m_preventSleep) {
+    if (Settings::value(Settings::Core::PreventSleep).toBool()) {
       m_powerManager.disableSleep();
     }
 
@@ -150,7 +160,7 @@ OSXScreen::OSXScreen(
     *m_pmThreadReady = false;
     m_carbonLoopMutex = new Mutex();
     m_carbonLoopReady = new CondVar<bool>(m_carbonLoopMutex, false);
-    LOG((CLOG_DEBUG "starting watchSystemPowerThread"));
+    LOG_DEBUG("starting watchSystemPowerThread");
     m_pmWatchThread = new Thread(new TMethodJob<OSXScreen>(this, &OSXScreen::watchSystemPowerThread));
   } catch (...) {
     m_events->removeHandler(EventTypes::OsxScreenConfirmSleep, getEventTarget());
@@ -191,7 +201,7 @@ OSXScreen::~OSXScreen()
     }
 
     // now exit the thread's runloop and wait for it to exit
-    LOG((CLOG_DEBUG "stopping watchSystemPowerThread"));
+    LOG_DEBUG("stopping watchSystemPowerThread");
     CFRunLoopStop(m_pmRunloop);
     m_pmWatchThread->wait();
     delete m_pmWatchThread;
@@ -244,13 +254,28 @@ void OSXScreen::getCursorPos(int32_t &x, int32_t &y) const
   CFRelease(event);
 }
 
-void OSXScreen::reconfigure(uint32_t)
+void OSXScreen::reconfigure(uint32_t activeSides)
 {
-  // do nothing
+  const static auto sidesText = sidesMaskToString(activeSides);
+  LOG_DEBUG("active sides: %s (0x%02x)", sidesText.c_str(), activeSides);
+  m_activeSides = activeSides;
+}
+
+uint32_t OSXScreen::activeSides()
+{
+  return m_activeSides;
 }
 
 void OSXScreen::warpCursor(int32_t x, int32_t y)
 {
+  if (m_eventTapRunLoop && CFRunLoopGetCurrent() != m_eventTapRunLoop) {
+    CFRunLoopPerformBlock(m_eventTapRunLoop, kCFRunLoopDefaultMode, ^{
+      warpCursor(x, y);
+    });
+    CFRunLoopWakeUp(m_eventTapRunLoop);
+    return;
+  }
+
   // move cursor without generating events
   CGPoint pos;
   pos.x = x;
@@ -299,7 +324,7 @@ uint32_t OSXScreen::registerHotKey(KeyID key, KeyModifierMask mask)
   // get mac virtual key and modifier mask matching deskflow key and mask
   uint32_t macKey, macMask;
   if (!m_keyState->mapDeskflowHotKeyToMac(key, mask, macKey, macMask)) {
-    LOG((CLOG_DEBUG "could not map hotkey id=%04x mask=%04x", key, mask));
+    LOG_DEBUG("could not map hotkey id=%04x mask=%04x", key, mask);
     return 0;
   }
 
@@ -333,18 +358,16 @@ uint32_t OSXScreen::registerHotKey(KeyID key, KeyModifierMask mask)
   if (!okay) {
     m_oldHotKeyIDs.push_back(id);
     m_hotKeyToIDMap.erase(HotKeyItem(macKey, macMask));
-    LOG(
-        (CLOG_WARN "failed to register hotkey %s (id=%04x mask=%04x)", deskflow::KeyMap::formatKey(key, mask).c_str(),
-         key, mask)
+    LOG_WARN(
+        "failed to register hotkey %s (id=%04x mask=%04x)", deskflow::KeyMap::formatKey(key, mask).c_str(), key, mask
     );
     return 0;
   }
 
-  m_hotKeys.insert(std::make_pair(id, HotKeyItem(ref, macKey, macMask)));
+  m_hotKeys.try_emplace(id, HotKeyItem(ref, macKey, macMask));
 
-  LOG(
-      (CLOG_DEBUG "registered hotkey %s (id=%04x mask=%04x) as id=%d", deskflow::KeyMap::formatKey(key, mask).c_str(),
-       key, mask, id)
+  LOG_DEBUG(
+      "registered hotkey %s (id=%04x mask=%04x) as id=%d", deskflow::KeyMap::formatKey(key, mask).c_str(), key, mask, id
   );
   return id;
 }
@@ -373,9 +396,9 @@ void OSXScreen::unregisterHotKey(uint32_t id)
     }
   }
   if (!okay) {
-    LOG((CLOG_WARN "failed to unregister hotkey id=%d", id));
+    LOG_WARN("failed to unregister hotkey id=%d", id);
   } else {
-    LOG((CLOG_DEBUG "unregistered hotkey id=%d", id));
+    LOG_DEBUG("unregistered hotkey id=%d", id);
   }
 
   // discard hot key from map and record old id for reuse
@@ -393,6 +416,7 @@ void OSXScreen::constructMouseButtonEventMap()
   const CGEventType source[NumButtonIDs][3] = {
       {kCGEventLeftMouseUp, kCGEventLeftMouseDragged, kCGEventLeftMouseDown},
       {kCGEventRightMouseUp, kCGEventRightMouseDragged, kCGEventRightMouseDown},
+      {kCGEventOtherMouseUp, kCGEventOtherMouseDragged, kCGEventOtherMouseDown},
       {kCGEventOtherMouseUp, kCGEventOtherMouseDragged, kCGEventOtherMouseDown},
       {kCGEventOtherMouseUp, kCGEventOtherMouseDragged, kCGEventOtherMouseDown},
       {kCGEventOtherMouseUp, kCGEventOtherMouseDragged, kCGEventOtherMouseDown}
@@ -444,6 +468,10 @@ void OSXScreen::postMouseEvent(CGPoint &pos) const
   }
 
   CGEventRef event = CGEventCreateMouseEvent(nullptr, type, pos, static_cast<CGMouseButton>(button));
+
+  if (button != -1 && needsEventNumber()) {
+    CGEventSetIntegerValueField(event, kCGMouseEventNumber, m_mouseEventNumber);
+  }
 
   // Dragging events also need the click state
   CGEventSetIntegerValueField(event, kCGMouseEventClickState, m_clickState);
@@ -522,12 +550,27 @@ void OSXScreen::fakeMouseButton(ButtonID id, bool press)
 
   EMouseButtonState state = press ? kMouseButtonDown : kMouseButtonUp;
 
-  LOG((CLOG_DEBUG1 "faking mouse button id: %d press: %s", index, press ? "pressed" : "released"));
+  LOG_VERBOSE("faking mouse button id: %d press: %s", index, press ? "pressed" : "released");
 
   MouseButtonEventMapType thisButtonMap = MouseButtonEventMap[index];
   CGEventType type = thisButtonMap[state];
 
   CGEventRef event = CGEventCreateMouseEvent(nullptr, type, pos, static_cast<CGMouseButton>(index));
+
+  if (needsEventNumber()) {
+    if (press) {
+      if (m_mouseEventNumber == 0) {
+        // For some unknown reason, the first click event number must be unique and greater (but in the same ballpark)
+        // than the last event number used by the system.
+        m_mouseEventNumber =
+            CGEventSourceCounterForEventType(kCGEventSourceStateHIDSystemState, kCGEventLeftMouseDown) +
+            CGEventSourceCounterForEventType(kCGEventSourceStateHIDSystemState, kCGEventRightMouseDown) +
+            CGEventSourceCounterForEventType(kCGEventSourceStateHIDSystemState, kCGEventOtherMouseDown);
+      }
+      ++m_mouseEventNumber;
+    }
+    CGEventSetIntegerValueField(event, kCGMouseEventNumber, m_mouseEventNumber);
+  }
 
   CGEventSetIntegerValueField(event, kCGMouseEventClickState, m_clickState);
 
@@ -579,14 +622,17 @@ void OSXScreen::fakeMouseRelativeMove(int32_t dx, int32_t dy) const
   m_cursorPosValid = false;
 }
 
-void OSXScreen::fakeMouseWheel(int32_t xDelta, int32_t yDelta) const
+void OSXScreen::fakeMouseWheel(ScrollDelta delta) const
 {
-  if (xDelta != 0 || yDelta != 0) {
+  if (delta.x != 0 || delta.y != 0) {
+    // use server's acceleration with a little boost since other platforms
+    // take one wheel step as a larger step than the mac does.
+    delta = applyScrollModifier(
+        {static_cast<int32_t>(3.0 * delta.x / s_scrollDelta), static_cast<int32_t>(3.0 * delta.y / s_scrollDelta)}
+    );
     // create a scroll event, post it and release it.  not sure if kCGScrollEventUnitLine
     // is the right choice here over kCGScrollEventUnitPixel
-    CGEventRef scrollEvent = CGEventCreateScrollWheelEvent(
-        nullptr, kCGScrollEventUnitLine, 2, mapScrollWheelFromDeskflow(yDelta), mapScrollWheelFromDeskflow(xDelta)
-    );
+    CGEventRef scrollEvent = CGEventCreateScrollWheelEvent(nullptr, kCGScrollEventUnitLine, 2, delta.y, delta.x);
 
     // Fix for sticky keys
     CGEventFlags modifiers = m_keyState->getModifierStateAsOSXFlags();
@@ -599,7 +645,7 @@ void OSXScreen::fakeMouseWheel(int32_t xDelta, int32_t yDelta) const
 
 void OSXScreen::showCursor()
 {
-  LOG((CLOG_DEBUG "showing cursor"));
+  LOG_DEBUG("showing cursor");
 
   CFStringRef propertyString = CFStringCreateWithCString(nullptr, "SetsCursorInBackground", kCFStringEncodingMacRoman);
 
@@ -609,7 +655,7 @@ void OSXScreen::showCursor()
 
   CGError error = CGDisplayShowCursor(m_displayID);
   if (error != kCGErrorSuccess) {
-    LOG((CLOG_ERR "failed to show cursor, error=%d", error));
+    LOG_ERR("failed to show cursor, error=%d", error);
   }
 
   // appears to fix "mouse randomly not showing" bug
@@ -622,7 +668,7 @@ void OSXScreen::showCursor()
 
 void OSXScreen::hideCursor()
 {
-  LOG((CLOG_DEBUG "hiding cursor"));
+  LOG_DEBUG("hiding cursor");
 
   CFStringRef propertyString = CFStringCreateWithCString(nullptr, "SetsCursorInBackground", kCFStringEncodingMacRoman);
 
@@ -632,7 +678,7 @@ void OSXScreen::hideCursor()
 
   CGError error = CGDisplayHideCursor(m_displayID);
   if (error != kCGErrorSuccess) {
-    LOG((CLOG_ERR "failed to hide cursor, error=%d", error));
+    LOG_ERR("failed to hide cursor, error=%d", error);
   }
 
   // appears to fix "mouse randomly not hiding" bug
@@ -648,6 +694,9 @@ void OSXScreen::enable()
   // watch the clipboard
   m_clipboardTimer = m_events->newTimer(1.0, nullptr);
   m_events->addHandler(EventTypes::Timer, m_clipboardTimer, [this](const auto &) { checkClipboards(); });
+
+  m_axTimer = m_events->newTimer(1.0, nullptr);
+  m_events->addHandler(EventTypes::Timer, m_axTimer, [this](const auto &) { checkAXPermissions(); });
 
   if (m_isPrimary) {
     // FIXME -- start watching jump zones
@@ -677,12 +726,25 @@ void OSXScreen::enable()
   if (m_eventTapPort) {
     m_eventTapRLSR = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, m_eventTapPort, 0);
     if (m_eventTapRLSR) {
-      CFRunLoopAddSource(CFRunLoopGetCurrent(), m_eventTapRLSR, kCFRunLoopDefaultMode);
+      // Run the event tap on a dedicated thread with its own CFRunLoop so it fires
+      // independently of whatever event loop the calling thread runs (e.g. QCoreApplication).
+      // Use a semaphore to ensure m_eventTapRunLoop is set before enable() returns.
+      auto sem = dispatch_semaphore_create(0);
+      m_eventTapThread = std::thread([this, sem]() {
+        m_eventTapRunLoop = CFRunLoopGetCurrent();
+        CFRunLoopAddSource(m_eventTapRunLoop, m_eventTapRLSR, kCFRunLoopDefaultMode);
+        dispatch_semaphore_signal(sem);
+        CFRunLoopRun();
+        CFRunLoopRemoveSource(CFRunLoopGetCurrent(), m_eventTapRLSR, kCFRunLoopDefaultMode);
+        m_eventTapRunLoop = nullptr;
+      });
+      dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+      dispatch_release(sem);
     } else {
-      LOG((CLOG_ERR "failed to create a CFRunLoopSourceRef for the quartz event tap"));
+      LOG_ERR("failed to create a CFRunLoopSourceRef for the quartz event tap");
     }
   } else {
-    LOG((CLOG_ERR "failed to create quartz event tap"));
+    LOG_ERR("failed to create quartz event tap");
   }
 }
 
@@ -692,24 +754,36 @@ void OSXScreen::disable()
 
   // FIXME -- stop watching jump zones, stop capturing input
 
+  if (m_eventTapRunLoop) {
+    CFRunLoopStop(m_eventTapRunLoop);
+  }
+  if (m_eventTapThread.joinable()) {
+    m_eventTapThread.join();
+  }
+
   if (m_eventTapRLSR) {
-    CFRunLoopRemoveSource(CFRunLoopGetCurrent(), m_eventTapRLSR, kCFRunLoopDefaultMode);
     CFRelease(m_eventTapRLSR);
     m_eventTapRLSR = nullptr;
   }
 
   if (m_eventTapPort) {
     CGEventTapEnable(m_eventTapPort, false);
+    CFMachPortInvalidate(m_eventTapPort);
     CFRelease(m_eventTapPort);
     m_eventTapPort = nullptr;
   }
   // FIXME -- allow system to enter power saving mode
 
-  // uninstall clipboard timer
   if (m_clipboardTimer != nullptr) {
     m_events->removeHandler(EventTypes::Timer, m_clipboardTimer);
     m_events->deleteTimer(m_clipboardTimer);
     m_clipboardTimer = nullptr;
+  }
+
+  if (m_axTimer != nullptr) {
+    m_events->removeHandler(EventTypes::Timer, m_axTimer);
+    m_events->deleteTimer(m_axTimer);
+    m_axTimer = nullptr;
   }
 
   m_isOnScreen = m_isPrimary;
@@ -721,6 +795,8 @@ void OSXScreen::enter()
   showCursor();
 
   if (m_isPrimary) {
+    // re-couple the mouse to the cursor, undoing the capture from leave()
+    CGAssociateMouseAndMouseCursorPosition(true);
     setZeroSuppressionInterval();
   } else {
     // reset buttons
@@ -750,6 +826,11 @@ void OSXScreen::leave()
 
   if (m_isPrimary) {
     avoidHesitatingCursor();
+
+    // capture the mouse: freeze the cursor so no local app sees motion while on
+    // a client (onMouseMove reads raw deltas instead). must follow hideCursor(),
+    // which re-associates. re-coupled in enter()/disable().
+    CGAssociateMouseAndMouseCursorPosition(false);
   }
 
   // now off screen
@@ -759,7 +840,7 @@ void OSXScreen::leave()
 bool OSXScreen::setClipboard(ClipboardID, const IClipboard *src)
 {
   if (src != nullptr) {
-    LOG((CLOG_DEBUG "setting clipboard"));
+    LOG_DEBUG("setting clipboard");
     Clipboard::copy(&m_pasteboard, src);
   }
   return true;
@@ -767,9 +848,9 @@ bool OSXScreen::setClipboard(ClipboardID, const IClipboard *src)
 
 void OSXScreen::checkClipboards()
 {
-  LOG((CLOG_DEBUG2 "checking clipboard"));
+  LOG_VERBOSE("checking clipboard");
   if (m_pasteboard.synchronize()) {
-    LOG((CLOG_DEBUG "clipboard changed"));
+    LOG_DEBUG("clipboard changed");
     sendClipboardEvent(EventTypes::ClipboardGrabbed, kClipboardClipboard);
     sendClipboardEvent(EventTypes::ClipboardGrabbed, kClipboardSelection);
   }
@@ -885,19 +966,19 @@ void OSXScreen::handleSystemEvent(const Event &event)
     SendEventToEventTarget(*carbonEvent, nullptr);
     switch (GetEventKind(*carbonEvent)) {
     case kEventWindowActivated:
-      LOG((CLOG_DEBUG1 "window activated"));
+      LOG_VERBOSE("window activated");
       break;
 
     case kEventWindowDeactivated:
-      LOG((CLOG_DEBUG1 "window deactivated"));
+      LOG_VERBOSE("window deactivated");
       break;
 
     case kEventWindowFocusAcquired:
-      LOG((CLOG_DEBUG1 "focus acquired"));
+      LOG_VERBOSE("focus acquired");
       break;
 
     case kEventWindowFocusRelinquish:
-      LOG((CLOG_DEBUG1 "focus released"));
+      LOG_VERBOSE("focus released");
       break;
     }
     break;
@@ -908,55 +989,40 @@ void OSXScreen::handleSystemEvent(const Event &event)
   }
 }
 
-bool OSXScreen::onMouseMove(CGFloat mx, CGFloat my)
+bool OSXScreen::onMouseMove(CGEventRef event)
 {
-  LOG((CLOG_DEBUG2 "mouse move %+f,%+f", mx, my));
-
-  CGFloat x = mx - m_xCursor;
-  CGFloat y = my - m_yCursor;
-
-  if ((x == 0 && y == 0) || (mx == m_xCenter && mx == m_yCenter)) {
-    return true;
-  }
-
-  // save position to compute delta of next motion
-  m_xCursor = (int32_t)mx;
-  m_yCursor = (int32_t)my;
-
   if (m_isOnScreen) {
-    // motion on primary screen
+    // motion on primary screen.  the event may have been queued a while, so
+    // query the live cursor position rather than the stale event position.
+    CGEventRef posEvent = CGEventCreate(NULL);
+    CGPoint pos = CGEventGetLocation(posEvent);
+    CFRelease(posEvent);
+    CGFloat mx = pos.x;
+    CGFloat my = pos.y;
+
+    LOG_VERBOSE("mouse move %+f,%+f", mx, my);
+
+    CGFloat x = mx - m_xCursor;
+    CGFloat y = my - m_yCursor;
+
+    if ((x == 0 && y == 0) || (mx == m_xCenter && mx == m_yCenter)) {
+      return true;
+    }
+
+    m_xCursor = (int32_t)mx;
+    m_yCursor = (int32_t)my;
+
     sendEvent(EventTypes::PrimaryScreenMotionOnPrimary, MotionInfo::alloc(m_xCursor, m_yCursor));
   } else {
-    // motion on secondary screen.  warp mouse back to
-    // center.
-    warpCursor(m_xCenter, m_yCenter);
+    // motion on secondary screen.  the cursor is frozen (see leave()), so read
+    // raw deltas from the event instead of diffing position.
+    int32_t dx = (int32_t)CGEventGetIntegerValueField(event, kCGMouseEventDeltaX);
+    int32_t dy = (int32_t)CGEventGetIntegerValueField(event, kCGMouseEventDeltaY);
 
-    // examine the motion.  if it's about the distance
-    // from the center of the screen to an edge then
-    // it's probably a bogus motion that we want to
-    // ignore (see warpCursorNoFlush() for a further
-    // description).
-    static int32_t bogusZoneSize = 10;
-    if (-x + bogusZoneSize > m_xCenter - m_x || x + bogusZoneSize > m_x + m_w - m_xCenter ||
-        -y + bogusZoneSize > m_yCenter - m_y || y + bogusZoneSize > m_y + m_h - m_yCenter) {
-      LOG((CLOG_DEBUG "dropped bogus motion %+d,%+d", x, y));
-    } else {
-      // send motion
-      // Accumulate together the move into the running total
-      static CGFloat m_xFractionalMove = 0;
-      static CGFloat m_yFractionalMove = 0;
+    LOG_VERBOSE("mouse delta %+d,%+d", dx, dy);
 
-      m_xFractionalMove += x;
-      m_yFractionalMove += y;
-
-      // Return the integer part
-      int32_t intX = (int32_t)m_xFractionalMove;
-      int32_t intY = (int32_t)m_yFractionalMove;
-
-      // And keep only the fractional part
-      m_xFractionalMove -= intX;
-      m_yFractionalMove -= intY;
-      sendEvent(EventTypes::PrimaryScreenMotionOnSecondary, MotionInfo::alloc(intX, intY));
+    if (dx != 0 || dy != 0) {
+      sendEvent(EventTypes::PrimaryScreenMotionOnSecondary, MotionInfo::alloc(dx, dy));
     }
   }
 
@@ -969,13 +1035,13 @@ bool OSXScreen::onMouseButton(bool pressed, uint16_t macButton)
   ButtonID button = mapMacButtonToDeskflow(macButton);
 
   if (pressed) {
-    LOG((CLOG_DEBUG1 "event: button press button=%d", button));
+    LOG_VERBOSE("event: button press button=%d", button);
     if (button != kButtonNone) {
       KeyModifierMask mask = m_keyState->getActiveModifiers();
       sendEvent(EventTypes::PrimaryScreenButtonDown, ButtonInfo::alloc(button, mask));
     }
   } else {
-    LOG((CLOG_DEBUG1 "event: button release button=%d", button));
+    LOG_VERBOSE("event: button release button=%d", button);
     if (button != kButtonNone) {
       KeyModifierMask mask = m_keyState->getActiveModifiers();
       sendEvent(EventTypes::PrimaryScreenButtonUp, ButtonInfo::alloc(button, mask));
@@ -987,7 +1053,7 @@ bool OSXScreen::onMouseButton(bool pressed, uint16_t macButton)
 
 bool OSXScreen::onMouseWheel(int32_t xDelta, int32_t yDelta) const
 {
-  LOG((CLOG_DEBUG1 "event: button wheel delta=%+d,%+d", xDelta, yDelta));
+  LOG_VERBOSE("event: button wheel delta=%+d,%+d", xDelta, yDelta);
   sendEvent(EventTypes::PrimaryScreenWheel, WheelInfo::alloc(xDelta, yDelta));
   return true;
 }
@@ -1005,12 +1071,12 @@ void OSXScreen::displayReconfigurationCallback(
                                      kCGDisplayDisabledFlag | kCGDisplayMirrorFlag | kCGDisplayUnMirrorFlag |
                                      kCGDisplayDesktopShapeChangedFlag;
 
-  LOG((CLOG_DEBUG1 "event: display was reconfigured: %x %x %x", flags, mask, flags & mask));
+  LOG_VERBOSE("event: display was reconfigured: %x %x %x", flags, mask, flags & mask);
 
   if (flags & mask) { /* Something actually did change */
-    LOG((CLOG_DEBUG1 "event: screen changed shape; refreshing dimensions"));
+    LOG_VERBOSE("event: screen changed shape; refreshing dimensions");
     if (!screen->updateScreenShape(displayID, flags)) {
-      LOG((CLOG_ERR "failed to update screen shape during display reconfiguration"));
+      LOG_ERR("failed to update screen shape during display reconfiguration");
     }
   }
 }
@@ -1022,7 +1088,7 @@ bool OSXScreen::onKey(CGEventRef event)
   // get the key and active modifiers
   uint32_t virtualKey = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
   CGEventFlags macMask = CGEventGetFlags(event);
-  LOG((CLOG_DEBUG1 "event: Key event kind: %d, keycode=%d", eventKind, virtualKey));
+  LOG_VERBOSE("event: Key event kind: %d, keycode=%d", eventKind, virtualKey);
 
   // Special handling to track state of modifiers
   if (eventKind == kCGEventFlagsChanged) {
@@ -1128,14 +1194,11 @@ void OSXScreen::onMediaKey(CGEventRef event)
   bool isRepeat;
 
   if (!getMediaKeyEventInfo(event, &keyID, &down, &isRepeat)) {
-    LOG((CLOG_ERR "Failed to decode media key event"));
+    LOG_ERR("Failed to decode media key event");
     return;
   }
 
-  LOG(
-      (CLOG_DEBUG2 "Media key event: keyID=0x%02x, %s, repeat=%s", keyID, (down ? "down" : "up"),
-       (isRepeat ? "yes" : "no"))
-  );
+  LOG_VERBOSE("Media key event: keyID=0x%02x, %s, repeat=%s", keyID, (down ? "down" : "up"), (isRepeat ? "yes" : "no"));
 
   KeyButton button = 0;
   KeyModifierMask mask = m_keyState->getActiveModifiers();
@@ -1174,9 +1237,13 @@ ButtonID OSXScreen::mapDeskflowButtonToMac(uint16_t button) const
     return kMacButtonMiddle;
   case 3:
     return kMacButtonRight;
+  case 4:
+    return kButtonExtra0;
+  case 5:
+    return kButtonExtra1;
+  default:
+    return kButtonNone;
   }
-
-  return static_cast<ButtonID>(button);
 }
 
 ButtonID OSXScreen::mapMacButtonToDeskflow(uint16_t macButton) const
@@ -1184,15 +1251,17 @@ ButtonID OSXScreen::mapMacButtonToDeskflow(uint16_t macButton) const
   switch (macButton) {
   case 1:
     return kButtonLeft;
-
   case 2:
     return kButtonRight;
-
   case 3:
     return kButtonMiddle;
+  case 4:
+    return kButtonExtra0;
+  case 5:
+    return kButtonExtra1;
+  default:
+    return kButtonNone;
   }
-
-  return static_cast<ButtonID>(macButton);
 }
 
 int32_t OSXScreen::mapScrollWheelToDeskflow(int32_t x) const
@@ -1200,14 +1269,6 @@ int32_t OSXScreen::mapScrollWheelToDeskflow(int32_t x) const
   // return accelerated scrolling
   double d = (1.0 + getScrollSpeed()) * x;
   return static_cast<int32_t>(120.0 * d);
-}
-
-int32_t OSXScreen::mapScrollWheelFromDeskflow(int32_t x) const
-{
-  // use server's acceleration with a little boost since other platforms
-  // take one wheel step as a larger step than the mac does.
-  auto result = static_cast<int32_t>(3.0 * x / 120.0);
-  return mapClientScrollDirection(result);
 }
 
 double OSXScreen::getScrollSpeed() const
@@ -1297,9 +1358,9 @@ bool OSXScreen::updateScreenShape()
   // We want to notify the peer screen whether we are primary screen or not
   sendEvent(EventTypes::ScreenShapeChanged);
 
-  LOG(
-      (CLOG_DEBUG "screen shape: center=%d,%d size=%dx%d on %u %s", m_x, m_y, m_w, m_h, displayCount,
-       (displayCount == 1) ? "display" : "displays")
+  LOG_DEBUG(
+      "screen shape: center=%d,%d size=%dx%d on %u %s", m_x, m_y, m_w, m_h, displayCount,
+      (displayCount == 1) ? "display" : "displays"
   );
 
   return true;
@@ -1322,10 +1383,10 @@ pascal OSStatus OSXScreen::userSwitchCallback(EventHandlerCallRef nextHandler, E
   IEventQueue *events = screen->getEvents();
 
   if (kind == kEventSystemUserSessionDeactivated) {
-    LOG((CLOG_DEBUG "user session deactivated"));
+    LOG_DEBUG("user session deactivated");
     events->addEvent(Event(EventTypes::ScreenSuspend, screen->getEventTarget()));
   } else if (kind == kEventSystemUserSessionActivated) {
-    LOG((CLOG_DEBUG "user session activated"));
+    LOG_DEBUG("user session activated");
     events->addEvent(Event(EventTypes::ScreenResume, screen->getEventTarget()));
   }
   return (CallNextEventHandler(nextHandler, theEvent));
@@ -1341,7 +1402,7 @@ pascal OSStatus OSXScreen::userSwitchCallback(EventHandlerCallRef nextHandler, E
 // main of thread monitoring system power (sleep/wakup) using a CFRunLoop
 //
 
-void OSXScreen::watchSystemPowerThread(void *)
+void OSXScreen::watchSystemPowerThread(const void *)
 {
   io_object_t notifier;
   IONotificationPortRef notificationPortRef;
@@ -1351,7 +1412,7 @@ void OSXScreen::watchSystemPowerThread(void *)
   // install system power change callback
   m_pmRootPort = IORegisterForSystemPower(this, &notificationPortRef, powerChangeCallback, &notifier);
   if (m_pmRootPort == 0) {
-    LOG((CLOG_WARN "IORegisterForSystemPower failed"));
+    LOG_WARN("IORegisterForSystemPower failed");
   } else {
     runloopSourceRef = IONotificationPortGetRunLoopSource(notificationPortRef);
     CFRunLoopAddSource(m_pmRunloop, runloopSourceRef, kCFRunLoopCommonModes);
@@ -1368,13 +1429,13 @@ void OSXScreen::watchSystemPowerThread(void *)
   // setting m_pmThreadReady to true otherwise the parent thread will
   // block waiting for it.
   if (m_pmRootPort == 0) {
-    LOG((CLOG_WARN "failed to init watchSystemPowerThread"));
+    LOG_WARN("failed to init watchSystemPowerThread");
     return;
   }
 
-  LOG((CLOG_DEBUG "started watchSystemPowerThread"));
+  LOG_DEBUG("started watchSystemPowerThread");
 
-  LOG((CLOG_DEBUG "waiting for event loop"));
+  LOG_DEBUG("waiting for event loop");
   m_events->waitForReady();
 
   {
@@ -1383,7 +1444,7 @@ void OSXScreen::watchSystemPowerThread(void *)
 
       // we signalling carbon loop ready before starting
       // unless we know how to do it within the loop
-      LOG((CLOG_DEBUG "signalling carbon loop ready"));
+      LOG_DEBUG("signalling carbon loop ready");
 
       *m_carbonLoopReady = true;
       m_carbonLoopReady->signal();
@@ -1391,9 +1452,9 @@ void OSXScreen::watchSystemPowerThread(void *)
   }
 
   // start the run loop
-  LOG((CLOG_DEBUG "starting carbon loop"));
+  LOG_DEBUG("starting carbon loop");
   CFRunLoopRun();
-  LOG((CLOG_DEBUG "carbon loop has stopped"));
+  LOG_DEBUG("carbon loop has stopped");
 
   // cleanup
   if (notificationPortRef) {
@@ -1405,7 +1466,7 @@ void OSXScreen::watchSystemPowerThread(void *)
   Lock lock(m_pmMutex);
   IODeregisterForSystemPower(&notifier);
   m_pmRootPort = 0;
-  LOG((CLOG_DEBUG "stopped watchSystemPowerThread"));
+  LOG_DEBUG("stopped watchSystemPowerThread");
 }
 
 void OSXScreen::powerChangeCallback(void *refcon, io_service_t service, natural_t messageType, void *messageArg)
@@ -1421,11 +1482,13 @@ void OSXScreen::handlePowerChangeRequest(natural_t messageType, void *messageArg
     // OSXScreen has to handle this in the main thread so we have to
     // queue a confirm sleep event here.  we actually don't allow the
     // system to sleep until the event is handled.
-    m_events->addEvent(Event(EventTypes::OsxScreenConfirmSleep, getEventTarget(), messageArg, Event::kDontFreeData));
+    m_events->addEvent(
+        Event(EventTypes::OsxScreenConfirmSleep, getEventTarget(), messageArg, Event::EventFlags::DontFreeData)
+    );
     return;
 
   case kIOMessageSystemHasPoweredOn:
-    LOG((CLOG_DEBUG "system wakeup"));
+    LOG_DEBUG("system wakeup");
     m_events->addEvent(Event(EventTypes::ScreenResume, getEventTarget()));
     break;
 
@@ -1446,12 +1509,26 @@ void OSXScreen::handleConfirmSleep(const Event &event)
     Lock lock(m_pmMutex);
     if (m_pmRootPort != 0) {
       // deliver suspend event immediately.
-      m_events->addEvent(Event(EventTypes::ScreenSuspend, getEventTarget(), nullptr, Event::kDeliverImmediately));
+      m_events->addEvent(
+          Event(EventTypes::ScreenSuspend, getEventTarget(), nullptr, Event::EventFlags::DeliverImmediately)
+      );
 
-      LOG((CLOG_DEBUG "system will sleep"));
+      LOG_DEBUG("system will sleep");
       IOAllowPowerChange(m_pmRootPort, messageArg);
     }
   }
+}
+
+bool OSXScreen::checkAXPermissions()
+{
+  if (AXIsProcessTrusted()) {
+    return true;
+  }
+  LOG_CRIT("process is not trusted anymore, quitting");
+  disable();
+  App &app = App::instance();
+  app.getEvents()->addEvent(Event(EventTypes::Quit, nullptr, new ExitEventData(s_exitFailed)));
+  return false;
 }
 
 #pragma mark -
@@ -1478,8 +1555,8 @@ extern "C" {
 
 typedef int CGSConnection;
 typedef enum {
-	CGSGlobalHotKeyEnable = 0,
-	CGSGlobalHotKeyDisable = 1,
+  CGSGlobalHotKeyEnable = 0,
+  CGSGlobalHotKeyDisable = 1,
 } CGSGlobalHotKeyOperatingMode;
 
 extern CGSConnection _CGSDefaultConnection(void) WEAK_IMPORT_ATTRIBUTE;
@@ -1504,51 +1581,48 @@ static CGSSetGlobalHotKeyOperatingMode_t	s_CGSSetGlobalHotKeyOperatingMode;
     s_##name_ = (name_##_t)NSAddressOfSymbol(NSLookupAndBindSymbolWithHint("_" #name_, "CoreGraphics"));               \
   }
 
-bool
-OSXScreen::isGlobalHotKeyOperatingModeAvailable()
+bool OSXScreen::isGlobalHotKeyOperatingModeAvailable()
 {
-	if (!s_testedForGHOM) {
-		s_testedForGHOM = true;
-		LOOKUP(_CGSDefaultConnection);
-		LOOKUP(CGSGetGlobalHotKeyOperatingMode);
-		LOOKUP(CGSSetGlobalHotKeyOperatingMode);
-		s_hasGHOM = (s__CGSDefaultConnection != nullptr &&
-					s_CGSGetGlobalHotKeyOperatingMode != nullptr &&
-					s_CGSSetGlobalHotKeyOperatingMode != nullptr);
-	}
-	return s_hasGHOM;
+  if (!s_testedForGHOM) {
+    s_testedForGHOM = true;
+    LOOKUP(_CGSDefaultConnection);
+    LOOKUP(CGSGetGlobalHotKeyOperatingMode);
+    LOOKUP(CGSSetGlobalHotKeyOperatingMode);
+    s_hasGHOM = (s__CGSDefaultConnection != nullptr &&
+                 s_CGSGetGlobalHotKeyOperatingMode != nullptr &&
+                 s_CGSSetGlobalHotKeyOperatingMode != nullptr);
+  }
+  return s_hasGHOM;
 }
 
-void
-OSXScreen::setGlobalHotKeysEnabled(bool enabled)
+void OSXScreen::setGlobalHotKeysEnabled(bool enabled)
 {
-	if (isGlobalHotKeyOperatingModeAvailable()) {
-		CGSConnection conn = s__CGSDefaultConnection();
+  if (isGlobalHotKeyOperatingModeAvailable()) {
+    CGSConnection conn = s__CGSDefaultConnection();
 
-		CGSGlobalHotKeyOperatingMode mode;
-		s_CGSGetGlobalHotKeyOperatingMode(conn, &mode);
+    CGSGlobalHotKeyOperatingMode mode;
+    s_CGSGetGlobalHotKeyOperatingMode(conn, &mode);
 
-		if (enabled && mode == CGSGlobalHotKeyDisable) {
-			s_CGSSetGlobalHotKeyOperatingMode(conn, CGSGlobalHotKeyEnable);
-		}
-		else if (!enabled && mode == CGSGlobalHotKeyEnable) {
-			s_CGSSetGlobalHotKeyOperatingMode(conn, CGSGlobalHotKeyDisable);
-		}
-	}
+    if (enabled && mode == CGSGlobalHotKeyDisable) {
+      s_CGSSetGlobalHotKeyOperatingMode(conn, CGSGlobalHotKeyEnable);
+    }
+    else if (!enabled && mode == CGSGlobalHotKeyEnable) {
+      s_CGSSetGlobalHotKeyOperatingMode(conn, CGSGlobalHotKeyDisable);
+    }
+  }
 }
 
-bool
-OSXScreen::getGlobalHotKeysEnabled()
+bool OSXScreen::getGlobalHotKeysEnabled()
 {
-	CGSGlobalHotKeyOperatingMode mode;
-	if (isGlobalHotKeyOperatingModeAvailable()) {
-		CGSConnection conn = s__CGSDefaultConnection();
-		s_CGSGetGlobalHotKeyOperatingMode(conn, &mode);
-	}
-	else {
-		mode = CGSGlobalHotKeyEnable;
-	}
-	return (mode == CGSGlobalHotKeyEnable);
+  CGSGlobalHotKeyOperatingMode mode;
+  if (isGlobalHotKeyOperatingModeAvailable()) {
+    CGSConnection conn = s__CGSDefaultConnection();
+    s_CGSGetGlobalHotKeyOperatingMode(conn, &mode);
+  }
+  else {
+    mode = CGSGlobalHotKeyEnable;
+  }
+  return (mode == CGSGlobalHotKeyEnable);
 }
 
 #endif
@@ -1596,7 +1670,7 @@ OSXScreen::handleCGInputEventSecondary(CGEventTapProxy proxy, CGEventType type, 
     CGPoint pos = CGEventGetLocation(event);
     if (pos.x != screen->m_xCenter || pos.y != screen->m_yCenter) {
 
-      LOG((CLOG_DEBUG "show cursor on secondary, type=%d pos=%d,%d", type, pos.x, pos.y));
+      LOG_DEBUG("show cursor on secondary, type=%d pos=%d,%d", type, pos.x, pos.y);
       screen->showCursor();
     }
   }
@@ -1607,7 +1681,6 @@ OSXScreen::handleCGInputEventSecondary(CGEventTapProxy proxy, CGEventType type, 
 CGEventRef OSXScreen::handleCGInputEvent(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *refcon)
 {
   OSXScreen *screen = (OSXScreen *)refcon;
-  CGPoint pos;
 
   switch (type) {
   case kCGEventLeftMouseDown:
@@ -1624,14 +1697,9 @@ CGEventRef OSXScreen::handleCGInputEvent(CGEventTapProxy proxy, CGEventType type
   case kCGEventRightMouseDragged:
   case kCGEventOtherMouseDragged:
   case kCGEventMouseMoved:
-    pos = CGEventGetLocation(event);
-    screen->onMouseMove(pos.x, pos.y);
-
-    // The system ignores our cursor-centering calls if
-    // we don't return the event. This should be harmless,
-    // but might register as slight movement to other apps
-    // on the system. It hasn't been a problem before, though.
-    return event;
+    // off-screen the cursor is frozen (see leave()), so fall through to consume
+    // the move below instead of returning (leaking) it to local apps.
+    screen->onMouseMove(event);
     break;
   case kCGEventScrollWheel:
     screen->onMouseWheel(
@@ -1645,28 +1713,30 @@ CGEventRef OSXScreen::handleCGInputEvent(CGEventTapProxy proxy, CGEventType type
     screen->onKey(event);
     break;
   case kCGEventTapDisabledByTimeout:
-    // Re-enable our event-tap
-    CGEventTapEnable(screen->m_eventTapPort, true);
-    LOG((CLOG_INFO "quartz event tap was disabled by timeout, re-enabling"));
+    // Re-enable our event-tap if we still have accessibility permissions
+    if (screen->checkAXPermissions()) {
+      CGEventTapEnable(screen->m_eventTapPort, true);
+      LOG_INFO("quartz event tap was disabled by timeout, re-enabling");
+    }
     break;
   case kCGEventTapDisabledByUserInput:
-    LOG((CLOG_ERR "quartz event tap was disabled by user input"));
+    LOG_ERR("quartz event tap was disabled by user input");
     break;
   case NX_NULLEVENT:
     break;
   default:
     if (type == NX_SYSDEFINED) {
       if (isMediaKeyEvent(event)) {
-        LOG((CLOG_DEBUG2 "detected media key event"));
+        LOG_VERBOSE("detected media key event");
         screen->onMediaKey(event);
       } else {
-        LOG((CLOG_DEBUG2 "ignoring unknown system defined event"));
+        LOG_VERBOSE("ignoring unknown system defined event");
         return event;
       }
       break;
     }
 
-    LOG((CLOG_DEBUG3 "unknown quartz event type: 0x%02x", type));
+    LOG_VERBOSE("unknown quartz event type: 0x%02x", type);
   }
 
   if (screen->m_isOnScreen) {
@@ -1735,23 +1805,23 @@ char *OSXScreen::CFStringRefToUTF8String(CFStringRef aString)
 void OSXScreen::waitForCarbonLoop() const
 {
   if (*m_carbonLoopReady) {
-    LOG((CLOG_DEBUG "carbon loop already ready"));
+    LOG_DEBUG("carbon loop already ready");
     return;
   }
 
   Lock lock(m_carbonLoopMutex);
 
-  LOG((CLOG_DEBUG "waiting for carbon loop"));
+  LOG_DEBUG("waiting for carbon loop");
 
   double timeout = Arch::time() + kCarbonLoopWaitTimeout;
   while (!m_carbonLoopReady->wait()) {
     if (Arch::time() > timeout) {
-      LOG((CLOG_DEBUG "carbon loop not ready, waiting again"));
+      LOG_DEBUG("carbon loop not ready, waiting again");
       timeout = Arch::time() + kCarbonLoopWaitTimeout;
     }
   }
 
-  LOG((CLOG_DEBUG "carbon loop ready"));
+  LOG_DEBUG("carbon loop ready");
 }
 
 std::string OSXScreen::getSecureInputApp() const
@@ -1854,7 +1924,7 @@ void logCursorVisibility()
 {
   // CGCursorIsVisible is probably deprecated because its unreliable.
   if (!CGCursorIsVisible()) {
-    LOG((CLOG_WARN "cursor may not be visible"));
+    LOG_WARN("cursor may not be visible");
   }
 }
 
